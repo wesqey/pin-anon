@@ -124,7 +124,11 @@ export default function PinAnonBoard() {
     });
   }
 
+<<<<<<< HEAD
   function addComment(postId, text) {
+=======
+  function addComment(postId, text, parentId = null) {
+>>>>>>> 99fdcdb (Initial commit)
     if (!text) return;
     setState((prev) => {
       const posts = prev.posts.map((p) =>
@@ -138,6 +142,11 @@ export default function PinAnonBoard() {
                   author: user.display || user.id,
                   text,
                   created: now(),
+<<<<<<< HEAD
+=======
+                  parentId,
+                  replies: [],
+>>>>>>> 99fdcdb (Initial commit)
                 },
               ],
             }
@@ -293,12 +302,21 @@ export default function PinAnonBoard() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+<<<<<<< HEAD
               placeholder="search"
               className={
                 "text-sm rounded px-2 py-1 " +
                 (dark
                   ? "bg-slate-800 border-slate-700 text-slate-100"
                   : "bg-white border-slate-300 text-slate-900")
+=======
+              placeholder="search posts..."
+              className={
+                "text-sm rounded-lg px-3 py-2 transition-colors outline-none " +
+                (dark
+                  ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+                  : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+>>>>>>> 99fdcdb (Initial commit)
               }
             />
           </div>
@@ -326,6 +344,7 @@ export default function PinAnonBoard() {
                 <article
                   key={post.id}
                   className={
+<<<<<<< HEAD
                     "pb-6 " +
                     (dark ? "border-b border-slate-800" : "border-b")
                   }
@@ -335,6 +354,20 @@ export default function PinAnonBoard() {
                       <button
                         onClick={() => setProfileView(post.author)}
                         className="text-sm font-medium hover:underline lowercase"
+=======
+                    "pb-6 mb-6 " +
+                    (dark ? "border-b border-slate-800/50" : "border-b border-slate-200")
+                  }
+                >
+                  <div className="flex items-start justify-between gap-4 mb-3">
+                    <div className="flex items-start gap-3">
+                      <button
+                        onClick={() => setProfileView(post.author)}
+                        className={
+                          "text-sm font-medium hover:underline lowercase " +
+                          (dark ? "text-slate-300" : "text-slate-700")
+                        }
+>>>>>>> 99fdcdb (Initial commit)
                       >
                         {post.author}
                       </button>
@@ -348,6 +381,7 @@ export default function PinAnonBoard() {
                       </div>
                     </div>
 
+<<<<<<< HEAD
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => vote(post.id, 1)}
@@ -360,10 +394,25 @@ export default function PinAnonBoard() {
                             : dark
                             ? "border border-slate-700 hover:bg-slate-800"
                             : "border hover:bg-slate-50")
+=======
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => vote(post.id, 1)}
+                        className={
+                          "px-2.5 py-1.5 text-sm rounded-lg transition-all " +
+                          (post.voters && post.voters[user.id] === 1
+                            ? dark
+                              ? "bg-orange-500/20 text-orange-400 hover:bg-orange-500/30"
+                              : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20"
+                            : dark
+                            ? "hover:bg-slate-800/70 text-slate-400 hover:text-orange-400"
+                            : "hover:bg-slate-100 text-slate-500 hover:text-orange-600")
+>>>>>>> 99fdcdb (Initial commit)
                         }
                       >
                         ▲
                       </button>
+<<<<<<< HEAD
                       <div className="text-sm px-1">{post.votes}</div>
                       <button
                         onClick={() => vote(post.id, -1)}
@@ -376,6 +425,27 @@ export default function PinAnonBoard() {
                             : dark
                             ? "border border-slate-700 hover:bg-slate-800"
                             : "border hover:bg-slate-50")
+=======
+                      <div className={
+                        "text-sm font-medium px-2 " + 
+                        (post.votes > 0 
+                          ? dark ? "text-orange-400" : "text-orange-600"
+                          : post.votes < 0
+                          ? dark ? "text-blue-400" : "text-blue-600" 
+                          : dark ? "text-slate-500" : "text-slate-400")
+                      }>{post.votes}</div>
+                      <button
+                        onClick={() => vote(post.id, -1)}
+                        className={
+                          "px-2.5 py-1.5 text-sm rounded-lg transition-all " +
+                          (post.voters && post.voters[user.id] === -1
+                            ? dark
+                              ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                              : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20"
+                            : dark
+                            ? "hover:bg-slate-800/70 text-slate-400 hover:text-blue-400"
+                            : "hover:bg-slate-100 text-slate-500 hover:text-blue-600")
+>>>>>>> 99fdcdb (Initial commit)
                         }
                       >
                         ▼
@@ -387,11 +457,19 @@ export default function PinAnonBoard() {
                     {post.image && (
                       <img
                         src={post.image}
+<<<<<<< HEAD
                         className="w-full rounded-lg mb-3 object-cover"
                         alt="post"
                       />
                     )}
                     <div className="text-lg leading-relaxed">{post.text}</div>
+=======
+                        className="w-full rounded-xl mb-3 object-cover max-h-96"
+                        alt="post"
+                      />
+                    )}
+                    <div className="text-base leading-relaxed">{post.text}</div>
+>>>>>>> 99fdcdb (Initial commit)
                   </div>
 
                   <div className="mt-4">
@@ -488,10 +566,17 @@ function Menu({ items, dark }) {
       {open && (
         <div
           className={
+<<<<<<< HEAD
             "absolute right-0 mt-2 rounded-xl shadow-lg p-2 z-50 min-w-[180px] " +
             (dark
               ? "bg-slate-900 border border-slate-800"
               : "bg-white border border-slate-200")
+=======
+            "absolute right-0 mt-2 rounded-xl shadow-xl p-2 z-50 min-w-[180px] " +
+            (dark
+              ? "bg-slate-900/95 backdrop-blur-sm"
+              : "bg-white/95 backdrop-blur-sm")
+>>>>>>> 99fdcdb (Initial commit)
           }
         >
           {items.map((item, i) => {
@@ -500,7 +585,11 @@ function Menu({ items, dark }) {
                 <div
                   key={i}
                   className={
+<<<<<<< HEAD
                     "my-1 " + (dark ? "border-t border-slate-800" : "border-t")
+=======
+                    "my-1 " + (dark ? "border-t border-slate-800" : "border-t border-slate-200")
+>>>>>>> 99fdcdb (Initial commit)
                   }
                 />
               );
@@ -511,7 +600,11 @@ function Menu({ items, dark }) {
                 <div key={i} className="mb-2">
                   <div
                     className={
+<<<<<<< HEAD
                       "text-xs px-2 mb-1 " +
+=======
+                      "text-xs px-2 mb-1 uppercase tracking-wider font-medium " +
+>>>>>>> 99fdcdb (Initial commit)
                       (dark ? "text-slate-500" : "text-slate-400")
                     }
                   >
@@ -525,8 +618,13 @@ function Menu({ items, dark }) {
                         setOpen(false);
                       }}
                       className={
+<<<<<<< HEAD
                         "block w-full text-left text-sm px-2 py-1 rounded " +
                         (dark ? "hover:bg-slate-800" : "hover:bg-slate-50")
+=======
+                        "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
+                        (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
+>>>>>>> 99fdcdb (Initial commit)
                       }
                     >
                       {child.label}
@@ -544,8 +642,13 @@ function Menu({ items, dark }) {
                   setOpen(false);
                 }}
                 className={
+<<<<<<< HEAD
                   "block w-full text-left text-sm px-2 py-1 rounded " +
                   (dark ? "hover:bg-slate-800" : "hover:bg-slate-50")
+=======
+                  "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
+                  (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
+>>>>>>> 99fdcdb (Initial commit)
                 }
               >
                 {item.label}
@@ -562,10 +665,17 @@ function Panel({ title, children, dark }) {
   return (
     <div
       className={
+<<<<<<< HEAD
         "rounded-lg p-4 " +
         (dark
           ? "bg-slate-900 border border-slate-800"
           : "bg-white border border-slate-200")
+=======
+        "rounded-xl p-4 " +
+        (dark
+          ? "bg-slate-900/50"
+          : "bg-slate-50")
+>>>>>>> 99fdcdb (Initial commit)
       }
     >
       <h4 className="text-sm font-medium mb-2">{title}</h4>
@@ -615,10 +725,17 @@ function NewPostModal({ onClose, onPost, dark }) {
           onChange={(e) => setText(e.target.value)}
           placeholder="text or journal entry..."
           className={
+<<<<<<< HEAD
             "w-full rounded p-3 mb-3 h-28 " +
             (dark
               ? "bg-slate-800 border-slate-700 text-slate-100"
               : "bg-white border text-slate-900")
+=======
+            "w-full rounded-lg p-3 mb-3 h-28 outline-none transition-colors resize-none " +
+            (dark
+              ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+              : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+>>>>>>> 99fdcdb (Initial commit)
           }
         ></textarea>
 
@@ -634,10 +751,17 @@ function NewPostModal({ onClose, onPost, dark }) {
             onChange={(e) => setImg(e.target.value)}
             placeholder="or paste image url"
             className={
+<<<<<<< HEAD
               "flex-1 rounded px-3 py-2 text-sm " +
               (dark
                 ? "bg-slate-800 border-slate-700 text-slate-100"
                 : "bg-white border text-slate-900")
+=======
+              "flex-1 rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
+              (dark
+                ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+                : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+>>>>>>> 99fdcdb (Initial commit)
             }
           />
         </div>
@@ -646,10 +770,17 @@ function NewPostModal({ onClose, onPost, dark }) {
           <button
             onClick={onClose}
             className={
+<<<<<<< HEAD
               "px-3 py-1 rounded " +
               (dark
                 ? "border border-slate-700 hover:bg-slate-800"
                 : "border hover:bg-slate-50")
+=======
+              "px-4 py-2 rounded-lg transition-colors " +
+              (dark
+                ? "hover:bg-slate-800/70 text-slate-400"
+                : "hover:bg-slate-100 text-slate-600")
+>>>>>>> 99fdcdb (Initial commit)
             }
           >
             cancel
@@ -657,10 +788,17 @@ function NewPostModal({ onClose, onPost, dark }) {
           <button
             onClick={submit}
             className={
+<<<<<<< HEAD
               "px-4 py-1 rounded " +
               (dark
                 ? "bg-slate-100 text-slate-900"
                 : "bg-slate-900 text-white")
+=======
+              "px-5 py-2 rounded-lg font-medium transition-colors " +
+              (dark
+                ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
+>>>>>>> 99fdcdb (Initial commit)
             }
           >
             post
@@ -675,12 +813,40 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
 
+<<<<<<< HEAD
+=======
+  // Build a tree structure from flat comments
+  const buildCommentTree = (comments) => {
+    const commentMap = {};
+    const roots = [];
+
+    // First pass: create map of all comments
+    comments.forEach(comment => {
+      commentMap[comment.id] = { ...comment, replies: [] };
+    });
+
+    // Second pass: build tree structure
+    comments.forEach(comment => {
+      if (comment.parentId && commentMap[comment.parentId]) {
+        commentMap[comment.parentId].replies.push(commentMap[comment.id]);
+      } else {
+        roots.push(commentMap[comment.id]);
+      }
+    });
+
+    return roots;
+  };
+
+  const commentTree = buildCommentTree(post.comments || []);
+
+>>>>>>> 99fdcdb (Initial commit)
   return (
     <div>
       <div className="flex items-center gap-3">
         <button
           onClick={() => setOpen((o) => !o)}
           className={
+<<<<<<< HEAD
             "text-xs px-2 py-1 rounded " +
             (dark
               ? "border border-slate-700 hover:bg-slate-800"
@@ -698,11 +864,29 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
             {post.comments?.length
               ? `${post.comments.length} replies`
               : "no replies"}
+=======
+            "text-xs px-3 py-1.5 rounded-full font-medium transition-colors " +
+            (dark
+              ? "hover:bg-slate-800/70 text-slate-400 hover:text-slate-300"
+              : "hover:bg-slate-100 text-slate-500 hover:text-slate-700")
+          }
+        >
+          💬 {(post.comments || []).length} {open ? '' : 'comments'}
+        </button>
+        {!whisper && !open && (
+          <div
+            className={
+              "text-xs " + (dark ? "text-slate-600" : "text-slate-400")
+            }
+          >
+            {post.comments?.length === 0 && "be the first to comment"}
+>>>>>>> 99fdcdb (Initial commit)
           </div>
         )}
       </div>
 
       {open && (
+<<<<<<< HEAD
         <div className="mt-3 space-y-2">
           {post.comments?.map((c) => (
             <div
@@ -736,10 +920,46 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
                 (dark
                   ? "bg-slate-800 border-slate-700 text-slate-100"
                   : "bg-white border text-slate-900")
+=======
+        <div className={
+          "mt-4 space-y-3 pl-4 " + 
+          (dark ? "border-l-2 border-slate-800" : "border-l-2 border-slate-200")
+        }>
+          {commentTree.map((comment) => (
+            <CommentThread 
+              key={comment.id} 
+              comment={comment} 
+              postId={post.id}
+              addComment={addComment}
+              dark={dark}
+              user={user}
+              depth={0}
+            />
+          ))}
+
+          <div className="flex gap-2 pt-2">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
+                  e.preventDefault();
+                  addComment(post.id, text, null);
+                  setText("");
+                }
+              }}
+              placeholder="add a comment..."
+              className={
+                "flex-1 rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
+                (dark
+                  ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+                  : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+>>>>>>> 99fdcdb (Initial commit)
               }
             />
             <button
               onClick={() => {
+<<<<<<< HEAD
                 addComment(post.id, text);
                 setText("");
               }}
@@ -749,6 +969,24 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
                   ? "border border-slate-700 hover:bg-slate-800"
                   : "border hover:bg-slate-50")
               }
+=======
+                if (text.trim()) {
+                  addComment(post.id, text, null);
+                  setText("");
+                }
+              }}
+              className={
+                "px-4 py-2 rounded-lg text-sm font-medium transition-colors " +
+                (text.trim()
+                  ? dark
+                    ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                    : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20"
+                  : dark
+                  ? "bg-slate-800/30 text-slate-600 cursor-not-allowed"
+                  : "bg-slate-100 text-slate-400 cursor-not-allowed")
+              }
+              disabled={!text.trim()}
+>>>>>>> 99fdcdb (Initial commit)
             >
               reply
             </button>
@@ -759,6 +997,180 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
   );
 }
 
+<<<<<<< HEAD
+=======
+function CommentThread({ comment, postId, addComment, dark, user, depth }) {
+  const [showReplyBox, setShowReplyBox] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [collapsed, setCollapsed] = useState(false);
+
+  const handleReply = () => {
+    if (replyText.trim()) {
+      addComment(postId, replyText, comment.id);
+      setReplyText("");
+      setShowReplyBox(false);
+    }
+  };
+
+  // Limit nesting depth visually
+  const maxVisualDepth = 6;
+  const effectiveDepth = Math.min(depth, maxVisualDepth);
+
+  return (
+    <div className="group">
+      <div className="flex gap-2">
+        {/* Collapse button for threads with replies */}
+        {comment.replies?.length > 0 && (
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className={
+              "text-xs w-5 h-5 flex items-center justify-center rounded hover:bg-slate-800/50 transition-colors flex-shrink-0 mt-0.5 " +
+              (dark ? "text-slate-500 hover:text-slate-400" : "text-slate-400 hover:text-slate-600")
+            }
+          >
+            {collapsed ? "+" : "−"}
+          </button>
+        )}
+        
+        <div className="flex-1 min-w-0">
+          {!collapsed && (
+            <>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span
+                  className={
+                    "text-xs font-medium lowercase " +
+                    (dark ? "text-slate-400" : "text-slate-600")
+                  }
+                >
+                  {comment.author}
+                </span>
+                <span
+                  className={
+                    "text-xs " +
+                    (dark ? "text-slate-600" : "text-slate-400")
+                  }
+                >
+                  •
+                </span>
+                <span
+                  className={
+                    "text-xs " +
+                    (dark ? "text-slate-600" : "text-slate-400")
+                  }
+                >
+                  {new Date(comment.created).toLocaleString()}
+                </span>
+              </div>
+              
+              <div className={
+                "text-sm leading-relaxed mb-2 " +
+                (dark ? "text-slate-300" : "text-slate-700")
+              }>
+                {comment.text}
+              </div>
+
+              <div className="flex items-center gap-2 mb-3">
+                <button
+                  onClick={() => setShowReplyBox(!showReplyBox)}
+                  className={
+                    "text-xs px-2 py-1 rounded-md font-medium transition-colors " +
+                    (dark
+                      ? "hover:bg-slate-800/70 text-slate-500 hover:text-slate-400"
+                      : "hover:bg-slate-100 text-slate-500 hover:text-slate-700")
+                  }
+                >
+                  reply
+                </button>
+                {comment.replies?.length > 0 && (
+                  <span className={
+                    "text-xs " +
+                    (dark ? "text-slate-600" : "text-slate-400")
+                  }>
+                    {comment.replies.length} {comment.replies.length === 1 ? 'reply' : 'replies'}
+                  </span>
+                )}
+              </div>
+
+              {showReplyBox && (
+                <div className="flex gap-2 mb-3">
+                  <input
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey && replyText.trim()) {
+                        e.preventDefault();
+                        handleReply();
+                      }
+                      if (e.key === 'Escape') {
+                        setShowReplyBox(false);
+                        setReplyText("");
+                      }
+                    }}
+                    placeholder={`reply to ${comment.author}...`}
+                    autoFocus
+                    className={
+                      "flex-1 rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
+                      (dark
+                        ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+                        : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+                    }
+                  />
+                  <button
+                    onClick={handleReply}
+                    className={
+                      "px-3 py-2 rounded-lg text-sm font-medium transition-colors " +
+                      (replyText.trim()
+                        ? dark
+                          ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                          : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20"
+                        : dark
+                        ? "bg-slate-800/30 text-slate-600 cursor-not-allowed"
+                        : "bg-slate-100 text-slate-400 cursor-not-allowed")
+                    }
+                    disabled={!replyText.trim()}
+                  >
+                    reply
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+          {collapsed && (
+            <div className={
+              "text-xs py-1 " +
+              (dark ? "text-slate-500" : "text-slate-400")
+            }>
+              {comment.author} • {comment.replies.length} {comment.replies.length === 1 ? 'reply' : 'replies'} hidden
+            </div>
+          )}
+
+          {/* Nested replies */}
+          {!collapsed && comment.replies?.length > 0 && (
+            <div className={
+              "mt-3 space-y-3 pl-4 " +
+              (dark ? "border-l-2 border-slate-800" : "border-l-2 border-slate-200")
+            }>
+              {comment.replies.map((reply) => (
+                <CommentThread
+                  key={reply.id}
+                  comment={reply}
+                  postId={postId}
+                  addComment={addComment}
+                  dark={dark}
+                  user={user}
+                  depth={depth + 1}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+>>>>>>> 99fdcdb (Initial commit)
 function ProfileModal({ authorId, posts, onClose, dark }) {
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
@@ -843,20 +1255,34 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
             onChange={(e) => setName(e.target.value)}
             placeholder="new room name (optional)"
             className={
+<<<<<<< HEAD
               "w-full rounded px-3 py-2 mb-2 " +
               (dark
                 ? "bg-slate-800 border-slate-700 text-slate-100"
                 : "bg-white border text-slate-900")
+=======
+              "w-full rounded-lg px-3 py-2 mb-3 outline-none transition-colors " +
+              (dark
+                ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+                : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+>>>>>>> 99fdcdb (Initial commit)
             }
           />
           <div className="flex gap-2">
             <button
               onClick={() => onCreate(name)}
               className={
+<<<<<<< HEAD
                 "px-3 py-1 rounded " +
                 (dark
                   ? "bg-slate-100 text-slate-900"
                   : "bg-slate-900 text-white")
+=======
+                "px-4 py-2 rounded-lg font-medium transition-colors " +
+                (dark
+                  ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                  : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
+>>>>>>> 99fdcdb (Initial commit)
               }
             >
               create
@@ -867,10 +1293,17 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
                 if (code) onJoin(code);
               }}
               className={
+<<<<<<< HEAD
                 "px-3 py-1 rounded " +
                 (dark
                   ? "border border-slate-700 hover:bg-slate-800"
                   : "border hover:bg-slate-50")
+=======
+                "px-4 py-2 rounded-lg transition-colors " +
+                (dark
+                  ? "hover:bg-slate-800/70 text-slate-400"
+                  : "hover:bg-slate-100 text-slate-600")
+>>>>>>> 99fdcdb (Initial commit)
               }
             >
               join
@@ -913,10 +1346,17 @@ function SettingsModal({ dark, setDark, onClose }) {
             <button
               onClick={() => setDark((d) => !d)}
               className={
+<<<<<<< HEAD
                 "px-3 py-1 rounded " +
                 (dark
                   ? "bg-slate-800 hover:bg-slate-700"
                   : "bg-slate-200 hover:bg-slate-300")
+=======
+                "px-4 py-2 rounded-lg font-medium transition-colors " +
+                (dark
+                  ? "bg-slate-800/70 hover:bg-slate-800 text-slate-300"
+                  : "bg-slate-200 hover:bg-slate-300 text-slate-700")
+>>>>>>> 99fdcdb (Initial commit)
               }
             >
               {dark ? "on" : "off"}
