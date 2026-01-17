@@ -1,0 +1,115 @@
+/* ------------------------------
+   pin-anon editorial style
+   ------------------------------ */
+
+   :root {
+    --font-main: ui-sans-serif, -apple-system, BlinkMacSystemFont,
+      "SF Pro Rounded", "SF Pro Text", "Inter", system-ui, sans-serif;
+  }
+  
+  /* global typography */
+  html, body {
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
+  }
+  
+  /* force lowercase aesthetic */
+  .lowercase-all {
+    text-transform: lowercase;
+  }
+  
+  /* soften everything slightly */
+  button,
+  input,
+  textarea,
+  select {
+    border-radius: 0.75rem;
+    font-size: 0.9rem;
+  }
+  
+  /* editorial headings */
+  h1, h2, h3, h4 {
+    font-weight: 400;
+    letter-spacing: -0.02em;
+  }
+  
+  /* quieter borders */
+  .border {
+    border-color: rgb(226 232 240 / 0.6);
+  }
+  
+  /* softer cards */
+  .card {
+    background: white;
+    border-radius: 1rem;
+  }
+  
+  /* reduce visual aggression */
+  button:hover {
+    opacity: 0.9;
+  }
+/* ------------------------------
+   borderless, editorial buttons
+   ------------------------------ */
+
+/* remove borders everywhere */
+button {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background-color: transparent;
+}
+
+/* inputs & selects too (optional but consistent) */
+input,
+textarea,
+select {
+  outline: none;
+  box-shadow: none;
+}
+
+/* remove focus ring, replace with subtle cue */
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.15);
+  border-radius: 9999px;
+}
+
+/* hover is gentle, not loud */
+button:hover {
+  background-color: rgb(0 0 0 / 0.03);
+}
+/* ------------------------------
+   borderless cards / posts
+   ------------------------------ */
+
+   article,
+   .panel,
+   [class*="border"] {
+     border: none !important;
+     box-shadow: none !important;
+   }
+/* ------------------------------
+   text-like buttons
+   ------------------------------ */
+
+   button {
+    font-weight: 400;
+    text-transform: lowercase;
+    letter-spacing: 0.01em;
+    padding: 0.25rem 0.4rem;
+  }
+  
+  /* primary actions stay readable, not loud */
+  button.bg-black {
+    background: transparent !important;
+    color: black !important;
+    font-weight: 500;
+  }
+  
+  /* destructive stays subtle */
+  button.bg-red-600 {
+    background: transparent !important;
+    color: #b91c1c !important;
+  }
+  
