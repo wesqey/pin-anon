@@ -1,7 +1,32 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { initializeApp } from "firebase/app";
+import { 
+  getDatabase, 
+  ref, 
+  set, 
+  onValue, 
+  push,
+  update,
+  remove
+} from "firebase/database";
+
+// ---------- Firebase Config ----------
+// You'll replace this with your own config from Firebase Console
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
 
 // ---------- Config & utils ----------
-const LS_KEY = "pinanon_v3_state";
 const LS_USER = "pinanon_v3_user";
 const DEFAULT_ROOM = "main";
 
@@ -19,17 +44,6 @@ function uid(prefix = "id") {
 }
 function now() {
   return Date.now();
-}
-
-function save(state) {
-  localStorage.setItem(LS_KEY, JSON.stringify(state));
-}
-function load() {
-  try {
-    return JSON.parse(localStorage.getItem(LS_KEY)) || null;
-  } catch (e) {
-    return null;
-  }
 }
 
 function saveUser(u) {
@@ -52,7 +66,8 @@ const EMPTY = {
 
 // ---------- Main Component ----------
 export default function PinAnonBoard() {
-  const [state, setState] = useState(() => load() || EMPTY);
+  const [state, setState] = useState(EMPTY);
+  const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(() => {
     const existing = loadUser();
     if (existing?.id) return existing;
@@ -65,7 +80,7 @@ export default function PinAnonBoard() {
   const [showNew, setShowNew] = useState(false);
   const [profileView, setProfileView] = useState(null);
   const [sort, setSort] = useState("newest");
-  const [whisper, setWhisper] = useState(state.settings.whisper || false);
+  const [whisper, setWhisper] = useState(false);
   const [search, setSearch] = useState("");
   const [inviteModal, setInviteModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -73,15 +88,29 @@ export default function PinAnonBoard() {
     return localStorage.getItem("pinanon_dark") === "1";
   });
 
+  // Listen to Firebase for real-time updates
   useEffect(() => {
-    save(state);
-  }, [state]);
+    const stateRef = ref(database, 'appState');
+    
+    const unsubscribe = onValue(stateRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setState(data);
+        setWhisper(data.settings?.whisper || false);
+      } else {
+        // Initialize Firebase with default state if empty
+        set(stateRef, EMPTY);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   useEffect(() => {
     saveUser(user);
   }, [user]);
-  useEffect(() => {
-    setWhisper(state.settings.whisper || false);
-  }, []);
+
   useEffect(() => {
     localStorage.setItem("pinanon_dark", dark ? "1" : "0");
   }, [dark]);
@@ -94,7 +123,12 @@ export default function PinAnonBoard() {
   function createRoom(name = "room") {
     const invite = genAnonId(6);
     const r = { id: invite, name: name || `room-${invite}`, invite };
-    setState((prev) => ({ ...prev, rooms: [r, ...prev.rooms] }));
+    
+    const newRooms = [r, ...state.rooms];
+    const updates = {};
+    updates['appState/rooms'] = newRooms;
+    update(ref(database), updates);
+    
     return r;
   }
 
@@ -108,20 +142,20 @@ export default function PinAnonBoard() {
   }
 
   function vote(postId, delta) {
-    setState((prev) => {
-      const posts = prev.posts.map((p) => {
-        if (p.id !== postId) return p;
-        const vmap = { ...(p.voters || {}) };
-        const prevVote = vmap[user.id] || 0;
-        const newVote = prevVote === delta ? 0 : delta;
-        vmap[user.id] = newVote;
-        const votes = Object.values(vmap).reduce((s, x) => s + x, 0);
-        return { ...p, voters: vmap, votes };
-      });
-      const ns = { ...prev, posts };
-      save(ns);
-      return ns;
-    });
+    const postIndex = state.posts.findIndex(p => p.id === postId);
+    if (postIndex === -1) return;
+    
+    const post = state.posts[postIndex];
+    const vmap = { ...(post.voters || {}) };
+    const prevVote = vmap[user.id] || 0;
+    const newVote = prevVote === delta ? 0 : delta;
+    vmap[user.id] = newVote;
+    const votes = Object.values(vmap).reduce((s, x) => s + x, 0);
+
+    const updates = {};
+    updates[`appState/posts/${postIndex}/voters`] = vmap;
+    updates[`appState/posts/${postIndex}/votes`] = votes;
+    update(ref(database), updates);
   }
 
   function addComment(postId, text, parentId = null) {
@@ -138,8 +172,11 @@ export default function PinAnonBoard() {
                   author: user.display || user.id,
                   text,
                   created: now(),
+<<<<<<< HEAD
+=======
                   parentId,
                   replies: [],
+>>>>>>> 99fdcdb (Initial commit)
                 },
               ],
             }
@@ -152,23 +189,18 @@ export default function PinAnonBoard() {
   }
 
   function removePost(postId) {
-    setState((prev) => {
-      const posts = prev.posts.filter((p) => p.id !== postId);
-      const ns = { ...prev, posts };
-      save(ns);
-      return ns;
-    });
+    const newPosts = state.posts.filter((p) => p.id !== postId);
+    const updates = {};
+    updates['appState/posts'] = newPosts;
+    update(ref(database), updates);
   }
 
   function toggleWhisper() {
-    setWhisper((w) => {
-      const nw = !w;
-      setState((prev) => ({
-        ...prev,
-        settings: { ...prev.settings, whisper: nw },
-      }));
-      return nw;
-    });
+    const nw = !whisper;
+    setWhisper(nw);
+    const updates = {};
+    updates['appState/settings/whisper'] = nw;
+    update(ref(database), updates);
   }
 
   function setDisplayName(name) {
@@ -217,10 +249,26 @@ export default function PinAnonBoard() {
       comments: [],
     };
 
-    setState((s) => ({
-      ...s,
-      posts: [post, ...s.posts],
-    }));
+    const newPosts = [post, ...state.posts];
+    const updates = {};
+    updates['appState/posts'] = newPosts;
+    update(ref(database), updates);
+  }
+
+  if (loading) {
+    return (
+      <div className={
+        "min-h-screen flex items-center justify-center antialiased " +
+        (dark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-900")
+      }>
+        <div className="text-center">
+          <div className="text-2xl font-light mb-2">pin-anon</div>
+          <div className={dark ? "text-slate-400" : "text-slate-500"}>
+            loading...
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -231,12 +279,11 @@ export default function PinAnonBoard() {
       }
     >
       <div className="max-w-6xl mx-auto px-6 py-10">
-        {/* header */}
         <header className="flex items-center justify-between mb-10">
           <div>
             <div className="text-2xl font-light tracking-tight">pin-anon</div>
             <div className={dark ? "text-slate-400" : "text-slate-500"}>
-              anonymous archive
+              anonymous archive • live
             </div>
           </div>
 
@@ -275,12 +322,10 @@ export default function PinAnonBoard() {
                     navigator.clipboard.writeText(window.location.href),
                 },
                 {
-                  label: "reset local data",
+                  label: "reset data",
                   onClick: () => {
-                    if (confirm("reset local data?")) {
-                      setState(EMPTY);
-                      localStorage.removeItem(LS_USER);
-                      window.location.reload();
+                    if (confirm("reset all data? this affects everyone!")) {
+                      set(ref(database, 'appState'), EMPTY);
                     }
                   },
                 },
@@ -289,7 +334,6 @@ export default function PinAnonBoard() {
           </div>
         </header>
 
-        {/* meta controls */}
         <div className="flex items-center justify-between mb-6 gap-4">
           <div className="flex items-center gap-3">
             <input
@@ -309,7 +353,6 @@ export default function PinAnonBoard() {
           </div>
         </div>
 
-        {/* content area */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
           <main className="lg:col-span-3">
             <section className="space-y-6">
@@ -329,7 +372,9 @@ export default function PinAnonBoard() {
                   key={post.id}
                   className={
                     "pb-6 mb-6 " +
-                    (dark ? "border-b border-slate-800/50" : "border-b border-slate-200")
+                    (dark
+                      ? "border-b border-slate-800/50"
+                      : "border-b border-slate-200")
                   }
                 >
                   <div className="flex items-start justify-between gap-4 mb-3">
@@ -349,7 +394,8 @@ export default function PinAnonBoard() {
                           (dark ? "text-slate-500" : "text-slate-400")
                         }
                       >
-                        {!whisper && `${new Date(post.created).toLocaleString()}`}
+                        {!whisper &&
+                          `${new Date(post.created).toLocaleString()}`}
                       </div>
                     </div>
 
@@ -369,6 +415,20 @@ export default function PinAnonBoard() {
                       >
                         ▲
                       </button>
+<<<<<<< HEAD
+                      <div className="text-sm px-1">{post.votes}</div>
+                      <button
+                        onClick={() => vote(post.id, -1)}
+                        className={
+                          "px-2 py-1 text-sm rounded " +
+                          (post.voters && post.voters[user.id] === -1
+                            ? dark
+                              ? "bg-slate-100 text-slate-900"
+                              : "bg-slate-900 text-white"
+                            : dark
+                            ? "border border-slate-700 hover:bg-slate-800"
+                            : "border hover:bg-slate-50")
+=======
                       <div className={
                         "text-sm font-medium px-2 " + 
                         (post.votes > 0 
@@ -404,6 +464,7 @@ export default function PinAnonBoard() {
                       />
                     )}
                     <div className="text-base leading-relaxed">{post.text}</div>
+>>>>>>> 99fdcdb (Initial commit)
                   </div>
 
                   <div className="mt-4">
@@ -432,7 +493,7 @@ export default function PinAnonBoard() {
                   (dark ? "text-slate-500" : "text-slate-400")
                 }
               >
-                local only — stored in your browser
+                synced in real-time
               </div>
             </Panel>
           </aside>
@@ -500,10 +561,17 @@ function Menu({ items, dark }) {
       {open && (
         <div
           className={
+<<<<<<< HEAD
+            "absolute right-0 mt-2 rounded-xl shadow-lg p-2 z-50 min-w-[180px] " +
+            (dark
+              ? "bg-slate-900 border border-slate-800"
+              : "bg-white border border-slate-200")
+=======
             "absolute right-0 mt-2 rounded-xl shadow-xl p-2 z-50 min-w-[180px] " +
             (dark
               ? "bg-slate-900/95 backdrop-blur-sm"
               : "bg-white/95 backdrop-blur-sm")
+>>>>>>> 99fdcdb (Initial commit)
           }
         >
           {items.map((item, i) => {
@@ -512,7 +580,11 @@ function Menu({ items, dark }) {
                 <div
                   key={i}
                   className={
+<<<<<<< HEAD
+                    "my-1 " + (dark ? "border-t border-slate-800" : "border-t")
+=======
                     "my-1 " + (dark ? "border-t border-slate-800" : "border-t border-slate-200")
+>>>>>>> 99fdcdb (Initial commit)
                   }
                 />
               );
@@ -523,7 +595,11 @@ function Menu({ items, dark }) {
                 <div key={i} className="mb-2">
                   <div
                     className={
+<<<<<<< HEAD
+                      "text-xs px-2 mb-1 " +
+=======
                       "text-xs px-2 mb-1 uppercase tracking-wider font-medium " +
+>>>>>>> 99fdcdb (Initial commit)
                       (dark ? "text-slate-500" : "text-slate-400")
                     }
                   >
@@ -537,8 +613,13 @@ function Menu({ items, dark }) {
                         setOpen(false);
                       }}
                       className={
+<<<<<<< HEAD
+                        "block w-full text-left text-sm px-2 py-1 rounded " +
+                        (dark ? "hover:bg-slate-800" : "hover:bg-slate-50")
+=======
                         "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
                         (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
+>>>>>>> 99fdcdb (Initial commit)
                       }
                     >
                       {child.label}
@@ -556,8 +637,13 @@ function Menu({ items, dark }) {
                   setOpen(false);
                 }}
                 className={
+<<<<<<< HEAD
+                  "block w-full text-left text-sm px-2 py-1 rounded " +
+                  (dark ? "hover:bg-slate-800" : "hover:bg-slate-50")
+=======
                   "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
                   (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
+>>>>>>> 99fdcdb (Initial commit)
                 }
               >
                 {item.label}
@@ -574,10 +660,17 @@ function Panel({ title, children, dark }) {
   return (
     <div
       className={
+<<<<<<< HEAD
+        "rounded-lg p-4 " +
+        (dark
+          ? "bg-slate-900 border border-slate-800"
+          : "bg-white border border-slate-200")
+=======
         "rounded-xl p-4 " +
         (dark
           ? "bg-slate-900/50"
           : "bg-slate-50")
+>>>>>>> 99fdcdb (Initial commit)
       }
     >
       <h4 className="text-sm font-medium mb-2">{title}</h4>
@@ -627,10 +720,17 @@ function NewPostModal({ onClose, onPost, dark }) {
           onChange={(e) => setText(e.target.value)}
           placeholder="text or journal entry..."
           className={
+<<<<<<< HEAD
+            "w-full rounded p-3 mb-3 h-28 " +
+            (dark
+              ? "bg-slate-800 border-slate-700 text-slate-100"
+              : "bg-white border text-slate-900")
+=======
             "w-full rounded-lg p-3 mb-3 h-28 outline-none transition-colors resize-none " +
             (dark
               ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
               : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+>>>>>>> 99fdcdb (Initial commit)
           }
         ></textarea>
 
@@ -646,10 +746,17 @@ function NewPostModal({ onClose, onPost, dark }) {
             onChange={(e) => setImg(e.target.value)}
             placeholder="or paste image url"
             className={
+<<<<<<< HEAD
+              "flex-1 rounded px-3 py-2 text-sm " +
+              (dark
+                ? "bg-slate-800 border-slate-700 text-slate-100"
+                : "bg-white border text-slate-900")
+=======
               "flex-1 rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
               (dark
                 ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
                 : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+>>>>>>> 99fdcdb (Initial commit)
             }
           />
         </div>
@@ -658,10 +765,17 @@ function NewPostModal({ onClose, onPost, dark }) {
           <button
             onClick={onClose}
             className={
+<<<<<<< HEAD
+              "px-3 py-1 rounded " +
+              (dark
+                ? "border border-slate-700 hover:bg-slate-800"
+                : "border hover:bg-slate-50")
+=======
               "px-4 py-2 rounded-lg transition-colors " +
               (dark
                 ? "hover:bg-slate-800/70 text-slate-400"
                 : "hover:bg-slate-100 text-slate-600")
+>>>>>>> 99fdcdb (Initial commit)
             }
           >
             cancel
@@ -669,10 +783,17 @@ function NewPostModal({ onClose, onPost, dark }) {
           <button
             onClick={submit}
             className={
+<<<<<<< HEAD
+              "px-4 py-1 rounded " +
+              (dark
+                ? "bg-slate-100 text-slate-900"
+                : "bg-slate-900 text-white")
+=======
               "px-5 py-2 rounded-lg font-medium transition-colors " +
               (dark
                 ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
                 : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
+>>>>>>> 99fdcdb (Initial commit)
             }
           >
             post
@@ -687,6 +808,8 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
 
+<<<<<<< HEAD
+=======
   // Build a tree structure from flat comments
   const buildCommentTree = (comments) => {
     const commentMap = {};
@@ -711,12 +834,32 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
 
   const commentTree = buildCommentTree(post.comments || []);
 
+>>>>>>> 99fdcdb (Initial commit)
   return (
     <div>
       <div className="flex items-center gap-3">
         <button
           onClick={() => setOpen((o) => !o)}
           className={
+<<<<<<< HEAD
+            "text-xs px-2 py-1 rounded " +
+            (dark
+              ? "border border-slate-700 hover:bg-slate-800"
+              : "border hover:bg-slate-50")
+          }
+        >
+          {open ? "hide" : `comments (${(post.comments || []).length})`}
+        </button>
+        {!whisper && (
+          <div
+            className={
+              "text-xs " + (dark ? "text-slate-500" : "text-slate-400")
+            }
+          >
+            {post.comments?.length
+              ? `${post.comments.length} replies`
+              : "no replies"}
+=======
             "text-xs px-3 py-1.5 rounded-full font-medium transition-colors " +
             (dark
               ? "hover:bg-slate-800/70 text-slate-400 hover:text-slate-300"
@@ -732,11 +875,47 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
             }
           >
             {post.comments?.length === 0 && "be the first to comment"}
+>>>>>>> 99fdcdb (Initial commit)
           </div>
         )}
       </div>
 
       {open && (
+<<<<<<< HEAD
+        <div className="mt-3 space-y-2">
+          {post.comments?.map((c) => (
+            <div
+              key={c.id}
+              className={
+                "text-sm rounded p-2 " +
+                (dark
+                  ? "bg-slate-800 border border-slate-700"
+                  : "bg-slate-50 border")
+              }
+            >
+              <div
+                className={
+                  "text-xs lowercase " +
+                  (dark ? "text-slate-500" : "text-slate-400")
+                }
+              >
+                {c.author} • {new Date(c.created).toLocaleString()}
+              </div>
+              <div>{c.text}</div>
+            </div>
+          ))}
+
+          <div className="flex gap-2 mt-2">
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="reply..."
+              className={
+                "flex-1 rounded px-2 py-1 " +
+                (dark
+                  ? "bg-slate-800 border-slate-700 text-slate-100"
+                  : "bg-white border text-slate-900")
+=======
         <div className={
           "mt-4 space-y-3 pl-4 " + 
           (dark ? "border-l-2 border-slate-800" : "border-l-2 border-slate-200")
@@ -770,10 +949,22 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
                 (dark
                   ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
                   : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+>>>>>>> 99fdcdb (Initial commit)
               }
             />
             <button
               onClick={() => {
+<<<<<<< HEAD
+                addComment(post.id, text);
+                setText("");
+              }}
+              className={
+                "px-3 py-1 rounded " +
+                (dark
+                  ? "border border-slate-700 hover:bg-slate-800"
+                  : "border hover:bg-slate-50")
+              }
+=======
                 if (text.trim()) {
                   addComment(post.id, text, null);
                   setText("");
@@ -790,6 +981,7 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
                   : "bg-slate-100 text-slate-400 cursor-not-allowed")
               }
               disabled={!text.trim()}
+>>>>>>> 99fdcdb (Initial commit)
             >
               reply
             </button>
@@ -800,6 +992,8 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
   );
 }
 
+<<<<<<< HEAD
+=======
 function CommentThread({ comment, postId, addComment, dark, user, depth }) {
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [replyText, setReplyText] = useState("");
@@ -971,6 +1165,7 @@ function CommentThread({ comment, postId, addComment, dark, user, depth }) {
   );
 }
 
+>>>>>>> 99fdcdb (Initial commit)
 function ProfileModal({ authorId, posts, onClose, dark }) {
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
@@ -1055,20 +1250,34 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
             onChange={(e) => setName(e.target.value)}
             placeholder="new room name (optional)"
             className={
+<<<<<<< HEAD
+              "w-full rounded px-3 py-2 mb-2 " +
+              (dark
+                ? "bg-slate-800 border-slate-700 text-slate-100"
+                : "bg-white border text-slate-900")
+=======
               "w-full rounded-lg px-3 py-2 mb-3 outline-none transition-colors " +
               (dark
                 ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
                 : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+>>>>>>> 99fdcdb (Initial commit)
             }
           />
           <div className="flex gap-2">
             <button
               onClick={() => onCreate(name)}
               className={
+<<<<<<< HEAD
+                "px-3 py-1 rounded " +
+                (dark
+                  ? "bg-slate-100 text-slate-900"
+                  : "bg-slate-900 text-white")
+=======
                 "px-4 py-2 rounded-lg font-medium transition-colors " +
                 (dark
                   ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
                   : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
+>>>>>>> 99fdcdb (Initial commit)
               }
             >
               create
@@ -1079,10 +1288,17 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
                 if (code) onJoin(code);
               }}
               className={
+<<<<<<< HEAD
+                "px-3 py-1 rounded " +
+                (dark
+                  ? "border border-slate-700 hover:bg-slate-800"
+                  : "border hover:bg-slate-50")
+=======
                 "px-4 py-2 rounded-lg transition-colors " +
                 (dark
                   ? "hover:bg-slate-800/70 text-slate-400"
                   : "hover:bg-slate-100 text-slate-600")
+>>>>>>> 99fdcdb (Initial commit)
               }
             >
               join
@@ -1125,10 +1341,17 @@ function SettingsModal({ dark, setDark, onClose }) {
             <button
               onClick={() => setDark((d) => !d)}
               className={
+<<<<<<< HEAD
+                "px-3 py-1 rounded " +
+                (dark
+                  ? "bg-slate-800 hover:bg-slate-700"
+                  : "bg-slate-200 hover:bg-slate-300")
+=======
                 "px-4 py-2 rounded-lg font-medium transition-colors " +
                 (dark
                   ? "bg-slate-800/70 hover:bg-slate-800 text-slate-300"
                   : "bg-slate-200 hover:bg-slate-300 text-slate-700")
+>>>>>>> 99fdcdb (Initial commit)
               }
             >
               {dark ? "on" : "off"}
