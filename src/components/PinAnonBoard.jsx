@@ -13,14 +13,15 @@ import {
 // ---------- Firebase Config ----------
 // You'll replace this with your own config from Firebase Console
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyC4IJVeuBLO3UwjF6c_aH20qA_IZvJY2qU",
+  authDomain: "pin-anon.firebaseapp.com",
+  databaseURL: "https://pin-anon-default-rtdb.firebaseio.com",
+  projectId: "pin-anon",
+  storageBucket: "pin-anon.firebasestorage.app",
+  messagingSenderId: "564572635192",
+  appId: "1:564572635192:web:98d31c63a22b07383e26cd"
 };
+
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -172,11 +173,8 @@ export default function PinAnonBoard() {
                   author: user.display || user.id,
                   text,
                   created: now(),
-<<<<<<< HEAD
-=======
                   parentId,
                   replies: [],
->>>>>>> 99fdcdb (Initial commit)
                 },
               ],
             }
@@ -415,20 +413,6 @@ export default function PinAnonBoard() {
                       >
                         ▲
                       </button>
-<<<<<<< HEAD
-                      <div className="text-sm px-1">{post.votes}</div>
-                      <button
-                        onClick={() => vote(post.id, -1)}
-                        className={
-                          "px-2 py-1 text-sm rounded " +
-                          (post.voters && post.voters[user.id] === -1
-                            ? dark
-                              ? "bg-slate-100 text-slate-900"
-                              : "bg-slate-900 text-white"
-                            : dark
-                            ? "border border-slate-700 hover:bg-slate-800"
-                            : "border hover:bg-slate-50")
-=======
                       <div className={
                         "text-sm font-medium px-2 " + 
                         (post.votes > 0 
@@ -464,7 +448,6 @@ export default function PinAnonBoard() {
                       />
                     )}
                     <div className="text-base leading-relaxed">{post.text}</div>
->>>>>>> 99fdcdb (Initial commit)
                   </div>
 
                   <div className="mt-4">
@@ -561,17 +544,10 @@ function Menu({ items, dark }) {
       {open && (
         <div
           className={
-<<<<<<< HEAD
-            "absolute right-0 mt-2 rounded-xl shadow-lg p-2 z-50 min-w-[180px] " +
-            (dark
-              ? "bg-slate-900 border border-slate-800"
-              : "bg-white border border-slate-200")
-=======
             "absolute right-0 mt-2 rounded-xl shadow-xl p-2 z-50 min-w-[180px] " +
             (dark
               ? "bg-slate-900/95 backdrop-blur-sm"
               : "bg-white/95 backdrop-blur-sm")
->>>>>>> 99fdcdb (Initial commit)
           }
         >
           {items.map((item, i) => {
@@ -580,11 +556,7 @@ function Menu({ items, dark }) {
                 <div
                   key={i}
                   className={
-<<<<<<< HEAD
-                    "my-1 " + (dark ? "border-t border-slate-800" : "border-t")
-=======
                     "my-1 " + (dark ? "border-t border-slate-800" : "border-t border-slate-200")
->>>>>>> 99fdcdb (Initial commit)
                   }
                 />
               );
@@ -595,11 +567,7 @@ function Menu({ items, dark }) {
                 <div key={i} className="mb-2">
                   <div
                     className={
-<<<<<<< HEAD
-                      "text-xs px-2 mb-1 " +
-=======
                       "text-xs px-2 mb-1 uppercase tracking-wider font-medium " +
->>>>>>> 99fdcdb (Initial commit)
                       (dark ? "text-slate-500" : "text-slate-400")
                     }
                   >
@@ -617,13 +585,8 @@ function Menu({ items, dark }) {
                         "block w-full text-left text-sm px-2 py-1 rounded " +
                         (dark ? "hover:bg-slate-800" : "hover:bg-slate-50")
 =======
-                        "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
-                        (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
->>>>>>> 99fdcdb (Initial commit)
-                      }
                     >
                       {child.label}
-                    </button>
                   ))}
                 </div>
               );
