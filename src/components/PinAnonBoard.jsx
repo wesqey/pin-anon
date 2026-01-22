@@ -117,9 +117,9 @@ export default function PinAnonBoard() {
   }, [dark]);
 
   const postsInRoom = useMemo(
-    () => state.posts.filter((p) => p.room === room),
-    [state.posts, room]
-  );
+  () => (state.posts || []).filter((p) => p.room === room),
+  [state.posts, room]
+);
 
   function createRoom(name = "room") {
     const invite = genAnonId(6);
@@ -204,7 +204,7 @@ export default function PinAnonBoard() {
     });
   }
 
-  const visible = postsInRoom
+  const visible = (postsInRoom || [])
     .filter((p) => {
       if (search) {
         const q = search.toLowerCase();
