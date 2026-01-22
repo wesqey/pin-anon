@@ -230,23 +230,23 @@ export default function PinAnonBoard() {
     });
 
   function postNew({ text, image }) {
-    const post = {
-      id: crypto.randomUUID(),
-      author: user.display || user.id,
-      text,
-      image,
-      room,
-      created: Date.now(),
-      votes: 0,
-      voters: {},
-      comments: [],
-    };
+  const post = {
+    id: crypto.randomUUID(),
+    author: user.display || user.id,
+    text,
+    image,
+    room,
+    created: Date.now(),
+    votes: 0,
+    voters: {},
+    comments: [],
+  };
 
-    const newPosts = [post, ...state.posts];
-    const updates = {};
-    updates['appState/posts'] = newPosts;
-    update(ref(database), updates);
-  }
+  const newPosts = [post, ...(state.posts || [])];
+  const updates = {};
+  updates['appState/posts'] = newPosts;
+  update(ref(database), updates);
+}
 
   if (loading) {
     return (
