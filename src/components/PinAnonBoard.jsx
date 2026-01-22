@@ -13,7 +13,7 @@ import {
 // ---------- Firebase Config ----------
 // You'll replace this with your own config from Firebase Console
 const firebaseConfig = {
-  apiKey: "",
+  apiKey: import.meta.env._FIREBASE_API_KEY,
   authDomain: "pin-anon.firebaseapp.com",
   databaseURL: "https://pin-anon-default-rtdb.firebaseio.com",
   projectId: "pin-anon",
