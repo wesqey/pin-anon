@@ -160,31 +160,26 @@ export default function PinAnonBoard() {
   }
 
   function addComment(postId, text, parentId = null) {
-    if (!text) return;
-    setState((prev) => {
-      const posts = prev.posts.map((p) =>
-        p.id === postId
-          ? {
-              ...p,
-              comments: [
-                ...p.comments,
-                {
-                  id: uid("c"),
-                  author: user.display || user.id,
-                  text,
-                  created: now(),
-                  parentId,
-                  replies: [],
-                },
-              ],
-            }
-          : p
-      );
-      const ns = { ...prev, posts };
-      save(ns);
-      return ns;
-    });
-  }
+  if (!text) return;
+  
+  const postIndex = state.posts.findIndex(p => p.id === postId);
+  if (postIndex === -1) return;
+  
+  const post = state.posts[postIndex];
+  const newComment = {
+    id: uid("c"),
+    author: user.display || user.id,
+    text,
+    created: now(),
+    parentId,
+    replies: [],
+  };
+  
+  const newComments = [...post.comments, newComment];
+  const updates = {};
+  updates[`appState/posts/${postIndex}/comments`] = newComments;
+  update(ref(database), updates);
+}
 
   function removePost(postId) {
     const newPosts = state.posts.filter((p) => p.id !== postId);
