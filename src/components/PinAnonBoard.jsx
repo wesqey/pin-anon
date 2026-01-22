@@ -143,8 +143,8 @@ export default function PinAnonBoard() {
   }
 
   function vote(postId, delta) {
-    const postIndex = state.posts.findIndex(p => p.id === postId);
-    if (postIndex === -1) return;
+  const postIndex = (state.posts || []).findIndex(p => p.id === postId);
+  if (postIndex === -1) return;
     
     const post = state.posts[postIndex];
     const vmap = { ...(post.voters || {}) };
@@ -162,7 +162,7 @@ export default function PinAnonBoard() {
   function addComment(postId, text, parentId = null) {
   if (!text) return;
   
-  const postIndex = state.posts.findIndex(p => p.id === postId);
+  const postIndex = (state.posts || []).findIndex(p => p.id === postId);
   if (postIndex === -1) return;
   
   const post = state.posts[postIndex];
@@ -175,18 +175,18 @@ export default function PinAnonBoard() {
     replies: [],
   };
   
-  const newComments = [...post.comments, newComment];
+  const newComments = [...(post.comments || []), newComment];
   const updates = {};
   updates[`appState/posts/${postIndex}/comments`] = newComments;
   update(ref(database), updates);
 }
 
   function removePost(postId) {
-    const newPosts = state.posts.filter((p) => p.id !== postId);
-    const updates = {};
-    updates['appState/posts'] = newPosts;
-    update(ref(database), updates);
-  }
+  const newPosts = (state.posts || []).filter((p) => p.id !== postId);
+  const updates = {};
+  updates['appState/posts'] = newPosts;
+  update(ref(database), updates);
+}
 
   function toggleWhisper() {
     const nw = !whisper;
