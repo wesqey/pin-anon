@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Firebase config file
+FIREBASE_API_AIzaSyBr1JBwhlK6pyOcKzN0kdVbSyl1xhvOOTU_NEW_KEY_HERE
