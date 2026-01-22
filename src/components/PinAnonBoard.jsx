@@ -581,12 +581,12 @@ function Menu({ items, dark }) {
                         setOpen(false);
                       }}
                       className={
-<<<<<<< HEAD
-                        "block w-full text-left text-sm px-2 py-1 rounded " +
-                        (dark ? "hover:bg-slate-800" : "hover:bg-slate-50")
-=======
+                        "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
+                        (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
+                      }
                     >
                       {child.label}
+                    </button>
                   ))}
                 </div>
               );
@@ -600,13 +600,8 @@ function Menu({ items, dark }) {
                   setOpen(false);
                 }}
                 className={
-<<<<<<< HEAD
-                  "block w-full text-left text-sm px-2 py-1 rounded " +
-                  (dark ? "hover:bg-slate-800" : "hover:bg-slate-50")
-=======
                   "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
                   (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
->>>>>>> 99fdcdb (Initial commit)
                 }
               >
                 {item.label}
@@ -623,17 +618,10 @@ function Panel({ title, children, dark }) {
   return (
     <div
       className={
-<<<<<<< HEAD
-        "rounded-lg p-4 " +
-        (dark
-          ? "bg-slate-900 border border-slate-800"
-          : "bg-white border border-slate-200")
-=======
         "rounded-xl p-4 " +
         (dark
           ? "bg-slate-900/50"
           : "bg-slate-50")
->>>>>>> 99fdcdb (Initial commit)
       }
     >
       <h4 className="text-sm font-medium mb-2">{title}</h4>
@@ -683,17 +671,10 @@ function NewPostModal({ onClose, onPost, dark }) {
           onChange={(e) => setText(e.target.value)}
           placeholder="text or journal entry..."
           className={
-<<<<<<< HEAD
-            "w-full rounded p-3 mb-3 h-28 " +
-            (dark
-              ? "bg-slate-800 border-slate-700 text-slate-100"
-              : "bg-white border text-slate-900")
-=======
             "w-full rounded-lg p-3 mb-3 h-28 outline-none transition-colors resize-none " +
             (dark
               ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
               : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
->>>>>>> 99fdcdb (Initial commit)
           }
         ></textarea>
 
@@ -709,17 +690,10 @@ function NewPostModal({ onClose, onPost, dark }) {
             onChange={(e) => setImg(e.target.value)}
             placeholder="or paste image url"
             className={
-<<<<<<< HEAD
-              "flex-1 rounded px-3 py-2 text-sm " +
-              (dark
-                ? "bg-slate-800 border-slate-700 text-slate-100"
-                : "bg-white border text-slate-900")
-=======
               "flex-1 rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
               (dark
                 ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
                 : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
->>>>>>> 99fdcdb (Initial commit)
             }
           />
         </div>
@@ -728,17 +702,10 @@ function NewPostModal({ onClose, onPost, dark }) {
           <button
             onClick={onClose}
             className={
-<<<<<<< HEAD
-              "px-3 py-1 rounded " +
-              (dark
-                ? "border border-slate-700 hover:bg-slate-800"
-                : "border hover:bg-slate-50")
-=======
               "px-4 py-2 rounded-lg transition-colors " +
               (dark
                 ? "hover:bg-slate-800/70 text-slate-400"
                 : "hover:bg-slate-100 text-slate-600")
->>>>>>> 99fdcdb (Initial commit)
             }
           >
             cancel
@@ -746,17 +713,10 @@ function NewPostModal({ onClose, onPost, dark }) {
           <button
             onClick={submit}
             className={
-<<<<<<< HEAD
-              "px-4 py-1 rounded " +
-              (dark
-                ? "bg-slate-100 text-slate-900"
-                : "bg-slate-900 text-white")
-=======
               "px-5 py-2 rounded-lg font-medium transition-colors " +
               (dark
                 ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
                 : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
->>>>>>> 99fdcdb (Initial commit)
             }
           >
             post
@@ -771,8 +731,6 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
 
-<<<<<<< HEAD
-=======
   // Build a tree structure from flat comments
   const buildCommentTree = (comments) => {
     const commentMap = {};
@@ -797,32 +755,12 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
 
   const commentTree = buildCommentTree(post.comments || []);
 
->>>>>>> 99fdcdb (Initial commit)
   return (
     <div>
       <div className="flex items-center gap-3">
         <button
           onClick={() => setOpen((o) => !o)}
           className={
-<<<<<<< HEAD
-            "text-xs px-2 py-1 rounded " +
-            (dark
-              ? "border border-slate-700 hover:bg-slate-800"
-              : "border hover:bg-slate-50")
-          }
-        >
-          {open ? "hide" : `comments (${(post.comments || []).length})`}
-        </button>
-        {!whisper && (
-          <div
-            className={
-              "text-xs " + (dark ? "text-slate-500" : "text-slate-400")
-            }
-          >
-            {post.comments?.length
-              ? `${post.comments.length} replies`
-              : "no replies"}
-=======
             "text-xs px-3 py-1.5 rounded-full font-medium transition-colors " +
             (dark
               ? "hover:bg-slate-800/70 text-slate-400 hover:text-slate-300"
@@ -838,47 +776,11 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
             }
           >
             {post.comments?.length === 0 && "be the first to comment"}
->>>>>>> 99fdcdb (Initial commit)
           </div>
         )}
       </div>
 
       {open && (
-<<<<<<< HEAD
-        <div className="mt-3 space-y-2">
-          {post.comments?.map((c) => (
-            <div
-              key={c.id}
-              className={
-                "text-sm rounded p-2 " +
-                (dark
-                  ? "bg-slate-800 border border-slate-700"
-                  : "bg-slate-50 border")
-              }
-            >
-              <div
-                className={
-                  "text-xs lowercase " +
-                  (dark ? "text-slate-500" : "text-slate-400")
-                }
-              >
-                {c.author} • {new Date(c.created).toLocaleString()}
-              </div>
-              <div>{c.text}</div>
-            </div>
-          ))}
-
-          <div className="flex gap-2 mt-2">
-            <input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="reply..."
-              className={
-                "flex-1 rounded px-2 py-1 " +
-                (dark
-                  ? "bg-slate-800 border-slate-700 text-slate-100"
-                  : "bg-white border text-slate-900")
-=======
         <div className={
           "mt-4 space-y-3 pl-4 " + 
           (dark ? "border-l-2 border-slate-800" : "border-l-2 border-slate-200")
@@ -912,22 +814,10 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
                 (dark
                   ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
                   : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
->>>>>>> 99fdcdb (Initial commit)
               }
             />
             <button
               onClick={() => {
-<<<<<<< HEAD
-                addComment(post.id, text);
-                setText("");
-              }}
-              className={
-                "px-3 py-1 rounded " +
-                (dark
-                  ? "border border-slate-700 hover:bg-slate-800"
-                  : "border hover:bg-slate-50")
-              }
-=======
                 if (text.trim()) {
                   addComment(post.id, text, null);
                   setText("");
@@ -944,7 +834,6 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
                   : "bg-slate-100 text-slate-400 cursor-not-allowed")
               }
               disabled={!text.trim()}
->>>>>>> 99fdcdb (Initial commit)
             >
               reply
             </button>
@@ -955,8 +844,6 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
   );
 }
 
-<<<<<<< HEAD
-=======
 function CommentThread({ comment, postId, addComment, dark, user, depth }) {
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [replyText, setReplyText] = useState("");
@@ -1128,7 +1015,6 @@ function CommentThread({ comment, postId, addComment, dark, user, depth }) {
   );
 }
 
->>>>>>> 99fdcdb (Initial commit)
 function ProfileModal({ authorId, posts, onClose, dark }) {
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
@@ -1213,34 +1099,20 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
             onChange={(e) => setName(e.target.value)}
             placeholder="new room name (optional)"
             className={
-<<<<<<< HEAD
-              "w-full rounded px-3 py-2 mb-2 " +
-              (dark
-                ? "bg-slate-800 border-slate-700 text-slate-100"
-                : "bg-white border text-slate-900")
-=======
               "w-full rounded-lg px-3 py-2 mb-3 outline-none transition-colors " +
               (dark
                 ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
                 : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
->>>>>>> 99fdcdb (Initial commit)
             }
           />
           <div className="flex gap-2">
             <button
               onClick={() => onCreate(name)}
               className={
-<<<<<<< HEAD
-                "px-3 py-1 rounded " +
-                (dark
-                  ? "bg-slate-100 text-slate-900"
-                  : "bg-slate-900 text-white")
-=======
                 "px-4 py-2 rounded-lg font-medium transition-colors " +
                 (dark
                   ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
                   : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
->>>>>>> 99fdcdb (Initial commit)
               }
             >
               create
@@ -1251,17 +1123,10 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
                 if (code) onJoin(code);
               }}
               className={
-<<<<<<< HEAD
-                "px-3 py-1 rounded " +
-                (dark
-                  ? "border border-slate-700 hover:bg-slate-800"
-                  : "border hover:bg-slate-50")
-=======
                 "px-4 py-2 rounded-lg transition-colors " +
                 (dark
                   ? "hover:bg-slate-800/70 text-slate-400"
                   : "hover:bg-slate-100 text-slate-600")
->>>>>>> 99fdcdb (Initial commit)
               }
             >
               join
@@ -1304,17 +1169,10 @@ function SettingsModal({ dark, setDark, onClose }) {
             <button
               onClick={() => setDark((d) => !d)}
               className={
-<<<<<<< HEAD
-                "px-3 py-1 rounded " +
-                (dark
-                  ? "bg-slate-800 hover:bg-slate-700"
-                  : "bg-slate-200 hover:bg-slate-300")
-=======
                 "px-4 py-2 rounded-lg font-medium transition-colors " +
                 (dark
                   ? "bg-slate-800/70 hover:bg-slate-800 text-slate-300"
                   : "bg-slate-200 hover:bg-slate-300 text-slate-700")
->>>>>>> 99fdcdb (Initial commit)
               }
             >
               {dark ? "on" : "off"}
