@@ -628,11 +628,51 @@ function Panel({ title, children, dark }) {
 function NewPostModal({ onClose, onPost, dark }) {
   const [text, setText] = useState("");
   const [img, setImg] = useState("");
+  const [uploading, setUploading] = useState(false);
 
-  function handleFile(e) {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    setImg(URL.createObjectURL(f));
+  // REPLACE these with your Cloudinary values
+  const CLOUDINARY_CLOUD_NAME = "YOUR_CLOUD_NAME"; // e.g., "dab12xyz"
+  const CLOUDINARY_UPLOAD_PRESET = "pin-anon-uploads"; // or whatever you named it
+
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Image too large! Please choose an image under 10MB.");
+      return;
+    }
+    
+    setUploading(true);
+    
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+      
+      const data = await response.json();
+      
+      if (data.secure_url) {
+        setImg(data.secure_url);
+      } else {
+        throw new Error("Upload failed");
+      }
+      
+      setUploading(false);
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("Failed to upload image. Please try again.");
+      setUploading(false);
+    }
   }
 
   function submit() {
@@ -673,29 +713,73 @@ function NewPostModal({ onClose, onPost, dark }) {
           }
         ></textarea>
 
-        <div className="flex gap-3 items-center mb-3">
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleFile}
-            className="text-sm"
-          />
+        <div className="mb-3">
+          <div className="flex gap-3 items-center mb-2">
+            <label className={
+              "px-4 py-2 rounded-lg cursor-pointer transition-colors " +
+              (uploading
+                ? dark
+                  ? "bg-slate-800/30 text-slate-600 cursor-not-allowed"
+                  : "bg-slate-200/50 text-slate-400 cursor-not-allowed"
+                : dark
+                ? "bg-slate-800/70 hover:bg-slate-800 text-slate-300"
+                : "bg-slate-200 hover:bg-slate-300 text-slate-700")
+            }>
+              {uploading ? "uploading..." : "choose image"}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFile}
+                disabled={uploading}
+                className="hidden"
+              />
+            </label>
+            <span className={
+              "text-xs " + (dark ? "text-slate-500" : "text-slate-400")
+            }>
+              or paste url below
+            </span>
+          </div>
+          
           <input
             value={img}
             onChange={(e) => setImg(e.target.value)}
             placeholder="or paste image url"
+            disabled={uploading}
             className={
-              "flex-1 rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
+              "w-full rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
               (dark
                 ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
                 : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
             }
           />
+          
+          {img && !uploading && (
+            <div className="mt-3 relative">
+              <img 
+                src={img} 
+                alt="preview" 
+                className="w-full rounded-lg max-h-48 object-cover" 
+              />
+              <button
+                onClick={() => setImg("")}
+                className={
+                  "absolute top-2 right-2 px-2 py-1 rounded-lg text-xs font-medium " +
+                  (dark
+                    ? "bg-slate-900/90 text-slate-300 hover:bg-slate-900"
+                    : "bg-white/90 text-slate-700 hover:bg-white")
+                }
+              >
+                remove
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3">
           <button
             onClick={onClose}
+            disabled={uploading}
             className={
               "px-4 py-2 rounded-lg transition-colors " +
               (dark
@@ -707,14 +791,19 @@ function NewPostModal({ onClose, onPost, dark }) {
           </button>
           <button
             onClick={submit}
+            disabled={uploading || (!text.trim() && !img)}
             className={
               "px-5 py-2 rounded-lg font-medium transition-colors " +
-              (dark
+              (uploading || (!text.trim() && !img)
+                ? dark
+                  ? "bg-slate-800/30 text-slate-600 cursor-not-allowed"
+                  : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                : dark
                 ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
                 : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
             }
           >
-            post
+            {uploading ? "uploading..." : "post"}
           </button>
         </div>
       </div>
