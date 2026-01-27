@@ -631,7 +631,7 @@ function NewPostModal({ onClose, onPost, dark }) {
   const [uploading, setUploading] = useState(false);
 
   // REPLACE these with your Cloudinary values
-  const CLOUDINARY_CLOUD_NAME = "YOUR_CLOUD_NAME"; // e.g., "dab12xyz"
+  const CLOUDINARY_CLOUD_NAME = "dnulbfj48"; // e.g., "dab12xyz"
   const CLOUDINARY_UPLOAD_PRESET = "pin-anon-uploads"; // or whatever you named it
 
   async function handleFile(e) {
