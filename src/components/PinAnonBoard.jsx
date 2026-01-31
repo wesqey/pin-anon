@@ -27,7 +27,7 @@ const database = getDatabase(app);
 // ---------- Config & utils ----------
 const LS_USER = "pinanon_v3_user";
 const DEFAULT_ROOM = "main";
-const ADMIN_PASSWORD = "admin123";
+const ADMIN_PASSWORD = "EpicMan101";
 
 function genAnonId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
