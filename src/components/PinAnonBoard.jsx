@@ -69,7 +69,14 @@ export default function PinAnonBoard() {
   const [user, setUser] = useState(() => {
     const existing = loadUser();
     if (existing?.id) return existing;
-    const newUser = { id: genAnonId(7), display: null, isAdmin: false };
+    const newUser = { 
+      id: genAnonId(7), 
+      display: null, 
+      isAdmin: false,
+      createdRooms: [], // Track rooms this user created
+      createdPosts: [], // Track posts this user created
+      joinedRooms: [DEFAULT_ROOM] // Track rooms user has joined
+    };
     localStorage.setItem(LS_USER, JSON.stringify(newUser));
     return newUser;
   });
@@ -116,11 +123,29 @@ export default function PinAnonBoard() {
 
   function createRoom(name = "room") {
     const invite = genAnonId(6);
-    const r = { id: invite, name: name || `room-${invite}`, invite };
+    const r = { 
+      id: invite, 
+      name: name || `room-${invite}`, 
+      invite,
+      creator: user.id, // Track who created this room
+      isPrivate: true // Private rooms only accessible via invite
+    };
     const newRooms = [r, ...state.rooms];
     const updates = {};
     updates['appState/rooms'] = newRooms;
     update(ref(database), updates);
+    
+    // Add room to user's created and joined rooms
+    setUser((prev) => {
+      const u = { 
+        ...prev, 
+        createdRooms: [...(prev.createdRooms || []), invite],
+        joinedRooms: [...new Set([...(prev.joinedRooms || [DEFAULT_ROOM]), invite])]
+      };
+      saveUser(u);
+      return u;
+    });
+    
     return r;
   }
 
@@ -128,6 +153,17 @@ export default function PinAnonBoard() {
     const found = state.rooms.find((r) => r.id === code || r.invite === code);
     if (found) {
       setRoom(found.id);
+      
+      // Add to user's joined rooms
+      setUser((prev) => {
+        const u = { 
+          ...prev, 
+          joinedRooms: [...new Set([...(prev.joinedRooms || [DEFAULT_ROOM]), found.id])]
+        };
+        saveUser(u);
+        return u;
+      });
+      
       return true;
     }
     return false;
@@ -156,6 +192,7 @@ export default function PinAnonBoard() {
     const newComment = {
       id: uid("c"),
       author: user.display || user.id,
+      authorId: user.id, // Track comment creator
       text,
       created: now(),
       parentId,
@@ -166,22 +203,74 @@ export default function PinAnonBoard() {
     updates[`appState/posts/${postIndex}/comments`] = newComments;
     update(ref(database), updates);
   }
-
-  function removePost(postId) {
-    if (!user.isAdmin) {
-      alert("ONLY ADMINS CAN DELETE POSTS");
+  
+  function removeComment(postId, commentId) {
+    const postIndex = (state.posts || []).findIndex(p => p.id === postId);
+    if (postIndex === -1) return;
+    
+    const post = state.posts[postIndex];
+    const comment = (post.comments || []).find(c => c.id === commentId);
+    
+    if (!comment) return;
+    
+    const isCreator = comment.authorId === user.id;
+    const isRoomModerator = isRoomMod(post.room);
+    
+    if (!user.isAdmin && !isCreator && !isRoomModerator) {
+      alert("YOU CAN ONLY DELETE YOUR OWN COMMENTS");
       return;
     }
+    
+    if (!confirm("DELETE THIS COMMENT?")) return;
+    
+    // Remove comment and all its replies
+    const removeCommentAndReplies = (comments, idToRemove) => {
+      return comments.filter(c => {
+        if (c.id === idToRemove) return false;
+        if (c.parentId === idToRemove) return false;
+        return true;
+      });
+    };
+    
+    const newComments = removeCommentAndReplies(post.comments || [], commentId);
+    const updates = {};
+    updates[`appState/posts/${postIndex}/comments`] = newComments;
+    update(ref(database), updates);
+  }
+
+  function removePost(postId) {
+    const post = (state.posts || []).find(p => p.id === postId);
+    if (!post) return;
+    
+    const isCreator = post.authorId === user.id;
+    const isRoomModerator = isRoomMod(post.room);
+    
+    if (!user.isAdmin && !isCreator && !isRoomModerator) {
+      alert("YOU CAN ONLY DELETE YOUR OWN POSTS");
+      return;
+    }
+    
     if (!confirm("DELETE THIS POST?")) return;
+    
     const newPosts = (state.posts || []).filter((p) => p.id !== postId);
     const updates = {};
     updates['appState/posts'] = newPosts;
     update(ref(database), updates);
   }
+  
+  function isRoomMod(roomId) {
+    const room = state.rooms.find(r => r.id === roomId);
+    return room?.creator === user.id;
+  }
 
   function removeRoom(roomId) {
-    if (!user.isAdmin) {
-      alert("ONLY ADMINS CAN DELETE ROOMS");
+    const roomToDelete = state.rooms.find(r => r.id === roomId);
+    if (!roomToDelete) return;
+    
+    const isCreator = roomToDelete.creator === user.id;
+    
+    if (!user.isAdmin && !isCreator) {
+      alert("ONLY ROOM CREATORS CAN DELETE THEIR ROOMS");
       return;
     }
     if (roomId === DEFAULT_ROOM) {
@@ -246,9 +335,11 @@ export default function PinAnonBoard() {
     });
 
   function postNew({ text, image }) {
+    const postId = crypto.randomUUID();
     const post = {
-      id: crypto.randomUUID(),
+      id: postId,
       author: user.display || user.id,
+      authorId: user.id, // Store actual user ID for ownership checking
       text,
       image,
       room,
@@ -261,6 +352,16 @@ export default function PinAnonBoard() {
     const updates = {};
     updates['appState/posts'] = newPosts;
     update(ref(database), updates);
+    
+    // Track this post as created by user
+    setUser((prev) => {
+      const u = { 
+        ...prev, 
+        createdPosts: [...(prev.createdPosts || []), postId]
+      };
+      saveUser(u);
+      return u;
+    });
   }
 
   const currentRoomName = useMemo(() => {
@@ -414,6 +515,8 @@ export default function PinAnonBoard() {
               onDeleteRoom={removeRoom}
               dark={dark}
               isAdmin={user.isAdmin}
+              userJoinedRooms={user.joinedRooms}
+              userCreatedRooms={user.createdRooms}
             />
 
             <button
@@ -497,7 +600,7 @@ export default function PinAnonBoard() {
                   </div>
 
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    {user.isAdmin && (
+                    {(user.isAdmin || post.authorId === user.id || isRoomMod(post.room)) && (
                       <button
                         onClick={() => removePost(post.id)}
                         style={{
@@ -592,9 +695,11 @@ export default function PinAnonBoard() {
                   <CommentBlock
                     post={post}
                     addComment={addComment}
+                    removeComment={removeComment}
                     whisper={whisper}
                     dark={dark}
                     user={user}
+                    isRoomMod={isRoomMod(post.room)}
                   />
                 </div>
               </article>
@@ -649,8 +754,14 @@ export default function PinAnonBoard() {
 
 // ---------- UI Subcomponents ----------
 
-function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin }) {
+function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin, userJoinedRooms, userCreatedRooms }) {
   const [open, setOpen] = useState(false);
+  
+  // Filter to only show rooms the user has joined (or main room)
+  const visibleRooms = rooms.filter(r => 
+    r.id === DEFAULT_ROOM || 
+    (userJoinedRooms || []).includes(r.id)
+  );
 
   return (
     <div style={{ position: 'relative' }}>
@@ -746,53 +857,56 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
             </div>
 
             <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
-              {rooms.map((r) => (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <button
-                    onClick={() => {
-                      onSelectRoom(r.id);
-                      setOpen(false);
-                    }}
-                    style={{
-                      flex: 1,
-                      textAlign: 'left',
-                      fontSize: '10px',
-                      letterSpacing: '0.1em',
-                      padding: '8px 10px',
-                      background: r.id === currentRoom ? (dark ? '#1a1a1a' : '#f5f5f5') : 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: r.id === currentRoom ? (dark ? '#fff' : '#000') : (dark ? '#999' : '#666'),
-                      transition: 'opacity 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                    onMouseLeave={(e) => e.target.style.opacity = '1'}
-                  >
-                    {r.name.toUpperCase()}
-                  </button>
-                  {isAdmin && r.id !== DEFAULT_ROOM && (
+              {visibleRooms.map((r) => {
+                const isCreator = (userCreatedRooms || []).includes(r.id);
+                return (
+                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteRoom(r.id);
+                      onClick={() => {
+                        onSelectRoom(r.id);
+                        setOpen(false);
                       }}
                       style={{
+                        flex: 1,
+                        textAlign: 'left',
                         fontSize: '10px',
-                        padding: '4px 8px',
-                        background: 'none',
+                        letterSpacing: '0.1em',
+                        padding: '8px 10px',
+                        background: r.id === currentRoom ? (dark ? '#1a1a1a' : '#f5f5f5') : 'none',
                         border: 'none',
                         cursor: 'pointer',
-                        color: dark ? '#666' : '#999',
+                        color: r.id === currentRoom ? (dark ? '#fff' : '#000') : (dark ? '#999' : '#666'),
                         transition: 'opacity 0.2s'
                       }}
                       onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                       onMouseLeave={(e) => e.target.style.opacity = '1'}
                     >
-                      ×
+                      {r.name.toUpperCase()}{isCreator ? ' ★' : ''}
                     </button>
-                  )}
-                </div>
-              ))}
+                    {(isAdmin || isCreator) && r.id !== DEFAULT_ROOM && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteRoom(r.id);
+                        }}
+                        style={{
+                          fontSize: '10px',
+                          padding: '4px 8px',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: dark ? '#666' : '#999',
+                          transition: 'opacity 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                        onMouseLeave={(e) => e.target.style.opacity = '1'}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </>
@@ -1036,7 +1150,7 @@ function NewPostModal({ onClose, onPost, dark }) {
   );
 }
 
-function CommentBlock({ post, addComment, whisper, dark, user }) {
+function CommentBlock({ post, addComment, removeComment, whisper, dark, user, isRoomMod }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
 
@@ -1103,8 +1217,10 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
               comment={comment} 
               postId={post.id}
               addComment={addComment}
+              removeComment={removeComment}
               dark={dark}
               user={user}
+              isRoomMod={isRoomMod}
               depth={0}
             />
           ))}
@@ -1163,7 +1279,7 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
   );
 }
 
-function CommentThread({ comment, postId, addComment, dark, user, depth }) {
+function CommentThread({ comment, postId, addComment, removeComment, dark, user, isRoomMod, depth }) {
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [collapsed, setCollapsed] = useState(false);
@@ -1175,6 +1291,8 @@ function CommentThread({ comment, postId, addComment, dark, user, depth }) {
       setShowReplyBox(false);
     }
   };
+  
+  const canDelete = user.isAdmin || comment.authorId === user.id || isRoomMod;
 
   return (
     <div>
@@ -1262,6 +1380,25 @@ function CommentThread({ comment, postId, addComment, dark, user, depth }) {
                 >
                   REPLY
                 </button>
+                {canDelete && (
+                  <button
+                    onClick={() => removeComment(postId, comment.id)}
+                    style={{
+                      fontSize: '9px',
+                      letterSpacing: '0.1em',
+                      padding: '4px 8px',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: dark ? '#666' : '#999',
+                      transition: 'opacity 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                    onMouseLeave={(e) => e.target.style.opacity = '1'}
+                  >
+                    DELETE
+                  </button>
+                )}
                 {comment.replies?.length > 0 && (
                   <span style={{
                     fontSize: '9px',
@@ -1351,8 +1488,10 @@ function CommentThread({ comment, postId, addComment, dark, user, depth }) {
                   comment={reply}
                   postId={postId}
                   addComment={addComment}
+                  removeComment={removeComment}
                   dark={dark}
                   user={user}
+                  isRoomMod={isRoomMod}
                   depth={depth + 1}
                 />
               ))}
