@@ -32,7 +32,7 @@ const LS_USER = "pinanon_v3_user";
 const DEFAULT_ROOM = "main";
 
 // Admin password - you should change this!
-const ADMIN_PASSWORD = "EpicMan101";
+const ADMIN_PASSWORD = "admin123";
 
 function genAnonId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -199,6 +199,30 @@ export default function PinAnonBoard() {
   update(ref(database), updates);
 }
 
+  function removeRoom(roomId) {
+  if (!user.isAdmin) {
+    alert("Only admins can delete rooms");
+    return;
+  }
+  
+  if (roomId === DEFAULT_ROOM) {
+    alert("Cannot delete the main room");
+    return;
+  }
+  
+  if (!confirm("Delete this room? All posts in this room will remain but won't be accessible.")) return;
+  
+  // If we're in the room being deleted, switch to main room
+  if (room === roomId) {
+    setRoom(DEFAULT_ROOM);
+  }
+  
+  const newRooms = (state.rooms || []).filter((r) => r.id !== roomId);
+  const updates = {};
+  updates['appState/rooms'] = newRooms;
+  update(ref(database), updates);
+}
+
   function toggleWhisper() {
     const nw = !whisper;
     setWhisper(nw);
@@ -341,7 +365,9 @@ export default function PinAnonBoard() {
                 const code = prompt("paste invite code");
                 if (code) joinRoom(code);
               }}
+              onDeleteRoom={removeRoom}
               dark={dark}
+              isAdmin={user.isAdmin}
             />
 
             {/* New Post Button */}
@@ -501,8 +527,9 @@ export default function PinAnonBoard() {
                     {post.image && (
                       <img
                         src={post.image}
-                        className="w-full rounded-xl mb-3 object-cover max-h-96"
+                        className="w-full rounded-xl mb-3 object-contain max-h-[600px]"
                         alt="post"
+                        style={{ maxWidth: '100%', height: 'auto' }}
                       />
                     )}
                     <div className="text-base leading-relaxed">{post.text}</div>
@@ -684,7 +711,7 @@ function SlideOverMenu({ open, onClose, dark, user, onAdminLogin, onAdminLogout,
   );
 }
 
-function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, dark }) {
+function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -745,25 +772,46 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
 
             <div className="max-h-64 overflow-y-auto">
               {rooms.map((r) => (
-                <button
+                <div
                   key={r.id}
-                  onClick={() => {
-                    onSelectRoom(r.id);
-                    setOpen(false);
-                  }}
-                  className={
-                    "block w-full text-left text-sm px-3 py-2 rounded-lg transition-colors " +
-                    (r.id === currentRoom
-                      ? dark
-                        ? "bg-slate-800 text-slate-100"
-                        : "bg-slate-200 text-slate-900"
-                      : dark
-                      ? "hover:bg-slate-800/70 text-slate-300"
-                      : "hover:bg-slate-100 text-slate-700")
-                  }
+                  className="flex items-center justify-between group/room"
                 >
-                  {r.name}
-                </button>
+                  <button
+                    onClick={() => {
+                      onSelectRoom(r.id);
+                      setOpen(false);
+                    }}
+                    className={
+                      "flex-1 text-left text-sm px-3 py-2 rounded-lg transition-colors " +
+                      (r.id === currentRoom
+                        ? dark
+                          ? "bg-slate-800 text-slate-100"
+                          : "bg-slate-200 text-slate-900"
+                        : dark
+                        ? "hover:bg-slate-800/70 text-slate-300"
+                        : "hover:bg-slate-100 text-slate-700")
+                    }
+                  >
+                    {r.name}
+                  </button>
+                  {isAdmin && r.id !== DEFAULT_ROOM && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteRoom(r.id);
+                      }}
+                      className={
+                        "px-2 py-1 text-xs rounded transition-colors opacity-0 group-hover/room:opacity-100 " +
+                        (dark
+                          ? "hover:bg-red-500/20 text-red-400"
+                          : "hover:bg-red-500/10 text-red-600")
+                      }
+                      title="Delete room"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>
@@ -923,7 +971,8 @@ function NewPostModal({ onClose, onPost, dark }) {
               <img 
                 src={img} 
                 alt="preview" 
-                className="w-full rounded-lg max-h-48 object-cover" 
+                className="w-full rounded-lg object-contain max-h-96" 
+                style={{ maxWidth: '100%', height: 'auto' }}
               />
               <button
                 onClick={() => setImg("")}
@@ -1302,8 +1351,9 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
               {p.image && (
                 <img
                   src={p.image}
-                  className="w-full rounded mb-2 object-cover"
+                  className="w-full rounded mb-2 object-contain max-h-64"
                   alt="post"
+                  style={{ maxWidth: '100%', height: 'auto' }}
                 />
               )}
               <div className="text-sm">{p.text}</div>
