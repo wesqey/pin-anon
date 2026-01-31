@@ -13,7 +13,7 @@ import {
 // ---------- Firebase Config ----------
 // You'll replace this with your own config from Firebase Console
 const firebaseConfig = {
-  apiKey: import.meta.env._FIREBASE_API_KEY,
+  apiKey: import.meta.env.FIREBASE_API,
   authDomain: "pin-anon.firebaseapp.com",
   databaseURL: "https://pin-anon-default-rtdb.firebaseio.com",
   projectId: "pin-anon",
@@ -30,6 +30,9 @@ const database = getDatabase(app);
 // ---------- Config & utils ----------
 const LS_USER = "pinanon_v3_user";
 const DEFAULT_ROOM = "main";
+
+// Admin password - you should change this!
+const ADMIN_PASSWORD = "EpicMan101";
 
 function genAnonId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -72,7 +75,7 @@ export default function PinAnonBoard() {
   const [user, setUser] = useState(() => {
     const existing = loadUser();
     if (existing?.id) return existing;
-    const newUser = { id: genAnonId(7), display: null };
+    const newUser = { id: genAnonId(7), display: null, isAdmin: false };
     localStorage.setItem(LS_USER, JSON.stringify(newUser));
     return newUser;
   });
@@ -85,6 +88,7 @@ export default function PinAnonBoard() {
   const [search, setSearch] = useState("");
   const [inviteModal, setInviteModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("pinanon_dark") === "1";
   });
@@ -182,6 +186,13 @@ export default function PinAnonBoard() {
 }
 
   function removePost(postId) {
+  if (!user.isAdmin) {
+    alert("Only admins can delete posts");
+    return;
+  }
+  
+  if (!confirm("Delete this post?")) return;
+  
   const newPosts = (state.posts || []).filter((p) => p.id !== postId);
   const updates = {};
   updates['appState/posts'] = newPosts;
@@ -199,6 +210,28 @@ export default function PinAnonBoard() {
   function setDisplayName(name) {
     setUser((prev) => {
       const u = { ...prev, display: (name || "").toLowerCase() || null };
+      saveUser(u);
+      return u;
+    });
+  }
+
+  function handleAdminLogin() {
+    const password = prompt("Enter admin password:");
+    if (password === ADMIN_PASSWORD) {
+      setUser((prev) => {
+        const u = { ...prev, isAdmin: true };
+        saveUser(u);
+        return u;
+      });
+      alert("Admin access granted!");
+    } else if (password) {
+      alert("Incorrect password");
+    }
+  }
+
+  function handleAdminLogout() {
+    setUser((prev) => {
+      const u = { ...prev, isAdmin: false };
       saveUser(u);
       return u;
     });
@@ -248,6 +281,11 @@ export default function PinAnonBoard() {
   update(ref(database), updates);
 }
 
+  const currentRoomName = useMemo(() => {
+    const r = state.rooms.find(r => r.id === room);
+    return r?.name || "main room";
+  }, [room, state.rooms]);
+
   if (loading) {
     return (
       <div className={
@@ -273,59 +311,71 @@ export default function PinAnonBoard() {
     >
       <div className="max-w-6xl mx-auto px-6 py-10">
         <header className="flex items-center justify-between mb-10">
-          <div>
-            <div className="text-2xl font-light tracking-tight">pin-anon</div>
-            <div className={dark ? "text-slate-400" : "text-slate-500"}>
-              anonymous archive • live
+          <div className="flex items-center gap-4">
+            {/* Hamburger Menu - Moved to Left */}
+            <button
+              onClick={() => setMenuOpen(true)}
+              className="text-xl px-2 hover:opacity-70"
+              aria-label="menu"
+            >
+              ☰
+            </button>
+            
+            <div>
+              <div className="text-2xl font-light tracking-tight">pin-anon</div>
+              <div className={dark ? "text-slate-400" : "text-slate-500"}>
+                anonymous archive • live
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <Menu
+            {/* Rooms Dropdown */}
+            <RoomsDropdown 
+              rooms={state.rooms}
+              currentRoom={room}
+              currentRoomName={currentRoomName}
+              onSelectRoom={setRoom}
+              onCreateRoom={() => setInviteModal(true)}
+              onJoinRoom={() => {
+                const code = prompt("paste invite code");
+                if (code) joinRoom(code);
+              }}
               dark={dark}
-              items={[
-                { label: "new post", onClick: () => setShowNew(true) },
-                { divider: true },
-                { label: "settings", onClick: () => setShowSettings(true) },
-                { divider: true },
-                {
-                  label: "rooms",
-                  children: [
-                    {
-                      label: "create room",
-                      onClick: () => setInviteModal(true),
-                    },
-                    {
-                      label: "join room",
-                      onClick: () => {
-                        const code = prompt("paste invite code");
-                        if (code) joinRoom(code);
-                      },
-                    },
-                    ...state.rooms.map((r) => ({
-                      label: `open ${r.name}`,
-                      onClick: () => setRoom(r.id),
-                    })),
-                  ],
-                },
-                { divider: true },
-                {
-                  label: "copy link",
-                  onClick: () =>
-                    navigator.clipboard.writeText(window.location.href),
-                },
-                {
-                  label: "reset data",
-                  onClick: () => {
-                    if (confirm("reset all data? this affects everyone!")) {
-                      set(ref(database, 'appState'), EMPTY);
-                    }
-                  },
-                },
-              ]}
             />
+
+            {/* New Post Button */}
+            <button
+              onClick={() => setShowNew(true)}
+              className={
+                "px-4 py-2 rounded-lg text-sm font-medium transition-colors " +
+                (dark
+                  ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                  : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
+              }
+            >
+              new post
+            </button>
           </div>
         </header>
+
+        {/* Slide-over Menu */}
+        <SlideOverMenu 
+          open={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          dark={dark}
+          user={user}
+          onAdminLogin={handleAdminLogin}
+          onAdminLogout={handleAdminLogout}
+          onSettings={() => {
+            setShowSettings(true);
+            setMenuOpen(false);
+          }}
+          onCopyLink={() => {
+            navigator.clipboard.writeText(window.location.href);
+            setMenuOpen(false);
+          }}
+        />
 
         <div className="flex items-center justify-between mb-6 gap-4">
           <div className="flex items-center gap-3">
@@ -393,6 +443,19 @@ export default function PinAnonBoard() {
                     </div>
 
                     <div className="flex items-center gap-1">
+                      {user.isAdmin && (
+                        <button
+                          onClick={() => removePost(post.id)}
+                          className={
+                            "px-2.5 py-1.5 text-sm rounded-lg transition-all mr-2 " +
+                            (dark
+                              ? "hover:bg-red-500/20 text-red-400"
+                              : "hover:bg-red-500/10 text-red-600")
+                          }
+                        >
+                          delete
+                        </button>
+                      )}
                       <button
                         onClick={() => vote(post.id, 1)}
                         className={
@@ -465,6 +528,11 @@ export default function PinAnonBoard() {
               <div className="mt-1 font-medium lowercase">
                 {user.display || user.id}
               </div>
+              {user.isAdmin && (
+                <div className="mt-2 text-xs text-orange-500">
+                  admin
+                </div>
+              )}
               <div
                 className={
                   "mt-3 text-xs " +
@@ -523,87 +591,183 @@ export default function PinAnonBoard() {
 }
 
 // ---------- UI Subcomponents ----------
-function Menu({ items, dark }) {
+
+function SlideOverMenu({ open, onClose, dark, user, onAdminLogin, onAdminLogout, onSettings, onCopyLink }) {
+  if (!open) return null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div 
+        className="fixed inset-0 bg-black/50 z-40 transition-opacity"
+        onClick={onClose}
+      />
+      
+      {/* Slide-over panel */}
+      <div 
+        className={
+          "fixed top-0 left-0 h-full w-80 z-50 shadow-xl transform transition-transform duration-300 ease-in-out " +
+          (dark ? "bg-slate-900" : "bg-white")
+        }
+      >
+        <div className="h-full flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 border-b border-slate-700">
+            <h2 className="text-lg font-medium">menu</h2>
+            <button 
+              onClick={onClose}
+              className="text-xl hover:opacity-70"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Menu Items */}
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="space-y-2">
+              <button
+                onClick={onSettings}
+                className={
+                  "w-full text-left px-4 py-3 rounded-lg transition-colors " +
+                  (dark ? "hover:bg-slate-800" : "hover:bg-slate-100")
+                }
+              >
+                settings
+              </button>
+
+              <button
+                onClick={onCopyLink}
+                className={
+                  "w-full text-left px-4 py-3 rounded-lg transition-colors " +
+                  (dark ? "hover:bg-slate-800" : "hover:bg-slate-100")
+                }
+              >
+                copy link
+              </button>
+
+              <div className={
+                "my-4 " + (dark ? "border-t border-slate-800" : "border-t border-slate-200")
+              } />
+
+              {!user.isAdmin ? (
+                <button
+                  onClick={() => {
+                    onAdminLogin();
+                    onClose();
+                  }}
+                  className={
+                    "w-full text-left px-4 py-3 rounded-lg transition-colors " +
+                    (dark ? "hover:bg-slate-800 text-orange-400" : "hover:bg-slate-100 text-orange-600")
+                  }
+                >
+                  admin login
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    onAdminLogout();
+                    onClose();
+                  }}
+                  className={
+                    "w-full text-left px-4 py-3 rounded-lg transition-colors " +
+                    (dark ? "hover:bg-slate-800 text-red-400" : "hover:bg-slate-100 text-red-600")
+                  }
+                >
+                  admin logout
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, dark }) {
   const [open, setOpen] = useState(false);
 
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen((o) => !o)}
-        className="text-xl px-2 hover:opacity-70"
-        aria-label="menu"
+        onClick={() => setOpen(!open)}
+        className={
+          "px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 " +
+          (dark
+            ? "bg-slate-800/70 hover:bg-slate-800 text-slate-300"
+            : "bg-slate-200 hover:bg-slate-300 text-slate-700")
+        }
       >
-        ☰
+        <span>{currentRoomName}</span>
+        <span className="text-xs">▼</span>
       </button>
 
       {open && (
-        <div
-          className={
-            "absolute right-0 mt-2 rounded-xl shadow-xl p-2 z-50 min-w-[180px] " +
-            (dark
-              ? "bg-slate-900/95 backdrop-blur-sm"
-              : "bg-white/95 backdrop-blur-sm")
-          }
-        >
-          {items.map((item, i) => {
-            if (item.divider) {
-              return (
-                <div
-                  key={i}
-                  className={
-                    "my-1 " + (dark ? "border-t border-slate-800" : "border-t border-slate-200")
-                  }
-                />
-              );
+        <>
+          <div 
+            className="fixed inset-0 z-10"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            className={
+              "absolute right-0 mt-2 rounded-xl shadow-xl p-2 z-20 min-w-[200px] " +
+              (dark
+                ? "bg-slate-900/95 backdrop-blur-sm"
+                : "bg-white/95 backdrop-blur-sm")
             }
-
-            if (item.children) {
-              return (
-                <div key={i} className="mb-2">
-                  <div
-                    className={
-                      "text-xs px-2 mb-1 uppercase tracking-wider font-medium " +
-                      (dark ? "text-slate-500" : "text-slate-400")
-                    }
-                  >
-                    {item.label}
-                  </div>
-                  {item.children.map((child, j) => (
-                    <button
-                      key={j}
-                      onClick={() => {
-                        child.onClick();
-                        setOpen(false);
-                      }}
-                      className={
-                        "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
-                        (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
-                      }
-                    >
-                      {child.label}
-                    </button>
-                  ))}
-                </div>
-              );
-            }
-
-            return (
+          >
+            <div className="mb-2 pb-2 border-b border-slate-700">
               <button
-                key={i}
                 onClick={() => {
-                  item.onClick();
+                  onCreateRoom();
                   setOpen(false);
                 }}
                 className={
-                  "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
-                  (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
+                  "block w-full text-left text-sm px-3 py-2 rounded-lg transition-colors " +
+                  (dark ? "hover:bg-slate-800/70 text-blue-400" : "hover:bg-slate-100 text-blue-600")
                 }
               >
-                {item.label}
+                + create room
               </button>
-            );
-          })}
-        </div>
+              <button
+                onClick={() => {
+                  onJoinRoom();
+                  setOpen(false);
+                }}
+                className={
+                  "block w-full text-left text-sm px-3 py-2 rounded-lg transition-colors " +
+                  (dark ? "hover:bg-slate-800/70 text-green-400" : "hover:bg-slate-100 text-green-600")
+                }
+              >
+                join room
+              </button>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto">
+              {rooms.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => {
+                    onSelectRoom(r.id);
+                    setOpen(false);
+                  }}
+                  className={
+                    "block w-full text-left text-sm px-3 py-2 rounded-lg transition-colors " +
+                    (r.id === currentRoom
+                      ? dark
+                        ? "bg-slate-800 text-slate-100"
+                        : "bg-slate-200 text-slate-900"
+                      : dark
+                      ? "hover:bg-slate-800/70 text-slate-300"
+                      : "hover:bg-slate-100 text-slate-700")
+                  }
+                >
+                  {r.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -628,11 +792,51 @@ function Panel({ title, children, dark }) {
 function NewPostModal({ onClose, onPost, dark }) {
   const [text, setText] = useState("");
   const [img, setImg] = useState("");
+  const [uploading, setUploading] = useState(false);
 
-  function handleFile(e) {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    setImg(URL.createObjectURL(f));
+  // REPLACE these with your Cloudinary values
+  const CLOUDINARY_CLOUD_NAME = "dnulbfj48"; // e.g., "dab12xyz"
+  const CLOUDINARY_UPLOAD_PRESET = "pin-anon-uploads"; // or whatever you named it
+
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Image too large! Please choose an image under 10MB.");
+      return;
+    }
+    
+    setUploading(true);
+    
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+      
+      const data = await response.json();
+      
+      if (data.secure_url) {
+        setImg(data.secure_url);
+      } else {
+        throw new Error("Upload failed");
+      }
+      
+      setUploading(false);
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("Failed to upload image. Please try again.");
+      setUploading(false);
+    }
   }
 
   function submit() {
@@ -673,29 +877,73 @@ function NewPostModal({ onClose, onPost, dark }) {
           }
         ></textarea>
 
-        <div className="flex gap-3 items-center mb-3">
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleFile}
-            className="text-sm"
-          />
+        <div className="mb-3">
+          <div className="flex gap-3 items-center mb-2">
+            <label className={
+              "px-4 py-2 rounded-lg cursor-pointer transition-colors " +
+              (uploading
+                ? dark
+                  ? "bg-slate-800/30 text-slate-600 cursor-not-allowed"
+                  : "bg-slate-200/50 text-slate-400 cursor-not-allowed"
+                : dark
+                ? "bg-slate-800/70 hover:bg-slate-800 text-slate-300"
+                : "bg-slate-200 hover:bg-slate-300 text-slate-700")
+            }>
+              {uploading ? "uploading..." : "choose image"}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFile}
+                disabled={uploading}
+                className="hidden"
+              />
+            </label>
+            <span className={
+              "text-xs " + (dark ? "text-slate-500" : "text-slate-400")
+            }>
+              or paste url below
+            </span>
+          </div>
+          
           <input
             value={img}
             onChange={(e) => setImg(e.target.value)}
             placeholder="or paste image url"
+            disabled={uploading}
             className={
-              "flex-1 rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
+              "w-full rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
               (dark
                 ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
                 : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
             }
           />
+          
+          {img && !uploading && (
+            <div className="mt-3 relative">
+              <img 
+                src={img} 
+                alt="preview" 
+                className="w-full rounded-lg max-h-48 object-cover" 
+              />
+              <button
+                onClick={() => setImg("")}
+                className={
+                  "absolute top-2 right-2 px-2 py-1 rounded-lg text-xs font-medium " +
+                  (dark
+                    ? "bg-slate-900/90 text-slate-300 hover:bg-slate-900"
+                    : "bg-white/90 text-slate-700 hover:bg-white")
+                }
+              >
+                remove
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3">
           <button
             onClick={onClose}
+            disabled={uploading}
             className={
               "px-4 py-2 rounded-lg transition-colors " +
               (dark
@@ -707,14 +955,19 @@ function NewPostModal({ onClose, onPost, dark }) {
           </button>
           <button
             onClick={submit}
+            disabled={uploading || (!text.trim() && !img)}
             className={
               "px-5 py-2 rounded-lg font-medium transition-colors " +
-              (dark
+              (uploading || (!text.trim() && !img)
+                ? dark
+                  ? "bg-slate-800/30 text-slate-600 cursor-not-allowed"
+                  : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                : dark
                 ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
                 : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
             }
           >
-            post
+            {uploading ? "uploading..." : "post"}
           </button>
         </div>
       </div>
@@ -762,7 +1015,7 @@ function CommentBlock({ post, addComment, whisper, dark, user }) {
               : "hover:bg-slate-100 text-slate-500 hover:text-slate-700")
           }
         >
-          💬 {(post.comments || []).length} {open ? '' : 'comments'}
+          {(post.comments || []).length} {open ? '' : 'comments'}
         </button>
         {!whisper && !open && (
           <div
