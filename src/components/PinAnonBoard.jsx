@@ -63,7 +63,7 @@ const EMPTY = {
 };
 
 // ---------- Main Component ----------
-export default function PinAnonBoard() {
+function PinAnonBoard() {
   const [state, setState] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(() => {
@@ -121,14 +121,14 @@ export default function PinAnonBoard() {
     [state.posts, room]
   );
 
-  function createRoom(name = "room") {
+  function createRoom(name = "room", isPrivate = true) {
     const invite = genAnonId(6);
     const r = { 
       id: invite, 
       name: name || `room-${invite}`, 
       invite,
-      creator: user.id, // Track who created this room
-      isPrivate: true // Private rooms only accessible via invite
+      creator: user.id,
+      isPrivate: isPrivate // Now controlled by user choice
     };
     const newRooms = [r, ...state.rooms];
     const updates = {};
@@ -726,8 +726,8 @@ export default function PinAnonBoard() {
       {inviteModal && (
         <RoomModal
           onClose={() => setInviteModal(false)}
-          onCreate={(n) => {
-            const r = createRoom(n);
+          onCreate={(n, isPrivate) => {
+            const r = createRoom(n, isPrivate);
             setRoom(r.id);
             setInviteModal(false);
             alert(`ROOM CREATED: ${r.invite}`);
@@ -757,9 +757,10 @@ export default function PinAnonBoard() {
 function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin, userJoinedRooms, userCreatedRooms }) {
   const [open, setOpen] = useState(false);
   
-  // Filter to only show rooms the user has joined (or main room)
+  // Show: main room, public rooms, or rooms user has joined
   const visibleRooms = rooms.filter(r => 
     r.id === DEFAULT_ROOM || 
+    !r.isPrivate || 
     (userJoinedRooms || []).includes(r.id)
   );
 
@@ -881,7 +882,7 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
                       onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                       onMouseLeave={(e) => e.target.style.opacity = '1'}
                     >
-                      {r.name.toUpperCase()}{isCreator ? ' ★' : ''}
+                      {r.name.toUpperCase()}{isCreator ? ' ★' : ''}{r.isPrivate ? ' 🔒' : ''}
                     </button>
                     {(isAdmin || isCreator) && r.id !== DEFAULT_ROOM && (
                       <button
@@ -1616,9 +1617,20 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
     </div>
   );
 }
+const PinAnonBoard = () => {
+  return (
+    <div>
+      <h1>Welcome to Pin Anon Board</h1>
+      {/* Add more content here as needed */}
+    </div>
+  );
+};
+
+export default PinAnonBoard;
 
 function RoomModal({ onClose, onCreate, onJoin, dark }) {
   const [name, setName] = useState("");
+  const [isPrivate, setIsPrivate] = useState(true);
 
   return (
     <div style={{ 
@@ -1666,7 +1678,49 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
           </button>
         </div>
 
-        <div style={{ marginBottom: '25px' }}>
+        <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center' }}>
+          <span style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#fff' : '#000'
+          }}>
+            ROOM TYPE:
+          </span>
+          <button
+            onClick={() => setIsPrivate(true)}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '8px 16px',
+              backgroundColor: isPrivate ? (dark ? '#fff' : '#000') : 'transparent',
+                border: `1px solid ${dark ? '#fff' : '#000'}`,
+                cursor: 'pointer',
+                color: isPrivate ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              PRIVATE
+            </button>
+            <button
+              onClick={() => setIsPrivate(false)}
+              style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '8px 16px',
+                backgroundColor: !isPrivate ? (dark ? '#fff' : '#000') : 'transparent',
+                border: `1px solid ${dark ? '#fff' : '#000'}`,
+                cursor: 'pointer',
+                color: !isPrivate ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              PUBLIC
+            </button>
+          </div>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -1686,7 +1740,7 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
           />
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
-              onClick={() => onCreate(name)}
+              onClick={() => onCreate(name, isPrivate)}
               style={{
                 fontSize: '10px',
                 letterSpacing: '0.1em',
@@ -1731,13 +1785,12 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
           lineHeight: '1.5',
           color: dark ? '#666' : '#999'
         }}>
-          CREATING A ROOM GENERATES A SHORT INVITE CODE YOU CAN SHARE
+          PRIVATE ROOMS: INVITE-ONLY VIA CODE • PUBLIC ROOMS: VISIBLE TO ALL USERS
         </div>
       </div>
     </div>
   );
 }
-
 function SettingsModal({ dark, setDark, onClose }) {
   return (
     <div style={{ 
