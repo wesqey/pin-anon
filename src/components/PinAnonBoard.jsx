@@ -63,7 +63,7 @@ const EMPTY = {
 };
 
 // ---------- Main Component ----------
-function PinAnonBoard() {
+export default function PinAnonBoard() {
   const [state, setState] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(() => {
