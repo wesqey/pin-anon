@@ -1617,16 +1617,6 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
     </div>
   );
 }
-const PinAnonBoard = () => {
-  return (
-    <div>
-      <h1>Welcome to Pin Anon Board</h1>
-      {/* Add more content here as needed */}
-    </div>
-  );
-};
-
-export default PinAnonBoard;
 
 function RoomModal({ onClose, onCreate, onJoin, dark }) {
   const [name, setName] = useState("");
@@ -1678,21 +1668,22 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
           </button>
         </div>
 
-        <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center' }}>
-          <span style={{
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            color: dark ? '#fff' : '#000'
-          }}>
-            ROOM TYPE:
-          </span>
-          <button
-            onClick={() => setIsPrivate(true)}
-            style={{
+        <div style={{ marginBottom: '25px' }}>
+          <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center' }}>
+            <span style={{
               fontSize: '10px',
               letterSpacing: '0.1em',
-              padding: '8px 16px',
-              backgroundColor: isPrivate ? (dark ? '#fff' : '#000') : 'transparent',
+              color: dark ? '#fff' : '#000'
+            }}>
+              ROOM TYPE:
+            </span>
+            <button
+              onClick={() => setIsPrivate(true)}
+              style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '8px 16px',
+                backgroundColor: isPrivate ? (dark ? '#fff' : '#000') : 'transparent',
                 border: `1px solid ${dark ? '#fff' : '#000'}`,
                 cursor: 'pointer',
                 color: isPrivate ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
@@ -1721,6 +1712,7 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
               PUBLIC
             </button>
           </div>
+          
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -1738,6 +1730,7 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
               color: dark ? '#fff' : '#000'
             }}
           />
+          
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
               onClick={() => onCreate(name, isPrivate)}
