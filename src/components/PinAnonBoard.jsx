@@ -457,34 +457,37 @@ export default function PinAnonBoard() {
           borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}` 
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px', flexWrap: 'wrap', gap: '20px' }}>
-            <div>
-              <button
-                onClick={() => setView("home")}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 0
-                }}
+            <button
+              onClick={() => setView("home")}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                textAlign: 'left'
+              }}
+            >
+              <div style={{ 
+                fontSize: '24px', 
+                fontWeight: '300', 
+                letterSpacing: '0.15em',
+                marginBottom: '8px',
+                color: dark ? '#fff' : '#000',
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
               >
-                <div style={{ 
-                  fontSize: '24px', 
-                  fontWeight: '300', 
-                  letterSpacing: '0.15em',
-                  marginBottom: '8px',
-                  color: dark ? '#fff' : '#000'
-                }}>
-                  PIN-ANON
-                </div>
-                <div style={{ 
-                  fontSize: '10px', 
-                  letterSpacing: '0.2em',
-                  color: dark ? '#999' : '#666'
-                }}>
-                  ANONYMOUS ARCHIVE
-                </div>
-              </button>
-            </div>
+                PIN-ANON
+              </div>
+              <div style={{ 
+                fontSize: '10px', 
+                letterSpacing: '0.2em',
+                color: dark ? '#999' : '#666'
+              }}>
+                ANONYMOUS ARCHIVE
+              </div>
+            </button>
 
             <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flexWrap: 'wrap' }}>
               {!user.isAdmin ? (
