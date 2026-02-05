@@ -84,8 +84,12 @@ export default function PinAnonBoard() {
   const [layout, setLayout] = useState(() => {
     return localStorage.getItem("pinanon_layout") || "single";
   }); // "single", "double", or "triple"
-  const [view, setView] = useState("home"); // "home" or "room"
-  const [room, setRoom] = useState(DEFAULT_ROOM);
+  const [view, setView] = useState(() => {
+    return localStorage.getItem("pinanon_view") || "home";
+  }); // "home" or "room"
+  const [room, setRoom] = useState(() => {
+    return localStorage.getItem("pinanon_room") || DEFAULT_ROOM;
+  });
   const [showNew, setShowNew] = useState(false);
   const [profileView, setProfileView] = useState(null);
   const [sort, setSort] = useState("newest");
@@ -130,6 +134,14 @@ export default function PinAnonBoard() {
   useEffect(() => {
     localStorage.setItem("pinanon_layout", layout);
   }, [layout]);
+
+  useEffect(() => {
+    localStorage.setItem("pinanon_view", view);
+  }, [view]);
+
+  useEffect(() => {
+    localStorage.setItem("pinanon_room", room);
+  }, [room]);
 
   const postsInRoom = useMemo(
     () => (state.posts || []).filter((p) => p.room === room),
