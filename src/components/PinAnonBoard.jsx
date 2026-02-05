@@ -397,17 +397,7 @@ export default function PinAnonBoard() {
   };
 
   const getGridColumns = () => {
-    // On mobile (< 768px), always show single column
-    if (windowWidth < 768) return '1fr';
-    
-    // On tablet (768-1024px), max 2 columns
-    if (windowWidth < 1024) {
-      if (layout === 'triple') return 'repeat(2, 1fr)';
-      if (layout === 'double') return 'repeat(2, 1fr)';
-      return '1fr';
-    }
-    
-    // On desktop, show requested layout
+    // Always respect the user's layout choice on all screen sizes
     if (layout === 'single') return '1fr';
     if (layout === 'double') return 'repeat(2, 1fr)';
     return 'repeat(3, 1fr)';
@@ -439,7 +429,7 @@ export default function PinAnonBoard() {
       transition: 'background-color 0.3s, color 0.3s',
       overflowX: 'hidden'
     }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '40px 20px' }}>
+      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: windowWidth < 768 ? '20px 10px' : '40px 20px' }}>
         {/* Header */}
         <header style={{ 
           marginBottom: '60px', 
@@ -616,7 +606,7 @@ export default function PinAnonBoard() {
           <section style={{ 
             display: 'grid',
             gridTemplateColumns: getGridColumns(),
-            gap: layout === 'single' ? '60px' : '30px'
+            gap: layout === 'single' ? '60px' : windowWidth < 768 ? '20px' : '30px'
           }}>
             {visible.length === 0 && (
               <div style={{ 
@@ -637,7 +627,9 @@ export default function PinAnonBoard() {
                 borderBottom: layout === 'single' ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
                 wordWrap: 'break-word',
                 overflowWrap: 'break-word',
-                minWidth: 0
+                minWidth: 0,
+                border: layout !== 'single' ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
+                padding: layout !== 'single' ? '15px' : '0'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
                   <div style={{ display: 'flex', gap: '15px', alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -748,7 +740,7 @@ export default function PinAnonBoard() {
                       src={post.image}
                       style={{ 
                         width: '100%',
-                        maxHeight: '600px',
+                        maxHeight: layout === 'single' ? '600px' : '300px',
                         objectFit: 'contain',
                         marginBottom: '20px'
                       }}
@@ -756,7 +748,7 @@ export default function PinAnonBoard() {
                     />
                   )}
                   <div style={{ 
-                    fontSize: '13px', 
+                    fontSize: layout === 'single' ? '13px' : '12px', 
                     lineHeight: '1.8',
                     letterSpacing: '0.02em',
                     fontWeight: '300',
