@@ -81,7 +81,9 @@ export default function PinAnonBoard() {
     return newUser;
   });
 
-  const [gridView, setGridView] = useState(true); // true = grid, false = single column
+  const [layout, setLayout] = useState(() => {
+    return localStorage.getItem("pinanon_layout") || "single";
+  }); // "single", "double", or "triple"
   const [room, setRoom] = useState(DEFAULT_ROOM);
   const [showNew, setShowNew] = useState(false);
   const [profileView, setProfileView] = useState(null);
@@ -116,6 +118,10 @@ export default function PinAnonBoard() {
   useEffect(() => {
     localStorage.setItem("pinanon_dark", dark ? "1" : "0");
   }, [dark]);
+
+  useEffect(() => {
+    localStorage.setItem("pinanon_layout", layout);
+  }, [layout]);
 
   const postsInRoom = useMemo(
     () => (state.posts || []).filter((p) => p.room === room),
@@ -370,6 +376,13 @@ export default function PinAnonBoard() {
     return r?.name || "MAIN ROOM";
   }, [room, state.rooms]);
 
+  const cycleLayout = () => {
+    const layouts = ["single", "double", "triple"];
+    const currentIndex = layouts.indexOf(layout);
+    const nextIndex = (currentIndex + 1) % layouts.length;
+    setLayout(layouts[nextIndex]);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ 
@@ -393,16 +406,17 @@ export default function PinAnonBoard() {
       backgroundColor: dark ? '#000' : '#fff',
       color: dark ? '#fff' : '#000',
       fontFamily: 'Helvetica Neue, Arial, sans-serif',
-      transition: 'background-color 0.3s, color 0.3s'
+      transition: 'background-color 0.3s, color 0.3s',
+      overflowX: 'hidden'
     }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '40px 60px' }}>
+      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '40px 20px' }}>
         {/* Header */}
         <header style={{ 
           marginBottom: '60px', 
           paddingBottom: '30px', 
           borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}` 
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px', flexWrap: 'wrap', gap: '20px' }}>
             <div>
               <div style={{ 
                 fontSize: '24px', 
@@ -421,7 +435,7 @@ export default function PinAnonBoard() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '30px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flexWrap: 'wrap' }}>
               {!user.isAdmin ? (
                 <button
                   onClick={handleAdminLogin}
@@ -476,7 +490,7 @@ export default function PinAnonBoard() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -521,6 +535,23 @@ export default function PinAnonBoard() {
             />
 
             <button
+              onClick={cycleLayout}
+              style={{
+                fontSize: '10px',
+                letterSpacing: '0.15em',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: dark ? '#fff' : '#000',
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              LAYOUT: {layout.toUpperCase()}
+            </button>
+
+            <button
               onClick={() => setShowNew(true)}
               style={{
                 fontSize: '10px',
@@ -550,14 +581,19 @@ export default function PinAnonBoard() {
         </div>
 
         <main>
-          <section style={{ display: 'flex', flexDirection: 'column', gap: '60px' }}>
+          <section style={{ 
+            display: 'grid',
+            gridTemplateColumns: layout === 'single' ? '1fr' : layout === 'double' ? 'repeat(auto-fit, minmax(400px, 1fr))' : 'repeat(auto-fit, minmax(300px, 1fr))',
+            gap: '60px'
+          }}>
             {visible.length === 0 && (
               <div style={{ 
                 padding: '60px 0', 
                 textAlign: 'center',
                 fontSize: '11px',
                 letterSpacing: '0.1em',
-                color: dark ? '#666' : '#999'
+                color: dark ? '#666' : '#999',
+                gridColumn: '1 / -1'
               }}>
                 NO POSTS YET IN THIS ROOM
               </div>
@@ -565,11 +601,14 @@ export default function PinAnonBoard() {
 
             {visible.map((post) => (
               <article key={post.id} style={{ 
-                paddingBottom: '60px',
-                borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+                paddingBottom: layout === 'single' ? '60px' : '20px',
+                borderBottom: layout === 'single' ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
+                wordWrap: 'break-word',
+                overflowWrap: 'break-word',
+                minWidth: 0
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-                  <div style={{ display: 'flex', gap: '15px', alignItems: 'baseline' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'baseline', flexWrap: 'wrap' }}>
                     <button
                       onClick={() => setProfileView(post.author)}
                       style={{
@@ -580,7 +619,8 @@ export default function PinAnonBoard() {
                         cursor: 'pointer',
                         color: dark ? '#fff' : '#000',
                         textDecoration: 'underline',
-                        padding: 0
+                        padding: 0,
+                        wordBreak: 'break-all'
                       }}
                     >
                       {post.author.toUpperCase()}
@@ -611,7 +651,8 @@ export default function PinAnonBoard() {
                           border: 'none',
                           cursor: 'pointer',
                           color: dark ? '#666' : '#999',
-                          transition: 'opacity 0.2s'
+                          transition: 'opacity 0.2s',
+                          whiteSpace: 'nowrap'
                         }}
                         onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                         onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -686,7 +727,9 @@ export default function PinAnonBoard() {
                     fontSize: '13px', 
                     lineHeight: '1.8',
                     letterSpacing: '0.02em',
-                    fontWeight: '300'
+                    fontWeight: '300',
+                    wordWrap: 'break-word',
+                    overflowWrap: 'break-word'
                   }}>
                     {post.text}
                   </div>
@@ -780,11 +823,15 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
           padding: '8px 0',
           display: 'flex',
           gap: '8px',
-          alignItems: 'center'
+          alignItems: 'center',
+          maxWidth: '200px',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
         }}
       >
-        <span>{currentRoomName.toUpperCase()}</span>
-        <span style={{ fontSize: '8px' }}>▼</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentRoomName.toUpperCase()}</span>
+        <span style={{ fontSize: '8px', flexShrink: 0 }}>▼</span>
       </button>
 
       {open && (
@@ -805,7 +852,8 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
             border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
             padding: '10px',
             zIndex: 20,
-            minWidth: '200px'
+            minWidth: '200px',
+            maxWidth: '300px'
           }}>
             <div style={{ 
               marginBottom: '10px', 
@@ -878,7 +926,9 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
                         border: 'none',
                         cursor: 'pointer',
                         color: r.id === currentRoom ? (dark ? '#fff' : '#000') : (dark ? '#999' : '#666'),
-                        transition: 'opacity 0.2s'
+                        transition: 'opacity 0.2s',
+                        wordBreak: 'break-word',
+                        overflowWrap: 'break-word'
                       }}
                       onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                       onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -898,7 +948,8 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
                           border: 'none',
                           cursor: 'pointer',
                           color: dark ? '#666' : '#999',
-                          transition: 'opacity 0.2s'
+                          transition: 'opacity 0.2s',
+                          flexShrink: 0
                         }}
                         onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                         onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -972,17 +1023,18 @@ function NewPostModal({ onClose, onPost, dark }) {
       alignItems: 'center', 
       justifyContent: 'center',
       backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
+      padding: '20px',
+      overflowY: 'auto'
     }}>
       <div style={{
         maxWidth: '600px',
         width: '100%',
         backgroundColor: dark ? '#0a0a0a' : '#fff',
         border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
+        padding: '40px 20px',
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px' }}>
           <h3 style={{ 
             fontSize: '12px', 
             letterSpacing: '0.15em',
@@ -1009,143 +1061,147 @@ function NewPostModal({ onClose, onPost, dark }) {
           </button>
         </div>
 
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="TEXT"
-          style={{
-            width: '100%',
-            height: '120px',
-            padding: '15px',
-            marginBottom: '20px',
-            fontSize: '12px',
-            letterSpacing: '0.05em',
-            fontWeight: '300',
-            lineHeight: '1.6',
-            background: 'none',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            outline: 'none',
-            resize: 'none',
-            color: dark ? '#fff' : '#000',
-            fontFamily: 'Helvetica Neue, Arial, sans-serif'
-          }}
-        />
-
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
-            <label style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '10px 15px',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              cursor: uploading ? 'not-allowed' : 'pointer',
-              color: uploading ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              {uploading ? "UPLOADING..." : "CHOOSE IMAGE"}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFile}
-                disabled={uploading}
-                style={{ display: 'none' }}
-              />
-            </label>
-          </div>
-          
-          <input
-            value={img}
-            onChange={(e) => setImg(e.target.value)}
-            placeholder="OR PASTE IMAGE URL"
-            disabled={uploading}
+        <div style={{ paddingLeft: '20px', paddingRight: '20px' }}>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="TEXT"
             style={{
               width: '100%',
-              padding: '10px 0',
-              fontSize: '10px',
-              letterSpacing: '0.1em',
+              height: '120px',
+              padding: '15px',
+              marginBottom: '20px',
+              fontSize: '12px',
+              letterSpacing: '0.05em',
+              fontWeight: '300',
+              lineHeight: '1.6',
               background: 'none',
-              border: 'none',
-              borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
               outline: 'none',
-              color: dark ? '#fff' : '#000'
+              resize: 'none',
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif',
+              boxSizing: 'border-box'
             }}
           />
-          
-          {img && !uploading && (
-            <div style={{ marginTop: '20px', position: 'relative' }}>
-              <img 
-                src={img} 
-                alt="preview" 
-                style={{ 
-                  width: '100%',
-                  maxHeight: '300px',
-                  objectFit: 'contain'
-                }}
-              />
-              <button
-                onClick={() => setImg("")}
-                style={{
-                  position: 'absolute',
-                  top: '10px',
-                  right: '10px',
-                  fontSize: '9px',
-                  letterSpacing: '0.1em',
-                  padding: '6px 10px',
-                  backgroundColor: dark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)',
-                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                  cursor: 'pointer',
-                  color: dark ? '#fff' : '#000',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                REMOVE
-              </button>
-            </div>
-          )}
-        </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '15px' }}>
-          <button
-            onClick={onClose}
-            disabled={uploading}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '10px 20px',
-              background: 'none',
-              border: 'none',
-              cursor: uploading ? 'not-allowed' : 'pointer',
-              color: dark ? '#666' : '#999',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CANCEL
-          </button>
-          <button
-            onClick={submit}
-            disabled={uploading || (!text.trim() && !img)}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '10px 20px',
-              backgroundColor: (uploading || (!text.trim() && !img)) ? 'transparent' : (dark ? '#fff' : '#000'),
-              border: `1px solid ${(uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#e5e5e5') : (dark ? '#fff' : '#000')}`,
-              cursor: (uploading || (!text.trim() && !img)) ? 'not-allowed' : 'pointer',
-              color: (uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#ccc') : (dark ? '#000' : '#fff'),
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => !(uploading || (!text.trim() && !img)) && (e.target.style.opacity = '0.7')}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            {uploading ? "UPLOADING..." : "POST"}
-          </button>
+          <div style={{ marginBottom: '20px' }}>
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
+              <label style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '10px 15px',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                color: uploading ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                {uploading ? "UPLOADING..." : "CHOOSE IMAGE"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFile}
+                  disabled={uploading}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </div>
+            
+            <input
+              value={img}
+              onChange={(e) => setImg(e.target.value)}
+              placeholder="OR PASTE IMAGE URL"
+              disabled={uploading}
+              style={{
+                width: '100%',
+                padding: '10px 0',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                background: 'none',
+                border: 'none',
+                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                color: dark ? '#fff' : '#000',
+                boxSizing: 'border-box'
+              }}
+            />
+            
+            {img && !uploading && (
+              <div style={{ marginTop: '20px', position: 'relative' }}>
+                <img 
+                  src={img} 
+                  alt="preview" 
+                  style={{ 
+                    width: '100%',
+                    maxHeight: '300px',
+                    objectFit: 'contain'
+                  }}
+                />
+                <button
+                  onClick={() => setImg("")}
+                  style={{
+                    position: 'absolute',
+                    top: '10px',
+                    right: '10px',
+                    fontSize: '9px',
+                    letterSpacing: '0.1em',
+                    padding: '6px 10px',
+                    backgroundColor: dark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)',
+                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    cursor: 'pointer',
+                    color: dark ? '#fff' : '#000',
+                    transition: 'opacity 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                  onMouseLeave={(e) => e.target.style.opacity = '1'}
+                >
+                  REMOVE
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '15px', flexWrap: 'wrap' }}>
+            <button
+              onClick={onClose}
+              disabled={uploading}
+              style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '10px 20px',
+                background: 'none',
+                border: 'none',
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                color: dark ? '#666' : '#999',
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              CANCEL
+            </button>
+            <button
+              onClick={submit}
+              disabled={uploading || (!text.trim() && !img)}
+              style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '10px 20px',
+                backgroundColor: (uploading || (!text.trim() && !img)) ? 'transparent' : (dark ? '#fff' : '#000'),
+                border: `1px solid ${(uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#e5e5e5') : (dark ? '#fff' : '#000')}`,
+                cursor: (uploading || (!text.trim() && !img)) ? 'not-allowed' : 'pointer',
+                color: (uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#ccc') : (dark ? '#000' : '#fff'),
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => !(uploading || (!text.trim() && !img)) && (e.target.style.opacity = '0.7')}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              {uploading ? "UPLOADING..." : "POST"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1176,7 +1232,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           onClick={() => setOpen((o) => !o)}
           style={{
@@ -1227,7 +1283,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
             />
           ))}
 
-          <div style={{ display: 'flex', gap: '10px', paddingTop: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', paddingTop: '10px', flexWrap: 'wrap' }}>
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -1241,6 +1297,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
               placeholder="ADD A COMMENT..."
               style={{
                 flex: 1,
+                minWidth: '200px',
                 fontSize: '10px',
                 letterSpacing: '0.05em',
                 padding: '8px 0',
@@ -1267,7 +1324,8 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
                 border: `1px solid ${text.trim() ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
                 cursor: text.trim() ? 'pointer' : 'not-allowed',
                 color: text.trim() ? (dark ? '#000' : '#fff') : (dark ? '#333' : '#ccc'),
-                transition: 'opacity 0.2s'
+                transition: 'opacity 0.2s',
+                whiteSpace: 'nowrap'
               }}
               onMouseEnter={(e) => text.trim() && (e.target.style.opacity = '0.7')}
               onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -1297,7 +1355,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
   const canDelete = user.isAdmin || comment.authorId === user.id || isRoomMod;
 
   return (
-    <div>
+    <div style={{ wordWrap: 'break-word', overflowWrap: 'break-word' }}>
       <div style={{ display: 'flex', gap: '10px' }}>
         {comment.replies?.length > 0 && (
           <button
@@ -1329,7 +1387,8 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                   fontSize: '10px',
                   letterSpacing: '0.05em',
                   fontWeight: '400',
-                  color: dark ? '#999' : '#666'
+                  color: dark ? '#999' : '#666',
+                  wordBreak: 'break-all'
                 }}>
                   {comment.author.toUpperCase()}
                 </span>
@@ -1359,12 +1418,14 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                 letterSpacing: '0.02em',
                 marginBottom: '12px',
                 color: dark ? '#fff' : '#000',
-                fontWeight: '300'
+                fontWeight: '300',
+                wordWrap: 'break-word',
+                overflowWrap: 'break-word'
               }}>
                 {comment.text}
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                   onClick={() => setShowReplyBox(!showReplyBox)}
                   style={{
@@ -1375,7 +1436,8 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                     border: 'none',
                     cursor: 'pointer',
                     color: dark ? '#666' : '#999',
-                    transition: 'opacity 0.2s'
+                    transition: 'opacity 0.2s',
+                    whiteSpace: 'nowrap'
                   }}
                   onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                   onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -1393,7 +1455,8 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                       border: 'none',
                       cursor: 'pointer',
                       color: dark ? '#666' : '#999',
-                      transition: 'opacity 0.2s'
+                      transition: 'opacity 0.2s',
+                      whiteSpace: 'nowrap'
                     }}
                     onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                     onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -1413,7 +1476,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
               </div>
 
               {showReplyBox && (
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}>
                   <input
                     value={replyText}
                     onChange={(e) => setReplyText(e.target.value)}
@@ -1431,6 +1494,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                     autoFocus
                     style={{
                       flex: 1,
+                      minWidth: '200px',
                       fontSize: '10px',
                       letterSpacing: '0.05em',
                       padding: '8px 0',
@@ -1452,7 +1516,8 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                       border: `1px solid ${replyText.trim() ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
                       cursor: replyText.trim() ? 'pointer' : 'not-allowed',
                       color: replyText.trim() ? (dark ? '#000' : '#fff') : (dark ? '#333' : '#ccc'),
-                      transition: 'opacity 0.2s'
+                      transition: 'opacity 0.2s',
+                      whiteSpace: 'nowrap'
                     }}
                     onMouseEnter={(e) => replyText.trim() && (e.target.style.opacity = '0.7')}
                     onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -1515,26 +1580,28 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
       alignItems: 'center', 
       justifyContent: 'center',
       backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
+      padding: '20px',
+      overflowY: 'auto'
     }}>
       <div style={{
         maxWidth: '900px',
         width: '100%',
         backgroundColor: dark ? '#0a0a0a' : '#fff',
         border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
+        padding: '40px 20px',
         maxHeight: '80vh',
         overflow: 'auto',
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px', flexWrap: 'wrap', gap: '10px' }}>
           <div>
             <h3 style={{ 
               fontSize: '14px', 
               letterSpacing: '0.1em',
               fontWeight: '300',
               color: dark ? '#fff' : '#000',
-              marginBottom: '8px'
+              marginBottom: '8px',
+              wordBreak: 'break-all'
             }}>
               {authorId.toUpperCase()}
             </h3>
@@ -1567,7 +1634,9 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
         <div style={{ 
           display: 'grid', 
           gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', 
-          gap: '20px' 
+          gap: '20px',
+          paddingLeft: '20px',
+          paddingRight: '20px'
         }}>
           {posts.map((p) => (
             <div
@@ -1575,7 +1644,9 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
               style={{
                 padding: '15px',
                 border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-                backgroundColor: dark ? '#0a0a0a' : '#fafafa'
+                backgroundColor: dark ? '#0a0a0a' : '#fafafa',
+                wordWrap: 'break-word',
+                overflowWrap: 'break-word'
               }}
             >
               {p.image && (
@@ -1595,7 +1666,9 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
                 lineHeight: '1.6',
                 letterSpacing: '0.02em',
                 color: dark ? '#fff' : '#000',
-                fontWeight: '300'
+                fontWeight: '300',
+                wordWrap: 'break-word',
+                overflowWrap: 'break-word'
               }}>
                 {p.text}
               </div>
@@ -1632,17 +1705,18 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
       alignItems: 'center', 
       justifyContent: 'center',
       backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
+      padding: '20px',
+      overflowY: 'auto'
     }}>
       <div style={{
         maxWidth: '450px',
         width: '100%',
         backgroundColor: dark ? '#0a0a0a' : '#fff',
         border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
+        padding: '40px 20px',
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', paddingLeft: '20px', paddingRight: '20px' }}>
           <h3 style={{ 
             fontSize: '12px', 
             letterSpacing: '0.15em',
@@ -1669,8 +1743,8 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
           </button>
         </div>
 
-        <div style={{ marginBottom: '25px' }}>
-          <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center' }}>
+        <div style={{ marginBottom: '25px', paddingLeft: '20px', paddingRight: '20px' }}>
+          <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{
               fontSize: '10px',
               letterSpacing: '0.1em',
@@ -1728,11 +1802,12 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
               border: 'none',
               borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
               outline: 'none',
-              color: dark ? '#fff' : '#000'
+              color: dark ? '#fff' : '#000',
+              boxSizing: 'border-box'
             }}
           />
           
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <button
               onClick={() => onCreate(name, isPrivate)}
               style={{
@@ -1777,7 +1852,9 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
           fontSize: '9px',
           letterSpacing: '0.05em',
           lineHeight: '1.5',
-          color: dark ? '#666' : '#999'
+          color: dark ? '#666' : '#999',
+          paddingLeft: '20px',
+          paddingRight: '20px'
         }}>
           PRIVATE ROOMS: INVITE-ONLY VIA CODE • PUBLIC ROOMS: VISIBLE TO ALL USERS
         </div>
@@ -1795,17 +1872,18 @@ function SettingsModal({ dark, setDark, onClose }) {
       alignItems: 'center', 
       justifyContent: 'center',
       backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
+      padding: '20px',
+      overflowY: 'auto'
     }}>
       <div style={{
         maxWidth: '400px',
         width: '100%',
         backgroundColor: dark ? '#0a0a0a' : '#fff',
         border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
+        padding: '40px 20px',
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px' }}>
           <h3 style={{ 
             fontSize: '12px', 
             letterSpacing: '0.15em',
@@ -1832,7 +1910,7 @@ function SettingsModal({ dark, setDark, onClose }) {
           </button>
         </div>
 
-        <div style={{ fontSize: '11px', letterSpacing: '0.05em' }}>
+        <div style={{ fontSize: '11px', letterSpacing: '0.05em', paddingLeft: '20px', paddingRight: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ color: dark ? '#fff' : '#000' }}>DARK MODE</span>
             <button
