@@ -11,6 +11,7 @@ import {
 } from "firebase/database";
 
 // ---------- Firebase Config ----------
+// You'll replace this with your own config from Firebase Console
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API,
   authDomain: "pin-anon.firebaseapp.com",
@@ -21,13 +22,14 @@ const firebaseConfig = {
   appId: "1:564572635192:web:98d31c63a22b07383e26cd"
 };
 
+
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 
 // ---------- Config & utils ----------
 const LS_USER = "pinanon_v3_user";
 const DEFAULT_ROOM = "main";
-const ADMIN_PASSWORD = "EpicMan101";
 
 function genAnonId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -56,6 +58,7 @@ function loadUser() {
   }
 }
 
+// ---------- Initial state ----------
 const EMPTY = {
   rooms: [{ id: DEFAULT_ROOM, name: "main room", invite: DEFAULT_ROOM }],
   posts: [],
@@ -69,14 +72,7 @@ export default function PinAnonBoard() {
   const [user, setUser] = useState(() => {
     const existing = loadUser();
     if (existing?.id) return existing;
-    const newUser = { 
-      id: genAnonId(7), 
-      display: null, 
-      isAdmin: false,
-      createdRooms: [], // Track rooms this user created
-      createdPosts: [], // Track posts this user created
-      joinedRooms: [DEFAULT_ROOM] // Track rooms user has joined
-    };
+    const newUser = { id: genAnonId(7), display: null };
     localStorage.setItem(LS_USER, JSON.stringify(newUser));
     return newUser;
   });
@@ -89,22 +85,27 @@ export default function PinAnonBoard() {
   const [search, setSearch] = useState("");
   const [inviteModal, setInviteModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [gridView, setGridView] = useState(true);
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("pinanon_dark") === "1";
   });
 
+  // Listen to Firebase for real-time updates
   useEffect(() => {
     const stateRef = ref(database, 'appState');
+    
     const unsubscribe = onValue(stateRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setState(data);
         setWhisper(data.settings?.whisper || false);
       } else {
+        // Initialize Firebase with default state if empty
         set(stateRef, EMPTY);
       }
       setLoading(false);
     });
+
     return () => unsubscribe();
   }, []);
 
@@ -117,34 +118,18 @@ export default function PinAnonBoard() {
   }, [dark]);
 
   const postsInRoom = useMemo(
-    () => (state.posts || []).filter((p) => p.room === room),
-    [state.posts, room]
-  );
+  () => (state.posts || []).filter((p) => p.room === room),
+  [state.posts, room]
+);
 
-  function createRoom(name = "room", isPrivate = true) {
+  function createRoom(name = "room") {
     const invite = genAnonId(6);
-    const r = { 
-      id: invite, 
-      name: name || `room-${invite}`, 
-      invite,
-      creator: user.id,
-      isPrivate: isPrivate // Now controlled by user choice
-    };
+    const r = { id: invite, name: name || `room-${invite}`, invite };
+    
     const newRooms = [r, ...state.rooms];
     const updates = {};
     updates['appState/rooms'] = newRooms;
     update(ref(database), updates);
-    
-    // Add room to user's created and joined rooms
-    setUser((prev) => {
-      const u = { 
-        ...prev, 
-        createdRooms: [...(prev.createdRooms || []), invite],
-        joinedRooms: [...new Set([...(prev.joinedRooms || [DEFAULT_ROOM]), invite])]
-      };
-      saveUser(u);
-      return u;
-    });
     
     return r;
   }
@@ -153,31 +138,22 @@ export default function PinAnonBoard() {
     const found = state.rooms.find((r) => r.id === code || r.invite === code);
     if (found) {
       setRoom(found.id);
-      
-      // Add to user's joined rooms
-      setUser((prev) => {
-        const u = { 
-          ...prev, 
-          joinedRooms: [...new Set([...(prev.joinedRooms || [DEFAULT_ROOM]), found.id])]
-        };
-        saveUser(u);
-        return u;
-      });
-      
       return true;
     }
     return false;
   }
 
   function vote(postId, delta) {
-    const postIndex = (state.posts || []).findIndex(p => p.id === postId);
-    if (postIndex === -1) return;
+  const postIndex = (state.posts || []).findIndex(p => p.id === postId);
+  if (postIndex === -1) return;
+    
     const post = state.posts[postIndex];
     const vmap = { ...(post.voters || {}) };
     const prevVote = vmap[user.id] || 0;
     const newVote = prevVote === delta ? 0 : delta;
     vmap[user.id] = newVote;
     const votes = Object.values(vmap).reduce((s, x) => s + x, 0);
+
     const updates = {};
     updates[`appState/posts/${postIndex}/voters`] = vmap;
     updates[`appState/posts/${postIndex}/votes`] = votes;
@@ -185,125 +161,45 @@ export default function PinAnonBoard() {
   }
 
   function addComment(postId, text, parentId = null) {
-    if (!text) return;
-    const postIndex = (state.posts || []).findIndex(p => p.id === postId);
-    if (postIndex === -1) return;
-    const post = state.posts[postIndex];
-    const newComment = {
-      id: uid("c"),
-      author: user.display || user.id,
-      authorId: user.id, // Track comment creator
-      text,
-      created: now(),
-      parentId,
-      replies: [],
-    };
-    const newComments = [...(post.comments || []), newComment];
-    const updates = {};
-    updates[`appState/posts/${postIndex}/comments`] = newComments;
-    update(ref(database), updates);
-  }
+  if (!text) return;
   
-  function removeComment(postId, commentId) {
-    const postIndex = (state.posts || []).findIndex(p => p.id === postId);
-    if (postIndex === -1) return;
-    
-    const post = state.posts[postIndex];
-    const comment = (post.comments || []).find(c => c.id === commentId);
-    
-    if (!comment) return;
-    
-    const isCreator = comment.authorId === user.id;
-    const isRoomModerator = isRoomMod(post.room);
-    
-    if (!user.isAdmin && !isCreator && !isRoomModerator) {
-      alert("YOU CAN ONLY DELETE YOUR OWN COMMENTS");
-      return;
-    }
-    
-    if (!confirm("DELETE THIS COMMENT?")) return;
-    
-    // Remove comment and all its replies
-    const removeCommentAndReplies = (comments, idToRemove) => {
-      return comments.filter(c => {
-        if (c.id === idToRemove) return false;
-        if (c.parentId === idToRemove) return false;
-        return true;
-      });
-    };
-    
-    const newComments = removeCommentAndReplies(post.comments || [], commentId);
-    const updates = {};
-    updates[`appState/posts/${postIndex}/comments`] = newComments;
-    update(ref(database), updates);
-  }
+  const postIndex = (state.posts || []).findIndex(p => p.id === postId);
+  if (postIndex === -1) return;
+  
+  const post = state.posts[postIndex];
+  const newComment = {
+    id: uid("c"),
+    author: user.display || user.id,
+    text,
+    created: now(),
+    parentId,
+    replies: [],
+  };
+  
+  const newComments = [...(post.comments || []), newComment];
+  const updates = {};
+  updates[`appState/posts/${postIndex}/comments`] = newComments;
+  update(ref(database), updates);
+}
 
   function removePost(postId) {
-    const post = (state.posts || []).find(p => p.id === postId);
-    if (!post) return;
-    
-    const isCreator = post.authorId === user.id;
-    const isRoomModerator = isRoomMod(post.room);
-    
-    if (!user.isAdmin && !isCreator && !isRoomModerator) {
-      alert("YOU CAN ONLY DELETE YOUR OWN POSTS");
-      return;
-    }
-    
-    if (!confirm("DELETE THIS POST?")) return;
-    
-    const newPosts = (state.posts || []).filter((p) => p.id !== postId);
-    const updates = {};
-    updates['appState/posts'] = newPosts;
-    update(ref(database), updates);
-  }
-  
-  function isRoomMod(roomId) {
-    const room = state.rooms.find(r => r.id === roomId);
-    return room?.creator === user.id;
-  }
+  const newPosts = (state.posts || []).filter((p) => p.id !== postId);
+  const updates = {};
+  updates['appState/posts'] = newPosts;
+  update(ref(database), updates);
+}
 
-  function removeRoom(roomId) {
-    const roomToDelete = state.rooms.find(r => r.id === roomId);
-    if (!roomToDelete) return;
-    
-    const isCreator = roomToDelete.creator === user.id;
-    
-    if (!user.isAdmin && !isCreator) {
-      alert("ONLY ROOM CREATORS CAN DELETE THEIR ROOMS");
-      return;
-    }
-    if (roomId === DEFAULT_ROOM) {
-      alert("CANNOT DELETE THE MAIN ROOM");
-      return;
-    }
-    if (!confirm("DELETE THIS ROOM?")) return;
-    if (room === roomId) {
-      setRoom(DEFAULT_ROOM);
-    }
-    const newRooms = (state.rooms || []).filter((r) => r.id !== roomId);
+  function toggleWhisper() {
+    const nw = !whisper;
+    setWhisper(nw);
     const updates = {};
-    updates['appState/rooms'] = newRooms;
+    updates['appState/settings/whisper'] = nw;
     update(ref(database), updates);
   }
 
-  function handleAdminLogin() {
-    const password = prompt("ENTER ADMIN PASSWORD:");
-    if (password === ADMIN_PASSWORD) {
-      setUser((prev) => {
-        const u = { ...prev, isAdmin: true };
-        saveUser(u);
-        return u;
-      });
-      alert("ADMIN ACCESS GRANTED");
-    } else if (password) {
-      alert("INCORRECT PASSWORD");
-    }
-  }
-
-  function handleAdminLogout() {
+  function setDisplayName(name) {
     setUser((prev) => {
-      const u = { ...prev, isAdmin: false };
+      const u = { ...prev, display: (name || "").toLowerCase() || null };
       saveUser(u);
       return u;
     });
@@ -335,51 +231,34 @@ export default function PinAnonBoard() {
     });
 
   function postNew({ text, image }) {
-    const postId = crypto.randomUUID();
-    const post = {
-      id: postId,
-      author: user.display || user.id,
-      authorId: user.id, // Store actual user ID for ownership checking
-      text,
-      image,
-      room,
-      created: Date.now(),
-      votes: 0,
-      voters: {},
-      comments: [],
-    };
-    const newPosts = [post, ...(state.posts || [])];
-    const updates = {};
-    updates['appState/posts'] = newPosts;
-    update(ref(database), updates);
-    
-    // Track this post as created by user
-    setUser((prev) => {
-      const u = { 
-        ...prev, 
-        createdPosts: [...(prev.createdPosts || []), postId]
-      };
-      saveUser(u);
-      return u;
-    });
-  }
+  const post = {
+    id: crypto.randomUUID(),
+    author: user.display || user.id,
+    text,
+    image,
+    room,
+    created: Date.now(),
+    votes: 0,
+    voters: {},
+    comments: [],
+  };
 
-  const currentRoomName = useMemo(() => {
-    const r = state.rooms.find(r => r.id === room);
-    return r?.name || "MAIN ROOM";
-  }, [room, state.rooms]);
+  const newPosts = [post, ...(state.posts || [])];
+  const updates = {};
+  updates['appState/posts'] = newPosts;
+  update(ref(database), updates);
+}
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ 
-        backgroundColor: dark ? '#000' : '#fff',
-        color: dark ? '#fff' : '#000',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
+      <div className={
+        "min-h-screen flex items-center justify-center antialiased " +
+        (dark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-900")
+      }>
         <div className="text-center">
-          <div className="text-xl font-light tracking-widest">PIN-ANON</div>
-          <div className="text-xs tracking-widest mt-2" style={{ color: dark ? '#999' : '#666' }}>
-            LOADING...
+          <div className="text-2xl font-light mb-2">pin-anon</div>
+          <div className={dark ? "text-slate-400" : "text-slate-500"}>
+            loading...
           </div>
         </div>
       </div>
@@ -387,325 +266,234 @@ export default function PinAnonBoard() {
   }
 
   return (
-    <div style={{ 
-      minHeight: '100vh',
-      backgroundColor: dark ? '#000' : '#fff',
-      color: dark ? '#fff' : '#000',
-      fontFamily: 'Helvetica Neue, Arial, sans-serif',
-      transition: 'background-color 0.3s, color 0.3s'
-    }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '40px 60px' }}>
-        {/* Header */}
-        <header style={{ 
-          marginBottom: '60px', 
-          paddingBottom: '30px', 
-          borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}` 
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px' }}>
-            <div>
-              <div style={{ 
-                fontSize: '24px', 
-                fontWeight: '300', 
-                letterSpacing: '0.15em',
-                marginBottom: '8px'
-              }}>
-                PIN-ANON
-              </div>
-              <div style={{ 
-                fontSize: '10px', 
-                letterSpacing: '0.2em',
-                color: dark ? '#999' : '#666'
-              }}>
-                ANONYMOUS ARCHIVE
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '30px', alignItems: 'center' }}>
-              {!user.isAdmin ? (
-                <button
-                  onClick={handleAdminLogin}
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.15em',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: dark ? '#fff' : '#000',
-                    transition: 'opacity 0.2s'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  LOGIN
-                </button>
-              ) : (
-                <button
-                  onClick={handleAdminLogout}
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.15em',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: dark ? '#999' : '#666',
-                    transition: 'opacity 0.2s'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  LOGOUT
-                </button>
-              )}
-              <button
-                onClick={() => setShowSettings(true)}
-                style={{
-                  fontSize: '10px',
-                  letterSpacing: '0.15em',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: dark ? '#fff' : '#000',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                SETTINGS
-              </button>
+    <div
+      className={
+        "min-h-screen antialiased lowercase transition-colors duration-200 " +
+        (dark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-900")
+      }
+    >
+      <div className="max-w-6xl mx-auto px-6 py-10">
+        <header className="flex items-center justify-between mb-10">
+          <div>
+            <div className="text-2xl font-light tracking-tight">pin-anon</div>
+            <div className={dark ? "text-slate-400" : "text-slate-500"}>
+              anonymous archive • live
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="SEARCH"
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.15em',
-                padding: '8px 0',
-                background: 'none',
-                border: 'none',
-                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                width: '180px',
-                color: dark ? '#fff' : '#000',
-                transition: 'width 0.3s, border-color 0.2s'
-              }}
-              onFocus={(e) => {
-                e.target.style.width = '240px';
-                e.target.style.borderColor = dark ? '#666' : '#999';
-              }}
-              onBlur={(e) => {
-                e.target.style.width = '180px';
-                e.target.style.borderColor = dark ? '#333' : '#e5e5e5';
-              }}
-            />
-            
-            <RoomsDropdown 
-              rooms={state.rooms}
-              currentRoom={room}
-              currentRoomName={currentRoomName}
-              onSelectRoom={setRoom}
-              onCreateRoom={() => setInviteModal(true)}
-              onJoinRoom={() => {
-                const code = prompt("PASTE INVITE CODE");
-                if (code) joinRoom(code);
-              }}
-              onDeleteRoom={removeRoom}
-              dark={dark}
-              isAdmin={user.isAdmin}
-              userJoinedRooms={user.joinedRooms}
-              userCreatedRooms={user.createdRooms}
-            />
-
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowNew(true)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.15em',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: dark ? '#fff' : '#000',
-                marginLeft: 'auto',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
+              onClick={() => setGridView(!gridView)}
+              className={
+                "px-3 py-2 rounded-lg text-sm transition-colors " +
+                (dark
+                  ? "hover:bg-slate-800/70 text-slate-400"
+                  : "hover:bg-slate-100 text-slate-600")
+              }
+              title={gridView ? "Switch to single column" : "Switch to grid view"}
             >
-              NEW POST
+              {gridView ? "━" : "☰"}
             </button>
+            <Menu
+              dark={dark}
+              items={[
+                { label: "new post", onClick: () => setShowNew(true) },
+                { divider: true },
+                { label: "settings", onClick: () => setShowSettings(true) },
+                { divider: true },
+                {
+                  label: "rooms",
+                  children: [
+                    {
+                      label: "create room",
+                      onClick: () => setInviteModal(true),
+                    },
+                    {
+                      label: "join room",
+                      onClick: () => {
+                        const code = prompt("paste invite code");
+                        if (code) joinRoom(code);
+                      },
+                    },
+                    ...state.rooms.map((r) => ({
+                      label: `open ${r.name}`,
+                      onClick: () => setRoom(r.id),
+                    })),
+                  ],
+                },
+                { divider: true },
+                {
+                  label: "copy link",
+                  onClick: () =>
+                    navigator.clipboard.writeText(window.location.href),
+                },
+                {
+                  label: "reset data",
+                  onClick: () => {
+                    if (confirm("reset all data? this affects everyone!")) {
+                      set(ref(database, 'appState'), EMPTY);
+                    }
+                  },
+                },
+              ]}
+            />
           </div>
         </header>
 
-        <div style={{ 
-          marginBottom: '40px', 
-          fontSize: '10px', 
-          letterSpacing: '0.15em',
-          color: dark ? '#999' : '#666'
-        }}>
-          {visible.length} POST{visible.length !== 1 ? 'S' : ''} IN {currentRoomName.toUpperCase()}
+        <div className="flex items-center justify-between mb-6 gap-4">
+          <div className="flex items-center gap-3">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="search posts..."
+              className={
+                "text-sm rounded-lg px-3 py-2 transition-colors outline-none " +
+                (dark
+                  ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+                  : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+              }
+            />
+          </div>
+          <div className={dark ? "text-slate-400" : "text-slate-500"}>
+            {visible.length} posts
+          </div>
         </div>
 
-        <main>
-          <section style={{ display: 'flex', flexDirection: 'column', gap: '60px' }}>
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
+          <main className="lg:col-span-3">
             {visible.length === 0 && (
-              <div style={{ 
-                padding: '60px 0', 
-                textAlign: 'center',
-                fontSize: '11px',
-                letterSpacing: '0.1em',
-                color: dark ? '#666' : '#999'
-              }}>
-                NO POSTS YET IN THIS ROOM
+              <div
+                className={
+                  "py-10 text-center " +
+                  (dark ? "text-slate-500" : "text-slate-400")
+                }
+              >
+                no posts yet in this room
               </div>
             )}
 
-            {visible.map((post) => (
-              <article key={post.id} style={{ 
-                paddingBottom: '60px',
-                borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-                  <div style={{ display: 'flex', gap: '15px', alignItems: 'baseline' }}>
-                    <button
-                      onClick={() => setProfileView(post.author)}
-                      style={{
-                        fontSize: '11px',
-                        letterSpacing: '0.05em',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: dark ? '#fff' : '#000',
-                        textDecoration: 'underline',
-                        padding: 0
-                      }}
-                    >
-                      {post.author.toUpperCase()}
-                    </button>
-                    {!whisper && (
-                      <div style={{ 
-                        fontSize: '9px',
-                        letterSpacing: '0.1em',
-                        color: dark ? '#666' : '#999'
-                      }}>
-                        {new Date(post.created).toLocaleDateString('en-US', { 
-                          year: 'numeric', 
-                          month: '2-digit', 
-                          day: '2-digit' 
-                        }).toUpperCase()}
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    {(user.isAdmin || post.authorId === user.id || isRoomMod(post.room)) && (
+            <section className={gridView ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" : "space-y-6"}>
+              {visible.map((post) => (
+                <article
+                  key={post.id}
+                  className={
+                    gridView
+                      ? "p-4 rounded-xl " +
+                        (dark
+                          ? "bg-slate-900/30 border border-slate-800/50"
+                          : "bg-slate-50 border border-slate-200")
+                      : "pb-6 mb-6 " +
+                        (dark
+                          ? "border-b border-slate-800/50"
+                          : "border-b border-slate-200")
+                  }
+                >
+                  <div className="flex items-start justify-between gap-4 mb-3">
+                    <div className="flex items-start gap-3">
                       <button
-                        onClick={() => removePost(post.id)}
-                        style={{
-                          fontSize: '9px',
-                          letterSpacing: '0.1em',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: dark ? '#666' : '#999',
-                          transition: 'opacity 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                        onMouseLeave={(e) => e.target.style.opacity = '1'}
+                        onClick={() => setProfileView(post.author)}
+                        className={
+                          "text-sm font-medium hover:underline lowercase " +
+                          (dark ? "text-slate-300" : "text-slate-700")
+                        }
                       >
-                        DELETE
+                        {post.author}
                       </button>
-                    )}
-                    <button
-                      onClick={() => vote(post.id, 1)}
-                      style={{
-                        fontSize: '11px',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: post.voters && post.voters[user.id] === 1 
-                          ? (dark ? '#fff' : '#000')
-                          : (dark ? '#666' : '#ccc'),
-                        transition: 'opacity 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                      onMouseLeave={(e) => e.target.style.opacity = '1'}
-                    >
-                      ▲
-                    </button>
-                    <div style={{ 
-                      fontSize: '10px',
-                      letterSpacing: '0.05em',
-                      minWidth: '20px',
-                      textAlign: 'center',
-                      color: post.votes > 0 
-                        ? (dark ? '#fff' : '#000')
-                        : post.votes < 0
-                        ? (dark ? '#666' : '#999')
-                        : (dark ? '#666' : '#999')
-                    }}>
-                      {post.votes}
+                      <div
+                        className={
+                          "text-xs " +
+                          (dark ? "text-slate-500" : "text-slate-400")
+                        }
+                      >
+                        {!whisper &&
+                          `${new Date(post.created).toLocaleString()}`}
+                      </div>
                     </div>
-                    <button
-                      onClick={() => vote(post.id, -1)}
-                      style={{
-                        fontSize: '11px',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: post.voters && post.voters[user.id] === -1 
-                          ? (dark ? '#fff' : '#000')
-                          : (dark ? '#666' : '#ccc'),
-                        transition: 'opacity 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                      onMouseLeave={(e) => e.target.style.opacity = '1'}
-                    >
-                      ▼
-                    </button>
-                  </div>
-                </div>
 
-                <div style={{ marginTop: '20px' }}>
-                  {post.image && (
-                    <img
-                      src={post.image}
-                      style={{ 
-                        width: '100%',
-                        maxHeight: '600px',
-                        objectFit: 'contain',
-                        marginBottom: '20px'
-                      }}
-                      alt="post"
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => vote(post.id, 1)}
+                        className={
+                          "px-2.5 py-1.5 text-sm rounded-lg transition-all " +
+                          (post.voters && post.voters[user.id] === 1
+                            ? dark
+                              ? "bg-orange-500/20 text-orange-400 hover:bg-orange-500/30"
+                              : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20"
+                            : dark
+                            ? "hover:bg-slate-800/70 text-slate-400 hover:text-orange-400"
+                            : "hover:bg-slate-100 text-slate-500 hover:text-orange-600")
+                        }
+                      >
+                        ▲
+                      </button>
+                      <div className={
+                        "text-sm font-medium px-2 " + 
+                        (post.votes > 0 
+                          ? dark ? "text-orange-400" : "text-orange-600"
+                          : post.votes < 0
+                          ? dark ? "text-blue-400" : "text-blue-600" 
+                          : dark ? "text-slate-500" : "text-slate-400")
+                      }>{post.votes}</div>
+                      <button
+                        onClick={() => vote(post.id, -1)}
+                        className={
+                          "px-2.5 py-1.5 text-sm rounded-lg transition-all " +
+                          (post.voters && post.voters[user.id] === -1
+                            ? dark
+                              ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                              : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20"
+                            : dark
+                            ? "hover:bg-slate-800/70 text-slate-400 hover:text-blue-400"
+                            : "hover:bg-slate-100 text-slate-500 hover:text-blue-600")
+                        }
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    {post.image && (
+                      <img
+                        src={post.image}
+                        className="w-full rounded-xl mb-3 object-cover max-h-96"
+                        alt="post"
+                      />
+                    )}
+                    <div className="text-base leading-relaxed break-words overflow-wrap-anywhere">{post.text}</div>
+                  </div>
+
+                  <div className="mt-4">
+                    <CommentBlock
+                      post={post}
+                      addComment={addComment}
+                      whisper={whisper}
+                      dark={dark}
+                      user={user}
                     />
-                  )}
-                  <div style={{ 
-                    fontSize: '13px', 
-                    lineHeight: '1.8',
-                    letterSpacing: '0.02em',
-                    fontWeight: '300'
-                  }}>
-                    {post.text}
                   </div>
-                </div>
+                </article>
+              ))}
+            </section>
+          </main>
 
-                <div style={{ marginTop: '30px' }}>
-                  <CommentBlock
-                    post={post}
-                    addComment={addComment}
-                    removeComment={removeComment}
-                    whisper={whisper}
-                    dark={dark}
-                    user={user}
-                    isRoomMod={isRoomMod(post.room)}
-                  />
-                </div>
-              </article>
-            ))}
-          </section>
-        </main>
+          <aside className="lg:col-span-1 space-y-6">
+            <Panel title="profile" dark={dark}>
+              <div className="text-sm">id</div>
+              <div className="mt-1 font-medium lowercase">
+                {user.display || user.id}
+              </div>
+              <div
+                className={
+                  "mt-3 text-xs " +
+                  (dark ? "text-slate-500" : "text-slate-400")
+                }
+              >
+                synced in real-time
+              </div>
+            </Panel>
+          </aside>
+        </div>
       </div>
 
       {showNew && (
@@ -726,17 +514,17 @@ export default function PinAnonBoard() {
       {inviteModal && (
         <RoomModal
           onClose={() => setInviteModal(false)}
-          onCreate={(n, isPrivate) => {
-            const r = createRoom(n, isPrivate);
+          onCreate={(n) => {
+            const r = createRoom(n);
             setRoom(r.id);
             setInviteModal(false);
-            alert(`ROOM CREATED: ${r.invite}`);
+            alert(`room created: ${r.invite}`);
           }}
           onJoin={(code) => {
             if (joinRoom(code)) {
               setInviteModal(false);
-              alert("JOINED");
-            } else alert("INVALID CODE");
+              alert("joined");
+            } else alert("invalid");
           }}
           dark={dark}
         />
@@ -753,165 +541,104 @@ export default function PinAnonBoard() {
 }
 
 // ---------- UI Subcomponents ----------
-
-function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin, userJoinedRooms, userCreatedRooms }) {
+function Menu({ items, dark }) {
   const [open, setOpen] = useState(false);
-  
-  // Show: main room, public rooms, or rooms user has joined
-  const visibleRooms = rooms.filter(r => 
-    r.id === DEFAULT_ROOM || 
-    !r.isPrivate || 
-    (userJoinedRooms || []).includes(r.id)
-  );
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="relative">
       <button
-        onClick={() => setOpen(!open)}
-        style={{
-          fontSize: '10px',
-          letterSpacing: '0.15em',
-          background: 'none',
-          border: 'none',
-          borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-          cursor: 'pointer',
-          color: dark ? '#fff' : '#000',
-          padding: '8px 0',
-          display: 'flex',
-          gap: '8px',
-          alignItems: 'center'
-        }}
+        onClick={() => setOpen((o) => !o)}
+        className="text-xl px-2 hover:opacity-70"
+        aria-label="menu"
       >
-        <span>{currentRoomName.toUpperCase()}</span>
-        <span style={{ fontSize: '8px' }}>▼</span>
+        ☰
       </button>
 
       {open && (
-        <>
-          <div 
-            style={{ 
-              position: 'fixed', 
-              inset: 0, 
-              zIndex: 10 
-            }}
-            onClick={() => setOpen(false)}
-          />
-          <div style={{
-            position: 'absolute',
-            right: 0,
-            marginTop: '10px',
-            backgroundColor: dark ? '#0a0a0a' : '#fff',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            padding: '10px',
-            zIndex: 20,
-            minWidth: '200px'
-          }}>
-            <div style={{ 
-              marginBottom: '10px', 
-              paddingBottom: '10px', 
-              borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` 
-            }}>
-              <button
-                onClick={() => {
-                  onCreateRoom();
-                  setOpen(false);
-                }}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  fontSize: '10px',
-                  letterSpacing: '0.1em',
-                  padding: '8px 10px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: dark ? '#999' : '#666',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                + CREATE ROOM
-              </button>
-              <button
-                onClick={() => {
-                  onJoinRoom();
-                  setOpen(false);
-                }}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  fontSize: '10px',
-                  letterSpacing: '0.1em',
-                  padding: '8px 10px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: dark ? '#999' : '#666',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                JOIN ROOM
-              </button>
-            </div>
+        <div
+          className={
+            "absolute right-0 mt-2 rounded-xl shadow-xl p-2 z-50 min-w-[180px] " +
+            (dark
+              ? "bg-slate-900/95 backdrop-blur-sm"
+              : "bg-white/95 backdrop-blur-sm")
+          }
+        >
+          {items.map((item, i) => {
+            if (item.divider) {
+              return (
+                <div
+                  key={i}
+                  className={
+                    "my-1 " + (dark ? "border-t border-slate-800" : "border-t border-slate-200")
+                  }
+                />
+              );
+            }
 
-            <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
-              {visibleRooms.map((r) => {
-                const isCreator = (userCreatedRooms || []).includes(r.id);
-                return (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            if (item.children) {
+              return (
+                <div key={i} className="mb-2">
+                  <div
+                    className={
+                      "text-xs px-2 mb-1 uppercase tracking-wider font-medium " +
+                      (dark ? "text-slate-500" : "text-slate-400")
+                    }
+                  >
+                    {item.label}
+                  </div>
+                  {item.children.map((child, j) => (
                     <button
+                      key={j}
                       onClick={() => {
-                        onSelectRoom(r.id);
+                        child.onClick();
                         setOpen(false);
                       }}
-                      style={{
-                        flex: 1,
-                        textAlign: 'left',
-                        fontSize: '10px',
-                        letterSpacing: '0.1em',
-                        padding: '8px 10px',
-                        background: r.id === currentRoom ? (dark ? '#1a1a1a' : '#f5f5f5') : 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: r.id === currentRoom ? (dark ? '#fff' : '#000') : (dark ? '#999' : '#666'),
-                        transition: 'opacity 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                      onMouseLeave={(e) => e.target.style.opacity = '1'}
+                      className={
+                        "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
+                        (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
+                      }
                     >
-                      {r.name.toUpperCase()}{isCreator ? ' ★' : ''}{r.isPrivate ? ' 🔒' : ''}
+                      {child.label}
                     </button>
-                    {(isAdmin || isCreator) && r.id !== DEFAULT_ROOM && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteRoom(r.id);
-                        }}
-                        style={{
-                          fontSize: '10px',
-                          padding: '4px 8px',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: dark ? '#666' : '#999',
-                          transition: 'opacity 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                        onMouseLeave={(e) => e.target.style.opacity = '1'}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </>
+                  ))}
+                </div>
+              );
+            }
+
+            return (
+              <button
+                key={i}
+                onClick={() => {
+                  item.onClick();
+                  setOpen(false);
+                }}
+                className={
+                  "block w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors " +
+                  (dark ? "hover:bg-slate-800/70" : "hover:bg-slate-100")
+                }
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
       )}
+    </div>
+  );
+}
+
+function Panel({ title, children, dark }) {
+  return (
+    <div
+      className={
+        "rounded-xl p-4 " +
+        (dark
+          ? "bg-slate-900/50"
+          : "bg-slate-50")
+      }
+    >
+      <h4 className="text-sm font-medium mb-2">{title}</h4>
+      {children}
     </div>
   );
 }
@@ -921,229 +648,180 @@ function NewPostModal({ onClose, onPost, dark }) {
   const [img, setImg] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  const CLOUDINARY_CLOUD_NAME = "dnulbfj48";
-  const CLOUDINARY_UPLOAD_PRESET = "pin-anon-uploads";
+  // REPLACE these with your Cloudinary values
+  const CLOUDINARY_CLOUD_NAME = "dnulbfj48"; // e.g., "dab12xyz"
+  const CLOUDINARY_UPLOAD_PRESET = "pin-anon-uploads"; // or whatever you named it
 
   async function handleFile(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
+    
+    // Check file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
-      alert("IMAGE TOO LARGE");
+      alert("Image too large! Please choose an image under 10MB.");
       return;
     }
+    
     setUploading(true);
+    
     try {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      
       const response = await fetch(
         `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-        { method: "POST", body: formData }
+        {
+          method: "POST",
+          body: formData,
+        }
       );
+      
       const data = await response.json();
+      
       if (data.secure_url) {
         setImg(data.secure_url);
       } else {
         throw new Error("Upload failed");
       }
+      
       setUploading(false);
     } catch (error) {
       console.error("Upload error:", error);
-      alert("FAILED TO UPLOAD IMAGE");
+      alert("Failed to upload image. Please try again.");
       setUploading(false);
     }
   }
 
   function submit() {
     if (!text.trim() && !img) return;
-    onPost({ text: text.trim(), image: img || null });
+    onPost({
+      text: text.trim(),
+      image: img || null,
+    });
     onClose();
     setText("");
     setImg("");
   }
 
   return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 50, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
-    }}>
-      <div style={{
-        maxWidth: '600px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-          <h3 style={{ 
-            fontSize: '12px', 
-            letterSpacing: '0.15em',
-            fontWeight: '300',
-            color: dark ? '#fff' : '#000'
-          }}>
-            NEW POST
-          </h3>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div
+        className={
+          "max-w-2xl w-full rounded-xl p-6 " +
+          (dark ? "bg-slate-900 text-slate-100" : "bg-white text-slate-900")
+        }
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg">new post</h3>
+          <button onClick={onClose} className="text-sm hover:opacity-70">
+            close
           </button>
         </div>
 
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="TEXT"
-          style={{
-            width: '100%',
-            height: '120px',
-            padding: '15px',
-            marginBottom: '20px',
-            fontSize: '12px',
-            letterSpacing: '0.05em',
-            fontWeight: '300',
-            lineHeight: '1.6',
-            background: 'none',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            outline: 'none',
-            resize: 'none',
-            color: dark ? '#fff' : '#000',
-            fontFamily: 'Helvetica Neue, Arial, sans-serif'
-          }}
-        />
+          placeholder="text or journal entry..."
+          className={
+            "w-full rounded-lg p-3 mb-3 h-28 outline-none transition-colors resize-none " +
+            (dark
+              ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+              : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+          }
+        ></textarea>
 
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
-            <label style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '10px 15px',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              cursor: uploading ? 'not-allowed' : 'pointer',
-              color: uploading ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              {uploading ? "UPLOADING..." : "CHOOSE IMAGE"}
+        <div className="mb-3">
+          <div className="flex gap-3 items-center mb-2">
+            <label className={
+              "px-4 py-2 rounded-lg cursor-pointer transition-colors " +
+              (uploading
+                ? dark
+                  ? "bg-slate-800/30 text-slate-600 cursor-not-allowed"
+                  : "bg-slate-200/50 text-slate-400 cursor-not-allowed"
+                : dark
+                ? "bg-slate-800/70 hover:bg-slate-800 text-slate-300"
+                : "bg-slate-200 hover:bg-slate-300 text-slate-700")
+            }>
+              {uploading ? "uploading..." : "choose image"}
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleFile}
                 disabled={uploading}
-                style={{ display: 'none' }}
+                className="hidden"
               />
             </label>
+            <span className={
+              "text-xs " + (dark ? "text-slate-500" : "text-slate-400")
+            }>
+              or paste url below
+            </span>
           </div>
           
           <input
             value={img}
             onChange={(e) => setImg(e.target.value)}
-            placeholder="OR PASTE IMAGE URL"
+            placeholder="or paste image url"
             disabled={uploading}
-            style={{
-              width: '100%',
-              padding: '10px 0',
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              outline: 'none',
-              color: dark ? '#fff' : '#000'
-            }}
+            className={
+              "w-full rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
+              (dark
+                ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+                : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+            }
           />
           
           {img && !uploading && (
-            <div style={{ marginTop: '20px', position: 'relative' }}>
+            <div className="mt-3 relative">
               <img 
                 src={img} 
                 alt="preview" 
-                style={{ 
-                  width: '100%',
-                  maxHeight: '300px',
-                  objectFit: 'contain'
-                }}
+                className="w-full rounded-lg max-h-48 object-cover" 
               />
               <button
                 onClick={() => setImg("")}
-                style={{
-                  position: 'absolute',
-                  top: '10px',
-                  right: '10px',
-                  fontSize: '9px',
-                  letterSpacing: '0.1em',
-                  padding: '6px 10px',
-                  backgroundColor: dark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)',
-                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                  cursor: 'pointer',
-                  color: dark ? '#fff' : '#000',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
+                className={
+                  "absolute top-2 right-2 px-2 py-1 rounded-lg text-xs font-medium " +
+                  (dark
+                    ? "bg-slate-900/90 text-slate-300 hover:bg-slate-900"
+                    : "bg-white/90 text-slate-700 hover:bg-white")
+                }
               >
-                REMOVE
+                remove
               </button>
             </div>
           )}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '15px' }}>
+        <div className="flex justify-end gap-3">
           <button
             onClick={onClose}
             disabled={uploading}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '10px 20px',
-              background: 'none',
-              border: 'none',
-              cursor: uploading ? 'not-allowed' : 'pointer',
-              color: dark ? '#666' : '#999',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
+            className={
+              "px-4 py-2 rounded-lg transition-colors " +
+              (dark
+                ? "hover:bg-slate-800/70 text-slate-400"
+                : "hover:bg-slate-100 text-slate-600")
+            }
           >
-            CANCEL
+            cancel
           </button>
           <button
             onClick={submit}
             disabled={uploading || (!text.trim() && !img)}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '10px 20px',
-              backgroundColor: (uploading || (!text.trim() && !img)) ? 'transparent' : (dark ? '#fff' : '#000'),
-              border: `1px solid ${(uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#e5e5e5') : (dark ? '#fff' : '#000')}`,
-              cursor: (uploading || (!text.trim() && !img)) ? 'not-allowed' : 'pointer',
-              color: (uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#ccc') : (dark ? '#000' : '#fff'),
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => !(uploading || (!text.trim() && !img)) && (e.target.style.opacity = '0.7')}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
+            className={
+              "px-5 py-2 rounded-lg font-medium transition-colors " +
+              (uploading || (!text.trim() && !img)
+                ? dark
+                  ? "bg-slate-800/30 text-slate-600 cursor-not-allowed"
+                  : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                : dark
+                ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
+            }
           >
-            {uploading ? "UPLOADING..." : "POST"}
+            {uploading ? "uploading..." : "post"}
           </button>
         </div>
       </div>
@@ -1151,16 +829,21 @@ function NewPostModal({ onClose, onPost, dark }) {
   );
 }
 
-function CommentBlock({ post, addComment, removeComment, whisper, dark, user, isRoomMod }) {
+function CommentBlock({ post, addComment, whisper, dark, user }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
 
+  // Build a tree structure from flat comments
   const buildCommentTree = (comments) => {
     const commentMap = {};
     const roots = [];
+
+    // First pass: create map of all comments
     comments.forEach(comment => {
       commentMap[comment.id] = { ...comment, replies: [] };
     });
+
+    // Second pass: build tree structure
     comments.forEach(comment => {
       if (comment.parentId && commentMap[comment.parentId]) {
         commentMap[comment.parentId].replies.push(commentMap[comment.id]);
@@ -1168,6 +851,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
         roots.push(commentMap[comment.id]);
       }
     });
+
     return roots;
   };
 
@@ -1175,58 +859,47 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+      <div className="flex items-center gap-3">
         <button
           onClick={() => setOpen((o) => !o)}
-          style={{
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: dark ? '#999' : '#666',
-            transition: 'opacity 0.2s'
-          }}
-          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-          onMouseLeave={(e) => e.target.style.opacity = '1'}
+          className={
+            "text-xs px-3 py-1.5 rounded-full font-medium transition-colors " +
+            (dark
+              ? "hover:bg-slate-800/70 text-slate-400 hover:text-slate-300"
+              : "hover:bg-slate-100 text-slate-500 hover:text-slate-700")
+          }
         >
-          {(post.comments || []).length} {open ? '' : 'COMMENTS'}
+          💬 {(post.comments || []).length} {open ? '' : 'comments'}
         </button>
-        {!whisper && !open && post.comments?.length === 0 && (
-          <div style={{ 
-            fontSize: '9px',
-            letterSpacing: '0.1em',
-            color: dark ? '#666' : '#999'
-          }}>
-            BE THE FIRST TO COMMENT
+        {!whisper && !open && (
+          <div
+            className={
+              "text-xs " + (dark ? "text-slate-600" : "text-slate-400")
+            }
+          >
+            {post.comments?.length === 0 && "be the first to comment"}
           </div>
         )}
       </div>
 
       {open && (
-        <div style={{ 
-          marginTop: '25px',
-          paddingLeft: '20px',
-          borderLeft: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '20px'
-        }}>
+        <div className={
+          "mt-4 space-y-3 pl-4 " + 
+          (dark ? "border-l-2 border-slate-800" : "border-l-2 border-slate-200")
+        }>
           {commentTree.map((comment) => (
             <CommentThread 
               key={comment.id} 
               comment={comment} 
               postId={post.id}
               addComment={addComment}
-              removeComment={removeComment}
               dark={dark}
               user={user}
-              isRoomMod={isRoomMod}
               depth={0}
             />
           ))}
 
-          <div style={{ display: 'flex', gap: '10px', paddingTop: '10px' }}>
+          <div className="flex gap-2 pt-2">
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -1237,18 +910,13 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
                   setText("");
                 }
               }}
-              placeholder="ADD A COMMENT..."
-              style={{
-                flex: 1,
-                fontSize: '10px',
-                letterSpacing: '0.05em',
-                padding: '8px 0',
-                background: 'none',
-                border: 'none',
-                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                color: dark ? '#fff' : '#000'
-              }}
+              placeholder="add a comment..."
+              className={
+                "flex-1 rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
+                (dark
+                  ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+                  : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+              }
             />
             <button
               onClick={() => {
@@ -1257,21 +925,19 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
                   setText("");
                 }
               }}
+              className={
+                "px-4 py-2 rounded-lg text-sm font-medium transition-colors " +
+                (text.trim()
+                  ? dark
+                    ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                    : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20"
+                  : dark
+                  ? "bg-slate-800/30 text-slate-600 cursor-not-allowed"
+                  : "bg-slate-100 text-slate-400 cursor-not-allowed")
+              }
               disabled={!text.trim()}
-              style={{
-                fontSize: '9px',
-                letterSpacing: '0.1em',
-                padding: '8px 15px',
-                backgroundColor: text.trim() ? (dark ? '#fff' : '#000') : 'transparent',
-                border: `1px solid ${text.trim() ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
-                cursor: text.trim() ? 'pointer' : 'not-allowed',
-                color: text.trim() ? (dark ? '#000' : '#fff') : (dark ? '#333' : '#ccc'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => text.trim() && (e.target.style.opacity = '0.7')}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
             >
-              REPLY
+              reply
             </button>
           </div>
         </div>
@@ -1280,7 +946,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
   );
 }
 
-function CommentThread({ comment, postId, addComment, removeComment, dark, user, isRoomMod, depth }) {
+function CommentThread({ comment, postId, addComment, dark, user, depth }) {
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [collapsed, setCollapsed] = useState(false);
@@ -1292,127 +958,88 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
       setShowReplyBox(false);
     }
   };
-  
-  const canDelete = user.isAdmin || comment.authorId === user.id || isRoomMod;
+
+  // Limit nesting depth visually
+  const maxVisualDepth = 6;
+  const effectiveDepth = Math.min(depth, maxVisualDepth);
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: '10px' }}>
+    <div className="group">
+      <div className="flex gap-2">
+        {/* Collapse button for threads with replies */}
         {comment.replies?.length > 0 && (
           <button
             onClick={() => setCollapsed(!collapsed)}
-            style={{
-              fontSize: '9px',
-              width: '16px',
-              height: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#666' : '#999',
-              flexShrink: 0,
-              marginTop: '2px'
-            }}
+            className={
+              "text-xs w-5 h-5 flex items-center justify-center rounded hover:bg-slate-800/50 transition-colors flex-shrink-0 mt-0.5 " +
+              (dark ? "text-slate-500 hover:text-slate-400" : "text-slate-400 hover:text-slate-600")
+            }
           >
             {collapsed ? "+" : "−"}
           </button>
         )}
         
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex-1 min-w-0">
           {!collapsed && (
             <>
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', flexWrap: 'wrap', alignItems: 'baseline' }}>
-                <span style={{
-                  fontSize: '10px',
-                  letterSpacing: '0.05em',
-                  fontWeight: '400',
-                  color: dark ? '#999' : '#666'
-                }}>
-                  {comment.author.toUpperCase()}
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span
+                  className={
+                    "text-xs font-medium lowercase " +
+                    (dark ? "text-slate-400" : "text-slate-600")
+                  }
+                >
+                  {comment.author}
                 </span>
-                <span style={{
-                  fontSize: '9px',
-                  letterSpacing: '0.05em',
-                  color: dark ? '#666' : '#999'
-                }}>
+                <span
+                  className={
+                    "text-xs " +
+                    (dark ? "text-slate-600" : "text-slate-400")
+                  }
+                >
                   •
                 </span>
-                <span style={{
-                  fontSize: '9px',
-                  letterSpacing: '0.05em',
-                  color: dark ? '#666' : '#999'
-                }}>
-                  {new Date(comment.created).toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: '2-digit', 
-                    day: '2-digit' 
-                  }).toUpperCase()}
+                <span
+                  className={
+                    "text-xs " +
+                    (dark ? "text-slate-600" : "text-slate-400")
+                  }
+                >
+                  {new Date(comment.created).toLocaleString()}
                 </span>
               </div>
               
-              <div style={{
-                fontSize: '11px',
-                lineHeight: '1.6',
-                letterSpacing: '0.02em',
-                marginBottom: '12px',
-                color: dark ? '#fff' : '#000',
-                fontWeight: '300'
-              }}>
+              <div className={
+                "text-sm leading-relaxed mb-2 break-words " +
+                (dark ? "text-slate-300" : "text-slate-700")
+              }>
                 {comment.text}
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', alignItems: 'center' }}>
+              <div className="flex items-center gap-2 mb-3">
                 <button
                   onClick={() => setShowReplyBox(!showReplyBox)}
-                  style={{
-                    fontSize: '9px',
-                    letterSpacing: '0.1em',
-                    padding: '4px 8px',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: dark ? '#666' : '#999',
-                    transition: 'opacity 0.2s'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
+                  className={
+                    "text-xs px-2 py-1 rounded-md font-medium transition-colors " +
+                    (dark
+                      ? "hover:bg-slate-800/70 text-slate-500 hover:text-slate-400"
+                      : "hover:bg-slate-100 text-slate-500 hover:text-slate-700")
+                  }
                 >
-                  REPLY
+                  reply
                 </button>
-                {canDelete && (
-                  <button
-                    onClick={() => removeComment(postId, comment.id)}
-                    style={{
-                      fontSize: '9px',
-                      letterSpacing: '0.1em',
-                      padding: '4px 8px',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: dark ? '#666' : '#999',
-                      transition: 'opacity 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                    onMouseLeave={(e) => e.target.style.opacity = '1'}
-                  >
-                    DELETE
-                  </button>
-                )}
                 {comment.replies?.length > 0 && (
-                  <span style={{
-                    fontSize: '9px',
-                    letterSpacing: '0.05em',
-                    color: dark ? '#666' : '#999'
-                  }}>
-                    {comment.replies.length} {comment.replies.length === 1 ? 'REPLY' : 'REPLIES'}
+                  <span className={
+                    "text-xs " +
+                    (dark ? "text-slate-600" : "text-slate-400")
+                  }>
+                    {comment.replies.length} {comment.replies.length === 1 ? 'reply' : 'replies'}
                   </span>
                 )}
               </div>
 
               {showReplyBox && (
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                <div className="flex gap-2 mb-3">
                   <input
                     value={replyText}
                     onChange={(e) => setReplyText(e.target.value)}
@@ -1426,37 +1053,30 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                         setReplyText("");
                       }
                     }}
-                    placeholder={`REPLY TO ${comment.author.toUpperCase()}...`}
+                    placeholder={`reply to ${comment.author}...`}
                     autoFocus
-                    style={{
-                      flex: 1,
-                      fontSize: '10px',
-                      letterSpacing: '0.05em',
-                      padding: '8px 0',
-                      background: 'none',
-                      border: 'none',
-                      borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                      outline: 'none',
-                      color: dark ? '#fff' : '#000'
-                    }}
+                    className={
+                      "flex-1 rounded-lg px-3 py-2 text-sm outline-none transition-colors " +
+                      (dark
+                        ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+                        : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+                    }
                   />
                   <button
                     onClick={handleReply}
+                    className={
+                      "px-3 py-2 rounded-lg text-sm font-medium transition-colors " +
+                      (replyText.trim()
+                        ? dark
+                          ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                          : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20"
+                        : dark
+                        ? "bg-slate-800/30 text-slate-600 cursor-not-allowed"
+                        : "bg-slate-100 text-slate-400 cursor-not-allowed")
+                    }
                     disabled={!replyText.trim()}
-                    style={{
-                      fontSize: '9px',
-                      letterSpacing: '0.1em',
-                      padding: '6px 12px',
-                      backgroundColor: replyText.trim() ? (dark ? '#fff' : '#000') : 'transparent',
-                      border: `1px solid ${replyText.trim() ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
-                      cursor: replyText.trim() ? 'pointer' : 'not-allowed',
-                      color: replyText.trim() ? (dark ? '#000' : '#fff') : (dark ? '#333' : '#ccc'),
-                      transition: 'opacity 0.2s'
-                    }}
-                    onMouseEnter={(e) => replyText.trim() && (e.target.style.opacity = '0.7')}
-                    onMouseLeave={(e) => e.target.style.opacity = '1'}
                   >
-                    REPLY
+                    reply
                   </button>
                 </div>
               )}
@@ -1464,35 +1084,28 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
           )}
 
           {collapsed && (
-            <div style={{
-              fontSize: '9px',
-              padding: '4px 0',
-              letterSpacing: '0.05em',
-              color: dark ? '#666' : '#999'
-            }}>
-              {comment.author.toUpperCase()} • {comment.replies.length} {comment.replies.length === 1 ? 'REPLY' : 'REPLIES'} HIDDEN
+            <div className={
+              "text-xs py-1 " +
+              (dark ? "text-slate-500" : "text-slate-400")
+            }>
+              {comment.author} • {comment.replies.length} {comment.replies.length === 1 ? 'reply' : 'replies'} hidden
             </div>
           )}
 
+          {/* Nested replies */}
           {!collapsed && comment.replies?.length > 0 && (
-            <div style={{ 
-              marginTop: '15px',
-              paddingLeft: '20px',
-              borderLeft: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '20px'
-            }}>
+            <div className={
+              "mt-3 space-y-3 pl-4 " +
+              (dark ? "border-l-2 border-slate-800" : "border-l-2 border-slate-200")
+            }>
               {comment.replies.map((reply) => (
                 <CommentThread
                   key={reply.id}
                   comment={reply}
                   postId={postId}
                   addComment={addComment}
-                  removeComment={removeComment}
                   dark={dark}
                   user={user}
-                  isRoomMod={isRoomMod}
                   depth={depth + 1}
                 />
               ))}
@@ -1506,109 +1119,55 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
 
 function ProfileModal({ authorId, posts, onClose, dark }) {
   return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 60, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
-    }}>
-      <div style={{
-        maxWidth: '900px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
-        maxHeight: '80vh',
-        overflow: 'auto',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
+      <div
+        className={
+          "max-w-3xl w-full rounded-xl p-6 " +
+          (dark ? "bg-slate-900 text-slate-100" : "bg-white text-slate-900")
+        }
+      >
+        <div className="flex items-start justify-between">
           <div>
-            <h3 style={{ 
-              fontSize: '14px', 
-              letterSpacing: '0.1em',
-              fontWeight: '300',
-              color: dark ? '#fff' : '#000',
-              marginBottom: '8px'
-            }}>
-              {authorId.toUpperCase()}
-            </h3>
-            <div style={{ 
-              fontSize: '9px',
-              letterSpacing: '0.1em',
-              color: dark ? '#666' : '#999'
-            }}>
-              {posts.length} POSTS
+            <h3 className="text-xl lowercase font-medium">{authorId}</h3>
+            <div
+              className={
+                "text-xs mt-1 " + (dark ? "text-slate-500" : "text-slate-400")
+              }
+            >
+              {posts.length} posts
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
+          <button onClick={onClose} className="text-sm hover:opacity-70">
+            close
           </button>
         </div>
 
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', 
-          gap: '20px' 
-        }}>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           {posts.map((p) => (
             <div
               key={p.id}
-              style={{
-                padding: '15px',
-                border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-                backgroundColor: dark ? '#0a0a0a' : '#fafafa'
-              }}
+              className={
+                "rounded p-3 " +
+                (dark
+                  ? "bg-slate-800 border border-slate-700"
+                  : "bg-slate-50 border")
+              }
             >
               {p.image && (
                 <img
                   src={p.image}
-                  style={{ 
-                    width: '100%',
-                    maxHeight: '200px',
-                    objectFit: 'contain',
-                    marginBottom: '10px'
-                  }}
+                  className="w-full rounded mb-2 object-cover"
                   alt="post"
                 />
               )}
-              <div style={{ 
-                fontSize: '11px',
-                lineHeight: '1.6',
-                letterSpacing: '0.02em',
-                color: dark ? '#fff' : '#000',
-                fontWeight: '300'
-              }}>
-                {p.text}
-              </div>
-              <div style={{
-                fontSize: '9px',
-                marginTop: '10px',
-                letterSpacing: '0.05em',
-                color: dark ? '#666' : '#999'
-              }}>
-                {new Date(p.created).toLocaleDateString('en-US', { 
-                  year: 'numeric', 
-                  month: '2-digit', 
-                  day: '2-digit' 
-                }).toUpperCase()}
+              <div className="text-sm break-words">{p.text}</div>
+              <div
+                className={
+                  "text-xs mt-2 " +
+                  (dark ? "text-slate-500" : "text-slate-400")
+                }
+              >
+                {new Date(p.created).toLocaleString()}
               </div>
             </div>
           ))}
@@ -1620,236 +1179,105 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
 
 function RoomModal({ onClose, onCreate, onJoin, dark }) {
   const [name, setName] = useState("");
-  const [isPrivate, setIsPrivate] = useState(true);
 
   return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 60, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
-    }}>
-      <div style={{
-        maxWidth: '450px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
-          <h3 style={{ 
-            fontSize: '12px', 
-            letterSpacing: '0.15em',
-            fontWeight: '300',
-            color: dark ? '#fff' : '#000'
-          }}>
-            ROOMS
-          </h3>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
+      <div
+        className={
+          "max-w-md w-full rounded-xl p-6 " +
+          (dark ? "bg-slate-900 text-slate-100" : "bg-white text-slate-900")
+        }
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg">rooms</h3>
+          <button onClick={onClose} className="text-sm hover:opacity-70">
+            close
           </button>
         </div>
 
-        <div style={{ marginBottom: '25px' }}>
-          <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center' }}>
-            <span style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#fff' : '#000'
-            }}>
-              ROOM TYPE:
-            </span>
-            <button
-              onClick={() => setIsPrivate(true)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '8px 16px',
-                backgroundColor: isPrivate ? (dark ? '#fff' : '#000') : 'transparent',
-                border: `1px solid ${dark ? '#fff' : '#000'}`,
-                cursor: 'pointer',
-                color: isPrivate ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              PRIVATE
-            </button>
-            <button
-              onClick={() => setIsPrivate(false)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '8px 16px',
-                backgroundColor: !isPrivate ? (dark ? '#fff' : '#000') : 'transparent',
-                border: `1px solid ${dark ? '#fff' : '#000'}`,
-                cursor: 'pointer',
-                color: !isPrivate ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              PUBLIC
-            </button>
-          </div>
-          
+        <div className="mb-4">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="NEW ROOM NAME (OPTIONAL)"
-            style={{
-              width: '100%',
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px 0',
-              marginBottom: '20px',
-              background: 'none',
-              border: 'none',
-              borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              outline: 'none',
-              color: dark ? '#fff' : '#000'
-            }}
+            placeholder="new room name (optional)"
+            className={
+              "w-full rounded-lg px-3 py-2 mb-3 outline-none transition-colors " +
+              (dark
+                ? "bg-slate-800/50 hover:bg-slate-800 focus:bg-slate-800 text-slate-100 placeholder-slate-500"
+                : "bg-slate-100 hover:bg-slate-200/70 focus:bg-slate-200/70 text-slate-900 placeholder-slate-400")
+            }
           />
-          
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div className="flex gap-2">
             <button
-              onClick={() => onCreate(name, isPrivate)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '12px 20px',
-                backgroundColor: dark ? '#fff' : '#000',
-                border: `1px solid ${dark ? '#fff' : '#000'}`,
-                cursor: 'pointer',
-                color: dark ? '#000' : '#fff',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
+              onClick={() => onCreate(name)}
+              className={
+                "px-4 py-2 rounded-lg font-medium transition-colors " +
+                (dark
+                  ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                  : "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20")
+              }
             >
-              CREATE
+              create
             </button>
             <button
               onClick={() => {
-                const code = prompt("PASTE INVITE CODE") || "";
+                const code = prompt("paste invite code") || "";
                 if (code) onJoin(code);
               }}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '12px 20px',
-                background: 'none',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                cursor: 'pointer',
-                color: dark ? '#999' : '#666',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
+              className={
+                "px-4 py-2 rounded-lg transition-colors " +
+                (dark
+                  ? "hover:bg-slate-800/70 text-slate-400"
+                  : "hover:bg-slate-100 text-slate-600")
+              }
             >
-              JOIN
+              join
             </button>
           </div>
         </div>
 
-        <div style={{
-          fontSize: '9px',
-          letterSpacing: '0.05em',
-          lineHeight: '1.5',
-          color: dark ? '#666' : '#999'
-        }}>
-          PRIVATE ROOMS: INVITE-ONLY VIA CODE • PUBLIC ROOMS: VISIBLE TO ALL USERS
+        <div
+          className={
+            "text-xs " + (dark ? "text-slate-500" : "text-slate-400")
+          }
+        >
+          creating a room generates a short invite code you can share. room
+          data is local to browsers that join.
         </div>
       </div>
     </div>
   );
 }
+
 function SettingsModal({ dark, setDark, onClose }) {
   return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 50, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
-    }}>
-      <div style={{
-        maxWidth: '400px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-          <h3 style={{ 
-            fontSize: '12px', 
-            letterSpacing: '0.15em',
-            fontWeight: '300',
-            color: dark ? '#fff' : '#000'
-          }}>
-            SETTINGS
-          </h3>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div
+        className={
+          "max-w-md w-full rounded-xl p-6 " +
+          (dark ? "bg-slate-900 text-slate-100" : "bg-white text-slate-900")
+        }
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg lowercase">settings</h3>
+          <button onClick={onClose} className="text-sm hover:opacity-70">
+            close
           </button>
         </div>
 
-        <div style={{ fontSize: '11px', letterSpacing: '0.05em' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: dark ? '#fff' : '#000' }}>DARK MODE</span>
+        <div className="space-y-4 text-sm">
+          <div className="flex items-center justify-between">
+            <span>dark mode</span>
             <button
               onClick={() => setDark((d) => !d)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '10px 20px',
-                backgroundColor: dark ? '#fff' : '#000',
-                border: `1px solid ${dark ? '#fff' : '#000'}`,
-                cursor: 'pointer',
-                color: dark ? '#000' : '#fff',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
+              className={
+                "px-4 py-2 rounded-lg font-medium transition-colors " +
+                (dark
+                  ? "bg-slate-800/70 hover:bg-slate-800 text-slate-300"
+                  : "bg-slate-200 hover:bg-slate-300 text-slate-700")
+              }
             >
-              {dark ? "ON" : "OFF"}
+              {dark ? "on" : "off"}
             </button>
           </div>
         </div>
