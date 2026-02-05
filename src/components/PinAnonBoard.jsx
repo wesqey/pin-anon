@@ -95,6 +95,13 @@ export default function PinAnonBoard() {
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("pinanon_dark") === "1";
   });
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const stateRef = ref(database, 'appState');
@@ -383,6 +390,29 @@ export default function PinAnonBoard() {
     setLayout(layouts[nextIndex]);
   };
 
+  const getGridIcon = () => {
+    if (layout === "single") return "▢";
+    if (layout === "double") return "▢▢";
+    return "▢▢▢";
+  };
+
+  const getGridColumns = () => {
+    // On mobile (< 768px), always show single column
+    if (windowWidth < 768) return '1fr';
+    
+    // On tablet (768-1024px), max 2 columns
+    if (windowWidth < 1024) {
+      if (layout === 'triple') return 'repeat(2, 1fr)';
+      if (layout === 'double') return 'repeat(2, 1fr)';
+      return '1fr';
+    }
+    
+    // On desktop, show requested layout
+    if (layout === 'single') return '1fr';
+    if (layout === 'double') return 'repeat(2, 1fr)';
+    return 'repeat(3, 1fr)';
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ 
@@ -537,18 +567,20 @@ export default function PinAnonBoard() {
             <button
               onClick={cycleLayout}
               style={{
-                fontSize: '10px',
-                letterSpacing: '0.15em',
+                fontSize: '14px',
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
                 color: dark ? '#fff' : '#000',
-                transition: 'opacity 0.2s'
+                transition: 'opacity 0.2s',
+                padding: '0',
+                lineHeight: '1'
               }}
               onMouseEnter={(e) => e.target.style.opacity = '0.5'}
               onMouseLeave={(e) => e.target.style.opacity = '1'}
+              title={`Layout: ${layout}`}
             >
-              LAYOUT: {layout.toUpperCase()}
+              {getGridIcon()}
             </button>
 
             <button
@@ -583,8 +615,8 @@ export default function PinAnonBoard() {
         <main>
           <section style={{ 
             display: 'grid',
-            gridTemplateColumns: layout === 'single' ? '1fr' : layout === 'double' ? 'repeat(auto-fit, minmax(400px, 1fr))' : 'repeat(auto-fit, minmax(300px, 1fr))',
-            gap: '60px'
+            gridTemplateColumns: getGridColumns(),
+            gap: layout === 'single' ? '60px' : '30px'
           }}>
             {visible.length === 0 && (
               <div style={{ 
