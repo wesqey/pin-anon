@@ -894,6 +894,23 @@ function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, u
       .slice(0, 10);
   };
 
+  const getRoomActivity = (roomId) => {
+    const roomPosts = (posts || []).filter(p => p.room === roomId);
+    if (roomPosts.length === 0) return 0;
+    // Return the timestamp of the most recent post
+    return Math.max(...roomPosts.map(p => p.created));
+  };
+
+  // Sort rooms by most recent activity
+  const sortedRooms = [...visibleRooms].sort((a, b) => {
+    const activityA = getRoomActivity(a.id);
+    const activityB = getRoomActivity(b.id);
+    // Main room always stays on top
+    if (a.id === DEFAULT_ROOM) return -1;
+    if (b.id === DEFAULT_ROOM) return 1;
+    return activityB - activityA;
+  });
+
   const handleScroll = (roomId, e) => {
     setScrollPositions(prev => ({
       ...prev,
@@ -957,7 +974,7 @@ function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, u
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '60px' }}>
-        {visibleRooms.map((room) => {
+        {sortedRooms.map((room) => {
           const roomPosts = getRoomPosts(room.id);
           return (
             <div key={room.id}>
