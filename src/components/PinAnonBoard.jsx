@@ -90,7 +90,10 @@ export default function PinAnonBoard() {
     }
     const newUser = { 
       id: genAnonId(7), 
-      display: null, 
+      display: null,
+      bio: null,
+      profileImage: null,
+      bannerColor: null,
       isAdmin: false,
       hasAccess: false, // Whether they've used an invite code
       inviteCodesRemaining: 0, // How many invites they can give out
@@ -674,7 +677,7 @@ export default function PinAnonBoard() {
       return b.created - a.created;
     });
 
-  function postNew({ text, image }) {
+  function postNew({ text, image, videoUrl, audioUrl }) {
     const currentRoom = state.rooms.find(r => r.id === room);
     
     // Check if room is creator-only and user is not the creator
@@ -690,6 +693,8 @@ export default function PinAnonBoard() {
       authorId: user.id, // Store actual user ID for ownership checking
       text,
       image,
+      videoUrl: videoUrl || null,
+      audioUrl: audioUrl || null,
       room,
       created: Date.now(),
       votes: 0,
@@ -1134,6 +1139,38 @@ export default function PinAnonBoard() {
                           alt="post"
                         />
                       )}
+                      {post.videoUrl && (
+                        <div style={{ marginBottom: '20px' }}>
+                          {post.videoUrl.includes('youtube.com') || post.videoUrl.includes('youtu.be') ? (
+                            <iframe
+                              width="100%"
+                              height={layout === 'single' ? '400' : '250'}
+                              src={post.videoUrl.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/')}
+                              frameBorder="0"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                              style={{ maxWidth: '100%' }}
+                            />
+                          ) : (
+                            <video
+                              controls
+                              style={{ width: '100%', maxHeight: layout === 'single' ? '600px' : '300px' }}
+                            >
+                              <source src={post.videoUrl} />
+                              Your browser does not support video.
+                            </video>
+                          )}
+                        </div>
+                      )}
+                      {post.audioUrl && (
+                        <audio
+                          controls
+                          style={{ width: '100%', marginBottom: '20px' }}
+                        >
+                          <source src={post.audioUrl} />
+                          Your browser does not support audio.
+                        </audio>
+                      )}
                       <div style={{ 
                         fontSize: layout === 'single' ? '13px' : '12px', 
                         lineHeight: '1.8',
@@ -1155,6 +1192,7 @@ export default function PinAnonBoard() {
                         dark={dark}
                         user={user}
                         isRoomMod={isRoomMod(post.room)}
+                        setProfileView={setProfileView}
                       />
                     </div>
                   </article>
@@ -1862,6 +1900,8 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
 function NewPostModal({ onClose, onPost, dark }) {
   const [text, setText] = useState("");
   const [img, setImg] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [audioUrl, setAudioUrl] = useState("");
   const [uploading, setUploading] = useState(false);
 
   const CLOUDINARY_CLOUD_NAME = "dnulbfj48";
@@ -1898,11 +1938,18 @@ function NewPostModal({ onClose, onPost, dark }) {
   }
 
   function submit() {
-    if (!text.trim() && !img) return;
-    onPost({ text: text.trim(), image: img || null });
+    if (!text.trim() && !img && !videoUrl && !audioUrl) return;
+    onPost({ 
+      text: text.trim(), 
+      image: img || null,
+      videoUrl: videoUrl.trim() || null,
+      audioUrl: audioUrl.trim() || null
+    });
     onClose();
     setText("");
     setImg("");
+    setVideoUrl("");
+    setAudioUrl("");
   }
 
   return (
@@ -2053,6 +2100,44 @@ function NewPostModal({ onClose, onPost, dark }) {
                 </button>
               </div>
             )}
+            
+            <input
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              placeholder="VIDEO URL (YOUTUBE OR DIRECT LINK)"
+              style={{
+                width: '100%',
+                padding: '10px 0',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                background: 'none',
+                border: 'none',
+                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                color: dark ? '#fff' : '#000',
+                boxSizing: 'border-box',
+                marginTop: '15px'
+              }}
+            />
+            
+            <input
+              value={audioUrl}
+              onChange={(e) => setAudioUrl(e.target.value)}
+              placeholder="AUDIO URL"
+              style={{
+                width: '100%',
+                padding: '10px 0',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                background: 'none',
+                border: 'none',
+                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                color: dark ? '#fff' : '#000',
+                boxSizing: 'border-box',
+                marginTop: '15px'
+              }}
+            />
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '15px', flexWrap: 'wrap' }}>
@@ -2099,7 +2184,7 @@ function NewPostModal({ onClose, onPost, dark }) {
   );
 }
 
-function CommentBlock({ post, addComment, removeComment, whisper, dark, user, isRoomMod }) {
+function CommentBlock({ post, addComment, removeComment, whisper, dark, user, isRoomMod, setProfileView }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
 
@@ -2170,6 +2255,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
               dark={dark}
               user={user}
               isRoomMod={isRoomMod}
+              setProfileView={setProfileView}
               depth={0}
             />
           ))}
@@ -2230,7 +2316,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
   );
 }
 
-function CommentThread({ comment, postId, addComment, removeComment, dark, user, isRoomMod, depth }) {
+function CommentThread({ comment, postId, addComment, removeComment, dark, user, isRoomMod, depth, setProfileView }) {
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [collapsed, setCollapsed] = useState(false);
@@ -2274,15 +2360,23 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
           {!collapsed && (
             <>
               <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', flexWrap: 'wrap', alignItems: 'baseline' }}>
-                <span style={{
-                  fontSize: '10px',
-                  letterSpacing: '0.05em',
-                  fontWeight: '400',
-                  color: dark ? '#999' : '#666',
-                  wordBreak: 'break-all'
-                }}>
+                <button
+                  onClick={() => setProfileView(comment.author)}
+                  style={{
+                    fontSize: '10px',
+                    letterSpacing: '0.05em',
+                    fontWeight: '400',
+                    color: dark ? '#999' : '#666',
+                    wordBreak: 'break-all',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    padding: 0
+                  }}
+                >
                   {comment.author.toUpperCase()}
-                </span>
+                </button>
                 <span style={{
                   fontSize: '9px',
                   letterSpacing: '0.05em',
@@ -2450,6 +2544,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                   dark={dark}
                   user={user}
                   isRoomMod={isRoomMod}
+                  setProfileView={setProfileView}
                   depth={depth + 1}
                 />
               ))}
