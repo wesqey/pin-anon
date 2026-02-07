@@ -81,8 +81,15 @@ export default function PinAnonBoard() {
     return newUser;
   });
 
-  const [gridView, setGridView] = useState(true); // true = grid, false = single column
-  const [room, setRoom] = useState(DEFAULT_ROOM);
+  const [layout, setLayout] = useState(() => {
+    return localStorage.getItem("pinanon_layout") || "single";
+  }); // "single", "double", or "triple"
+  const [view, setView] = useState(() => {
+    return localStorage.getItem("pinanon_view") || "home";
+  }); // "home" or "room"
+  const [room, setRoom] = useState(() => {
+    return localStorage.getItem("pinanon_room") || DEFAULT_ROOM;
+  });
   const [showNew, setShowNew] = useState(false);
   const [profileView, setProfileView] = useState(null);
   const [sort, setSort] = useState("newest");
@@ -93,6 +100,80 @@ export default function PinAnonBoard() {
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("pinanon_dark") === "1";
   });
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem("pinanon_theme") || "default";
+  });
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+
+  // Theme color palettes
+  const themes = {
+    default: {
+      bg: { light: '#fff', dark: '#000' },
+      text: { light: '#000', dark: '#fff' },
+      textMuted: { light: '#666', dark: '#999' },
+      textDim: { light: '#999', dark: '#666' },
+      border: { light: '#e5e5e5', dark: '#333' },
+      borderDim: { light: '#f5f5f5', dark: '#1a1a1a' },
+      bgAlt: { light: '#fafafa', dark: '#0a0a0a' }
+    },
+    serika: {
+      bg: { light: '#e2b714', dark: '#323437' },
+      text: { light: '#323437', dark: '#e2b714' },
+      textMuted: { light: '#646669', dark: '#d1d0c5' },
+      textDim: { light: '#969696', dark: '#646669' },
+      border: { light: '#d1d0c5', dark: '#646669' },
+      borderDim: { light: '#e8e6d5', dark: '#2c2e31' },
+      bgAlt: { light: '#f5f3e8', dark: '#2c2e31' }
+    },
+    retrocast: {
+      bg: { light: '#fefcfd', dark: '#2e2f33' },
+      text: { light: '#2e2f33', dark: '#d6d5c9' },
+      textMuted: { light: '#66646d', dark: '#a39e95' },
+      textDim: { light: '#b3b1ba', dark: '#66646d' },
+      border: { light: '#d6d5c9', dark: '#545557' },
+      borderDim: { light: '#e8e7e1', dark: '#3d3e42' },
+      bgAlt: { light: '#f5f4ed', dark: '#3d3e42' }
+    },
+    botanical: {
+      bg: { light: '#f1f4e8', dark: '#1d2516' },
+      text: { light: '#1d2516', dark: '#d0daba' },
+      textMuted: { light: '#5a6749', dark: '#a8b491' },
+      textDim: { light: '#9ba88a', dark: '#5a6749' },
+      border: { light: '#c5d1b0', dark: '#4a5438' },
+      borderDim: { light: '#e0e8d4', dark: '#2a3120' },
+      bgAlt: { light: '#e8edd9', dark: '#2a3120' }
+    },
+    ocean: {
+      bg: { light: '#e8f4f8', dark: '#16232e' },
+      text: { light: '#16232e', dark: '#cad9e0' },
+      textMuted: { light: '#4a6b7c', dark: '#96b1bf' },
+      textDim: { light: '#8aa6b5', dark: '#4a6b7c' },
+      border: { light: '#b3cdd9', dark: '#2d4a5c' },
+      borderDim: { light: '#d9e8ef', dark: '#1d3240' },
+      bgAlt: { light: '#dceaf2', dark: '#1d3240' }
+    },
+    rose: {
+      bg: { light: '#fef3f4', dark: '#2e1e1f' },
+      text: { light: '#2e1e1f', dark: '#f0d4d7' },
+      textMuted: { light: '#8a5f64', dark: '#d4a3a8' },
+      textDim: { light: '#c4a1a6', dark: '#8a5f64' },
+      border: { light: '#e8c4c8', dark: '#5a3b3f' },
+      borderDim: { light: '#f5e0e3', dark: '#3d2a2c' },
+      bgAlt: { light: '#f9e6e9', dark: '#3d2a2c' }
+    }
+  };
+
+  const getColor = (colorKey) => {
+    const currentTheme = themes[theme] || themes.default;
+    const mode = dark ? 'dark' : 'light';
+    return currentTheme[colorKey]?.[mode] || '#000';
+  };
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const stateRef = ref(database, 'appState');
@@ -117,19 +198,36 @@ export default function PinAnonBoard() {
     localStorage.setItem("pinanon_dark", dark ? "1" : "0");
   }, [dark]);
 
+  useEffect(() => {
+    localStorage.setItem("pinanon_theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("pinanon_layout", layout);
+  }, [layout]);
+
+  useEffect(() => {
+    localStorage.setItem("pinanon_view", view);
+  }, [view]);
+
+  useEffect(() => {
+    localStorage.setItem("pinanon_room", room);
+  }, [room]);
+
   const postsInRoom = useMemo(
     () => (state.posts || []).filter((p) => p.room === room),
     [state.posts, room]
   );
 
-  function createRoom(name = "room", isPrivate = true) {
+  function createRoom(name = "room", isPrivate = true, creatorOnly = false) {
     const invite = genAnonId(6);
     const r = { 
       id: invite, 
       name: name || `room-${invite}`, 
       invite,
       creator: user.id,
-      isPrivate: isPrivate // Now controlled by user choice
+      isPrivate: isPrivate, // Now controlled by user choice
+      creatorOnly: creatorOnly // Only creator can post
     };
     const newRooms = [r, ...state.rooms];
     const updates = {};
@@ -154,6 +252,7 @@ export default function PinAnonBoard() {
     const found = state.rooms.find((r) => r.id === code || r.invite === code);
     if (found) {
       setRoom(found.id);
+      setView("room");
       
       // Add to user's joined rooms
       setUser((prev) => {
@@ -264,6 +363,11 @@ export default function PinAnonBoard() {
     return room?.creator === user.id;
   }
 
+  function enterRoom(roomId) {
+    setRoom(roomId);
+    setView("room");
+  }
+
   function removeRoom(roomId) {
     const roomToDelete = state.rooms.find(r => r.id === roomId);
     if (!roomToDelete) return;
@@ -281,6 +385,7 @@ export default function PinAnonBoard() {
     if (!confirm("DELETE THIS ROOM?")) return;
     if (room === roomId) {
       setRoom(DEFAULT_ROOM);
+      setView("home");
     }
     const newRooms = (state.rooms || []).filter((r) => r.id !== roomId);
     const updates = {};
@@ -336,6 +441,14 @@ export default function PinAnonBoard() {
     });
 
   function postNew({ text, image }) {
+    const currentRoom = state.rooms.find(r => r.id === room);
+    
+    // Check if room is creator-only and user is not the creator
+    if (currentRoom?.creatorOnly && currentRoom.creator !== user.id && !user.isAdmin) {
+      alert("ONLY THE ROOM CREATOR CAN POST IN THIS ROOM");
+      return;
+    }
+    
     const postId = crypto.randomUUID();
     const post = {
       id: postId,
@@ -370,6 +483,26 @@ export default function PinAnonBoard() {
     return r?.name || "MAIN ROOM";
   }, [room, state.rooms]);
 
+  const cycleLayout = () => {
+    const layouts = ["single", "double", "triple"];
+    const currentIndex = layouts.indexOf(layout);
+    const nextIndex = (currentIndex + 1) % layouts.length;
+    setLayout(layouts[nextIndex]);
+  };
+
+  const getGridIcon = () => {
+    if (layout === "single") return "▢";
+    if (layout === "double") return "▢▢";
+    return "▢▢▢";
+  };
+
+  const getGridColumns = () => {
+    // Always respect the user's layout choice on all screen sizes
+    if (layout === 'single') return '1fr';
+    if (layout === 'double') return 'repeat(2, 1fr)';
+    return 'repeat(3, 1fr)';
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ 
@@ -390,26 +523,41 @@ export default function PinAnonBoard() {
   return (
     <div style={{ 
       minHeight: '100vh',
-      backgroundColor: dark ? '#000' : '#fff',
-      color: dark ? '#fff' : '#000',
+      backgroundColor: getColor('bg'),
+      color: getColor('text'),
       fontFamily: 'Helvetica Neue, Arial, sans-serif',
-      transition: 'background-color 0.3s, color 0.3s'
+      transition: 'background-color 0.3s, color 0.3s',
+      overflowX: 'hidden'
     }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '40px 60px' }}>
+      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: windowWidth < 768 ? '20px 10px' : '40px 20px' }}>
         {/* Header */}
         <header style={{ 
           marginBottom: '60px', 
           paddingBottom: '30px', 
-          borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}` 
+          borderBottom: `1px solid ${getColor('border')}` 
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px' }}>
-            <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px', flexWrap: 'wrap', gap: '20px' }}>
+            <button
+              onClick={() => setView("home")}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                textAlign: 'left'
+              }}
+            >
               <div style={{ 
                 fontSize: '24px', 
                 fontWeight: '300', 
                 letterSpacing: '0.15em',
-                marginBottom: '8px'
-              }}>
+                marginBottom: '8px',
+                color: dark ? '#fff' : '#000',
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
                 PIN-ANON
               </div>
               <div style={{ 
@@ -419,9 +567,9 @@ export default function PinAnonBoard() {
               }}>
                 ANONYMOUS ARCHIVE
               </div>
-            </div>
+            </button>
 
-            <div style={{ display: 'flex', gap: '30px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flexWrap: 'wrap' }}>
               {!user.isAdmin ? (
                 <button
                   onClick={handleAdminLogin}
@@ -476,237 +624,306 @@ export default function PinAnonBoard() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="SEARCH"
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.15em',
-                padding: '8px 0',
-                background: 'none',
-                border: 'none',
-                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                width: '180px',
-                color: dark ? '#fff' : '#000',
-                transition: 'width 0.3s, border-color 0.2s'
-              }}
-              onFocus={(e) => {
-                e.target.style.width = '240px';
-                e.target.style.borderColor = dark ? '#666' : '#999';
-              }}
-              onBlur={(e) => {
-                e.target.style.width = '180px';
-                e.target.style.borderColor = dark ? '#333' : '#e5e5e5';
-              }}
-            />
-            
-            <RoomsDropdown 
-              rooms={state.rooms}
-              currentRoom={room}
-              currentRoomName={currentRoomName}
-              onSelectRoom={setRoom}
-              onCreateRoom={() => setInviteModal(true)}
-              onJoinRoom={() => {
-                const code = prompt("PASTE INVITE CODE");
-                if (code) joinRoom(code);
-              }}
-              onDeleteRoom={removeRoom}
-              dark={dark}
-              isAdmin={user.isAdmin}
-              userJoinedRooms={user.joinedRooms}
-              userCreatedRooms={user.createdRooms}
-            />
+          {view === "room" && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setView("home")}
+                style={{
+                  fontSize: '10px',
+                  letterSpacing: '0.15em',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: dark ? '#999' : '#666',
+                  transition: 'opacity 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                ← BACK TO HOME
+              </button>
 
-            <button
-              onClick={() => setShowNew(true)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.15em',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: dark ? '#fff' : '#000',
-                marginLeft: 'auto',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              NEW POST
-            </button>
-          </div>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="SEARCH"
+                style={{
+                  fontSize: '10px',
+                  letterSpacing: '0.15em',
+                  padding: '8px 0',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  outline: 'none',
+                  width: '180px',
+                  color: dark ? '#fff' : '#000',
+                  transition: 'width 0.3s, border-color 0.2s'
+                }}
+                onFocus={(e) => {
+                  e.target.style.width = '240px';
+                  e.target.style.borderColor = dark ? '#666' : '#999';
+                }}
+                onBlur={(e) => {
+                  e.target.style.width = '180px';
+                  e.target.style.borderColor = dark ? '#333' : '#e5e5e5';
+                }}
+              />
+              
+              <RoomsDropdown 
+                rooms={state.rooms}
+                currentRoom={room}
+                currentRoomName={currentRoomName}
+                onSelectRoom={enterRoom}
+                onCreateRoom={() => setInviteModal(true)}
+                onJoinRoom={() => {
+                  const code = prompt("PASTE INVITE CODE");
+                  if (code) joinRoom(code);
+                }}
+                onDeleteRoom={removeRoom}
+                dark={dark}
+                isAdmin={user.isAdmin}
+                userJoinedRooms={user.joinedRooms}
+                userCreatedRooms={user.createdRooms}
+              />
+
+              <button
+                onClick={cycleLayout}
+                style={{
+                  fontSize: '14px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: dark ? '#fff' : '#000',
+                  transition: 'opacity 0.2s',
+                  padding: '0',
+                  lineHeight: '1'
+                }}
+                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                onMouseLeave={(e) => e.target.style.opacity = '1'}
+                title={`Layout: ${layout}`}
+              >
+                {getGridIcon()}
+              </button>
+
+              <button
+                onClick={() => setShowNew(true)}
+                style={{
+                  fontSize: '10px',
+                  letterSpacing: '0.15em',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: dark ? '#fff' : '#000',
+                  marginLeft: 'auto',
+                  transition: 'opacity 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                NEW POST
+              </button>
+            </div>
+          )}
         </header>
 
-        <div style={{ 
-          marginBottom: '40px', 
-          fontSize: '10px', 
-          letterSpacing: '0.15em',
-          color: dark ? '#999' : '#666'
-        }}>
-          {visible.length} POST{visible.length !== 1 ? 'S' : ''} IN {currentRoomName.toUpperCase()}
-        </div>
+        {view === "home" ? (
+          <HomePage
+            rooms={state.rooms}
+            posts={state.posts}
+            onEnterRoom={enterRoom}
+            onCreateRoom={() => setInviteModal(true)}
+            onJoinRoom={() => {
+              const code = prompt("PASTE INVITE CODE");
+              if (code) joinRoom(code);
+            }}
+            dark={dark}
+            userJoinedRooms={user.joinedRooms}
+          />
+        ) : (
+          <>
+            <div style={{ 
+              marginBottom: '40px', 
+              fontSize: '10px', 
+              letterSpacing: '0.15em',
+              color: dark ? '#999' : '#666'
+            }}>
+              {visible.length} POST{visible.length !== 1 ? 'S' : ''} IN {currentRoomName.toUpperCase()}
+            </div>
 
-        <main>
-          <section style={{ display: 'flex', flexDirection: 'column', gap: '60px' }}>
-            {visible.length === 0 && (
-              <div style={{ 
-                padding: '60px 0', 
-                textAlign: 'center',
-                fontSize: '11px',
-                letterSpacing: '0.1em',
-                color: dark ? '#666' : '#999'
+            <main>
+              <section style={{ 
+                display: 'grid',
+                gridTemplateColumns: getGridColumns(),
+                gap: layout === 'single' ? '60px' : windowWidth < 768 ? '20px' : '30px'
               }}>
-                NO POSTS YET IN THIS ROOM
-              </div>
-            )}
-
-            {visible.map((post) => (
-              <article key={post.id} style={{ 
-                paddingBottom: '60px',
-                borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-                  <div style={{ display: 'flex', gap: '15px', alignItems: 'baseline' }}>
-                    <button
-                      onClick={() => setProfileView(post.author)}
-                      style={{
-                        fontSize: '11px',
-                        letterSpacing: '0.05em',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: dark ? '#fff' : '#000',
-                        textDecoration: 'underline',
-                        padding: 0
-                      }}
-                    >
-                      {post.author.toUpperCase()}
-                    </button>
-                    {!whisper && (
-                      <div style={{ 
-                        fontSize: '9px',
-                        letterSpacing: '0.1em',
-                        color: dark ? '#666' : '#999'
-                      }}>
-                        {new Date(post.created).toLocaleDateString('en-US', { 
-                          year: 'numeric', 
-                          month: '2-digit', 
-                          day: '2-digit' 
-                        }).toUpperCase()}
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    {(user.isAdmin || post.authorId === user.id || isRoomMod(post.room)) && (
-                      <button
-                        onClick={() => removePost(post.id)}
-                        style={{
-                          fontSize: '9px',
-                          letterSpacing: '0.1em',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: dark ? '#666' : '#999',
-                          transition: 'opacity 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                        onMouseLeave={(e) => e.target.style.opacity = '1'}
-                      >
-                        DELETE
-                      </button>
-                    )}
-                    <button
-                      onClick={() => vote(post.id, 1)}
-                      style={{
-                        fontSize: '11px',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: post.voters && post.voters[user.id] === 1 
-                          ? (dark ? '#fff' : '#000')
-                          : (dark ? '#666' : '#ccc'),
-                        transition: 'opacity 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                      onMouseLeave={(e) => e.target.style.opacity = '1'}
-                    >
-                      ▲
-                    </button>
-                    <div style={{ 
-                      fontSize: '10px',
-                      letterSpacing: '0.05em',
-                      minWidth: '20px',
-                      textAlign: 'center',
-                      color: post.votes > 0 
-                        ? (dark ? '#fff' : '#000')
-                        : post.votes < 0
-                        ? (dark ? '#666' : '#999')
-                        : (dark ? '#666' : '#999')
-                    }}>
-                      {post.votes}
-                    </div>
-                    <button
-                      onClick={() => vote(post.id, -1)}
-                      style={{
-                        fontSize: '11px',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: post.voters && post.voters[user.id] === -1 
-                          ? (dark ? '#fff' : '#000')
-                          : (dark ? '#666' : '#ccc'),
-                        transition: 'opacity 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                      onMouseLeave={(e) => e.target.style.opacity = '1'}
-                    >
-                      ▼
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '20px' }}>
-                  {post.image && (
-                    <img
-                      src={post.image}
-                      style={{ 
-                        width: '100%',
-                        maxHeight: '600px',
-                        objectFit: 'contain',
-                        marginBottom: '20px'
-                      }}
-                      alt="post"
-                    />
-                  )}
+                {visible.length === 0 && (
                   <div style={{ 
-                    fontSize: '13px', 
-                    lineHeight: '1.8',
-                    letterSpacing: '0.02em',
-                    fontWeight: '300'
+                    padding: '60px 0', 
+                    textAlign: 'center',
+                    fontSize: '11px',
+                    letterSpacing: '0.1em',
+                    color: dark ? '#666' : '#999',
+                    gridColumn: '1 / -1'
                   }}>
-                    {post.text}
+                    NO POSTS YET IN THIS ROOM
                   </div>
-                </div>
+                )}
 
-                <div style={{ marginTop: '30px' }}>
-                  <CommentBlock
-                    post={post}
-                    addComment={addComment}
-                    removeComment={removeComment}
-                    whisper={whisper}
-                    dark={dark}
-                    user={user}
-                    isRoomMod={isRoomMod(post.room)}
-                  />
-                </div>
-              </article>
-            ))}
-          </section>
-        </main>
+                {visible.map((post) => (
+                  <article key={post.id} style={{ 
+                    paddingBottom: layout === 'single' ? '60px' : '20px',
+                    borderBottom: layout === 'single' ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
+                    wordWrap: 'break-word',
+                    overflowWrap: 'break-word',
+                    minWidth: 0,
+                    border: layout !== 'single' ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
+                    padding: layout !== 'single' ? '15px' : '0'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                      <div style={{ display: 'flex', gap: '15px', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                        <button
+                          onClick={() => setProfileView(post.author)}
+                          style={{
+                            fontSize: '11px',
+                            letterSpacing: '0.05em',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: dark ? '#fff' : '#000',
+                            textDecoration: 'underline',
+                            padding: 0,
+                            wordBreak: 'break-all'
+                          }}
+                        >
+                          {post.author.toUpperCase()}
+                        </button>
+                        {!whisper && (
+                          <div style={{ 
+                            fontSize: '9px',
+                            letterSpacing: '0.1em',
+                            color: dark ? '#666' : '#999'
+                          }}>
+                            {new Date(post.created).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: '2-digit', 
+                              day: '2-digit' 
+                            }).toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        {(user.isAdmin || post.authorId === user.id || isRoomMod(post.room)) && (
+                          <button
+                            onClick={() => removePost(post.id)}
+                            style={{
+                              fontSize: '9px',
+                              letterSpacing: '0.1em',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: dark ? '#666' : '#999',
+                              transition: 'opacity 0.2s',
+                              whiteSpace: 'nowrap'
+                            }}
+                            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                            onMouseLeave={(e) => e.target.style.opacity = '1'}
+                          >
+                            DELETE
+                          </button>
+                        )}
+                        <button
+                          onClick={() => vote(post.id, 1)}
+                          style={{
+                            fontSize: '11px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: post.voters && post.voters[user.id] === 1 
+                              ? (dark ? '#fff' : '#000')
+                              : (dark ? '#666' : '#ccc'),
+                            transition: 'opacity 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                          onMouseLeave={(e) => e.target.style.opacity = '1'}
+                        >
+                          ▲
+                        </button>
+                        <div style={{ 
+                          fontSize: '10px',
+                          letterSpacing: '0.05em',
+                          minWidth: '20px',
+                          textAlign: 'center',
+                          color: post.votes > 0 
+                            ? (dark ? '#fff' : '#000')
+                            : post.votes < 0
+                            ? (dark ? '#666' : '#999')
+                            : (dark ? '#666' : '#999')
+                        }}>
+                          {post.votes}
+                        </div>
+                        <button
+                          onClick={() => vote(post.id, -1)}
+                          style={{
+                            fontSize: '11px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: post.voters && post.voters[user.id] === -1 
+                              ? (dark ? '#fff' : '#000')
+                              : (dark ? '#666' : '#ccc'),
+                            transition: 'opacity 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                          onMouseLeave={(e) => e.target.style.opacity = '1'}
+                        >
+                          ▼
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: '20px' }}>
+                      {post.image && (
+                        <img
+                          src={post.image}
+                          style={{ 
+                            width: '100%',
+                            maxHeight: layout === 'single' ? '600px' : '300px',
+                            objectFit: 'contain',
+                            marginBottom: '20px'
+                          }}
+                          alt="post"
+                        />
+                      )}
+                      <div style={{ 
+                        fontSize: layout === 'single' ? '13px' : '12px', 
+                        lineHeight: '1.8',
+                        letterSpacing: '0.02em',
+                        fontWeight: '300',
+                        wordWrap: 'break-word',
+                        overflowWrap: 'break-word'
+                      }}>
+                        {post.text}
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: '30px' }}>
+                      <CommentBlock
+                        post={post}
+                        addComment={addComment}
+                        removeComment={removeComment}
+                        whisper={whisper}
+                        dark={dark}
+                        user={user}
+                        isRoomMod={isRoomMod(post.room)}
+                      />
+                    </div>
+                  </article>
+                ))}
+              </section>
+            </main>
+          </>
+        )}
       </div>
 
       {showNew && (
@@ -727,9 +944,10 @@ export default function PinAnonBoard() {
       {inviteModal && (
         <RoomModal
           onClose={() => setInviteModal(false)}
-          onCreate={(n, isPrivate) => {
-            const r = createRoom(n, isPrivate);
+          onCreate={(n, isPrivate, creatorOnly) => {
+            const r = createRoom(n, isPrivate, creatorOnly);
             setRoom(r.id);
+            setView("room");
             setInviteModal(false);
             alert(`ROOM CREATED: ${r.invite}`);
           }}
@@ -746,6 +964,8 @@ export default function PinAnonBoard() {
         <SettingsModal
           dark={dark}
           setDark={setDark}
+          theme={theme}
+          setTheme={setTheme}
           onClose={() => setShowSettings(false)}
         />
       )}
@@ -754,6 +974,250 @@ export default function PinAnonBoard() {
 }
 
 // ---------- UI Subcomponents ----------
+
+function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, userJoinedRooms }) {
+  const [scrollPositions, setScrollPositions] = useState({});
+
+  // Show main room, public rooms, and rooms user has joined
+  const visibleRooms = rooms.filter(r => 
+    r.id === DEFAULT_ROOM || 
+    !r.isPrivate || 
+    (userJoinedRooms || []).includes(r.id)
+  );
+
+  const getRoomPosts = (roomId) => {
+    return (posts || [])
+      .filter(p => p.room === roomId)
+      .sort((a, b) => b.created - a.created)
+      .slice(0, 10);
+  };
+
+  const getRoomActivity = (roomId) => {
+    const roomPosts = (posts || []).filter(p => p.room === roomId);
+    if (roomPosts.length === 0) return 0;
+    // Return the timestamp of the most recent post
+    return Math.max(...roomPosts.map(p => p.created));
+  };
+
+  // Sort rooms by most recent activity
+  const sortedRooms = [...visibleRooms].sort((a, b) => {
+    const activityA = getRoomActivity(a.id);
+    const activityB = getRoomActivity(b.id);
+    // Main room always stays on top
+    if (a.id === DEFAULT_ROOM) return -1;
+    if (b.id === DEFAULT_ROOM) return 1;
+    return activityB - activityA;
+  });
+
+  const handleScroll = (roomId, e) => {
+    setScrollPositions(prev => ({
+      ...prev,
+      [roomId]: e.target.scrollLeft
+    }));
+  };
+
+  return (
+    <div>
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        marginBottom: '40px',
+        flexWrap: 'wrap',
+        gap: '20px'
+      }}>
+        <div style={{
+          fontSize: '12px',
+          letterSpacing: '0.15em',
+          color: dark ? '#fff' : '#000'
+        }}>
+          EXPLORE ROOMS
+        </div>
+        <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+          <button
+            onClick={onCreateRoom}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '8px 16px',
+              backgroundColor: dark ? '#fff' : '#000',
+              border: `1px solid ${dark ? '#fff' : '#000'}`,
+              cursor: 'pointer',
+              color: dark ? '#000' : '#fff',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            + CREATE ROOM
+          </button>
+          <button
+            onClick={onJoinRoom}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '8px 16px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            JOIN WITH CODE
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '60px' }}>
+        {sortedRooms.map((room) => {
+          const roomPosts = getRoomPosts(room.id);
+          return (
+            <div key={room.id}>
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: '20px',
+                flexWrap: 'wrap',
+                gap: '10px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <h2 style={{
+                    fontSize: '14px',
+                    letterSpacing: '0.1em',
+                    fontWeight: '300',
+                    margin: 0,
+                    color: dark ? '#fff' : '#000'
+                  }}>
+                    {room.name.toUpperCase()}
+                  </h2>
+                  {room.isPrivate && (
+                    <span style={{ fontSize: '12px' }}>🔒</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => onEnterRoom(room.id)}
+                  style={{
+                    fontSize: '9px',
+                    letterSpacing: '0.1em',
+                    padding: '6px 12px',
+                    background: 'none',
+                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    cursor: 'pointer',
+                    color: dark ? '#999' : '#666',
+                    transition: 'opacity 0.2s',
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                  onMouseLeave={(e) => e.target.style.opacity = '1'}
+                >
+                  VIEW ALL →
+                </button>
+              </div>
+
+              {roomPosts.length === 0 ? (
+                <div style={{
+                  padding: '40px 20px',
+                  textAlign: 'center',
+                  fontSize: '10px',
+                  letterSpacing: '0.1em',
+                  color: dark ? '#666' : '#999',
+                  border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+                }}>
+                  NO POSTS YET
+                </div>
+              ) : (
+                <div 
+                  onScroll={(e) => handleScroll(room.id, e)}
+                  style={{
+                    display: 'flex',
+                    gap: '20px',
+                    overflowX: 'auto',
+                    overflowY: 'hidden',
+                    paddingBottom: '10px',
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: `${dark ? '#333' : '#ccc'} transparent`,
+                    WebkitOverflowScrolling: 'touch'
+                  }}
+                >
+                  {roomPosts.map((post) => (
+                    <div
+                      key={post.id}
+                      onClick={() => onEnterRoom(room.id)}
+                      style={{
+                        minWidth: '280px',
+                        maxWidth: '280px',
+                        padding: '15px',
+                        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                        cursor: 'pointer',
+                        transition: 'border-color 0.2s',
+                        backgroundColor: dark ? '#0a0a0a' : '#fafafa'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.borderColor = dark ? '#333' : '#ccc'}
+                      onMouseLeave={(e) => e.currentTarget.style.borderColor = dark ? '#1a1a1a' : '#f5f5f5'}
+                    >
+                      {post.image && (
+                        <img
+                          src={post.image}
+                          style={{
+                            width: '100%',
+                            height: '180px',
+                            objectFit: 'cover',
+                            marginBottom: '12px'
+                          }}
+                          alt="post preview"
+                        />
+                      )}
+                      <div style={{
+                        fontSize: '10px',
+                        letterSpacing: '0.05em',
+                        fontWeight: '400',
+                        color: dark ? '#999' : '#666',
+                        marginBottom: '8px',
+                        wordBreak: 'break-all'
+                      }}>
+                        {post.author.toUpperCase()}
+                      </div>
+                      <div style={{
+                        fontSize: '11px',
+                        lineHeight: '1.6',
+                        letterSpacing: '0.02em',
+                        color: dark ? '#fff' : '#000',
+                        fontWeight: '300',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 3,
+                        WebkitBoxOrient: 'vertical',
+                        wordWrap: 'break-word'
+                      }}>
+                        {post.text}
+                      </div>
+                      <div style={{
+                        marginTop: '12px',
+                        fontSize: '9px',
+                        letterSpacing: '0.05em',
+                        color: dark ? '#666' : '#999',
+                        display: 'flex',
+                        gap: '15px'
+                      }}>
+                        <span>↑ {post.votes || 0}</span>
+                        <span>💬 {post.comments?.length || 0}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin, userJoinedRooms, userCreatedRooms }) {
   const [open, setOpen] = useState(false);
@@ -780,11 +1244,15 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
           padding: '8px 0',
           display: 'flex',
           gap: '8px',
-          alignItems: 'center'
+          alignItems: 'center',
+          maxWidth: '200px',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
         }}
       >
-        <span>{currentRoomName.toUpperCase()}</span>
-        <span style={{ fontSize: '8px' }}>▼</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentRoomName.toUpperCase()}</span>
+        <span style={{ fontSize: '8px', flexShrink: 0 }}>▼</span>
       </button>
 
       {open && (
@@ -805,7 +1273,8 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
             border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
             padding: '10px',
             zIndex: 20,
-            minWidth: '200px'
+            minWidth: '200px',
+            maxWidth: '300px'
           }}>
             <div style={{ 
               marginBottom: '10px', 
@@ -878,7 +1347,9 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
                         border: 'none',
                         cursor: 'pointer',
                         color: r.id === currentRoom ? (dark ? '#fff' : '#000') : (dark ? '#999' : '#666'),
-                        transition: 'opacity 0.2s'
+                        transition: 'opacity 0.2s',
+                        wordBreak: 'break-word',
+                        overflowWrap: 'break-word'
                       }}
                       onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                       onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -898,7 +1369,8 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
                           border: 'none',
                           cursor: 'pointer',
                           color: dark ? '#666' : '#999',
-                          transition: 'opacity 0.2s'
+                          transition: 'opacity 0.2s',
+                          flexShrink: 0
                         }}
                         onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                         onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -972,17 +1444,18 @@ function NewPostModal({ onClose, onPost, dark }) {
       alignItems: 'center', 
       justifyContent: 'center',
       backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
+      padding: '20px',
+      overflowY: 'auto'
     }}>
       <div style={{
         maxWidth: '600px',
         width: '100%',
         backgroundColor: dark ? '#0a0a0a' : '#fff',
         border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
+        padding: '40px 20px',
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px' }}>
           <h3 style={{ 
             fontSize: '12px', 
             letterSpacing: '0.15em',
@@ -1009,143 +1482,147 @@ function NewPostModal({ onClose, onPost, dark }) {
           </button>
         </div>
 
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="TEXT"
-          style={{
-            width: '100%',
-            height: '120px',
-            padding: '15px',
-            marginBottom: '20px',
-            fontSize: '12px',
-            letterSpacing: '0.05em',
-            fontWeight: '300',
-            lineHeight: '1.6',
-            background: 'none',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            outline: 'none',
-            resize: 'none',
-            color: dark ? '#fff' : '#000',
-            fontFamily: 'Helvetica Neue, Arial, sans-serif'
-          }}
-        />
-
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
-            <label style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '10px 15px',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              cursor: uploading ? 'not-allowed' : 'pointer',
-              color: uploading ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              {uploading ? "UPLOADING..." : "CHOOSE IMAGE"}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFile}
-                disabled={uploading}
-                style={{ display: 'none' }}
-              />
-            </label>
-          </div>
-          
-          <input
-            value={img}
-            onChange={(e) => setImg(e.target.value)}
-            placeholder="OR PASTE IMAGE URL"
-            disabled={uploading}
+        <div style={{ paddingLeft: '20px', paddingRight: '20px' }}>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="TEXT"
             style={{
               width: '100%',
-              padding: '10px 0',
-              fontSize: '10px',
-              letterSpacing: '0.1em',
+              height: '120px',
+              padding: '15px',
+              marginBottom: '20px',
+              fontSize: '12px',
+              letterSpacing: '0.05em',
+              fontWeight: '300',
+              lineHeight: '1.6',
               background: 'none',
-              border: 'none',
-              borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
               outline: 'none',
-              color: dark ? '#fff' : '#000'
+              resize: 'none',
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif',
+              boxSizing: 'border-box'
             }}
           />
-          
-          {img && !uploading && (
-            <div style={{ marginTop: '20px', position: 'relative' }}>
-              <img 
-                src={img} 
-                alt="preview" 
-                style={{ 
-                  width: '100%',
-                  maxHeight: '300px',
-                  objectFit: 'contain'
-                }}
-              />
-              <button
-                onClick={() => setImg("")}
-                style={{
-                  position: 'absolute',
-                  top: '10px',
-                  right: '10px',
-                  fontSize: '9px',
-                  letterSpacing: '0.1em',
-                  padding: '6px 10px',
-                  backgroundColor: dark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)',
-                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                  cursor: 'pointer',
-                  color: dark ? '#fff' : '#000',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                REMOVE
-              </button>
-            </div>
-          )}
-        </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '15px' }}>
-          <button
-            onClick={onClose}
-            disabled={uploading}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '10px 20px',
-              background: 'none',
-              border: 'none',
-              cursor: uploading ? 'not-allowed' : 'pointer',
-              color: dark ? '#666' : '#999',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CANCEL
-          </button>
-          <button
-            onClick={submit}
-            disabled={uploading || (!text.trim() && !img)}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '10px 20px',
-              backgroundColor: (uploading || (!text.trim() && !img)) ? 'transparent' : (dark ? '#fff' : '#000'),
-              border: `1px solid ${(uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#e5e5e5') : (dark ? '#fff' : '#000')}`,
-              cursor: (uploading || (!text.trim() && !img)) ? 'not-allowed' : 'pointer',
-              color: (uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#ccc') : (dark ? '#000' : '#fff'),
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => !(uploading || (!text.trim() && !img)) && (e.target.style.opacity = '0.7')}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            {uploading ? "UPLOADING..." : "POST"}
-          </button>
+          <div style={{ marginBottom: '20px' }}>
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
+              <label style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '10px 15px',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                color: uploading ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                {uploading ? "UPLOADING..." : "CHOOSE IMAGE"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFile}
+                  disabled={uploading}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </div>
+            
+            <input
+              value={img}
+              onChange={(e) => setImg(e.target.value)}
+              placeholder="OR PASTE IMAGE URL"
+              disabled={uploading}
+              style={{
+                width: '100%',
+                padding: '10px 0',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                background: 'none',
+                border: 'none',
+                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                color: dark ? '#fff' : '#000',
+                boxSizing: 'border-box'
+              }}
+            />
+            
+            {img && !uploading && (
+              <div style={{ marginTop: '20px', position: 'relative' }}>
+                <img 
+                  src={img} 
+                  alt="preview" 
+                  style={{ 
+                    width: '100%',
+                    maxHeight: '300px',
+                    objectFit: 'contain'
+                  }}
+                />
+                <button
+                  onClick={() => setImg("")}
+                  style={{
+                    position: 'absolute',
+                    top: '10px',
+                    right: '10px',
+                    fontSize: '9px',
+                    letterSpacing: '0.1em',
+                    padding: '6px 10px',
+                    backgroundColor: dark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)',
+                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    cursor: 'pointer',
+                    color: dark ? '#fff' : '#000',
+                    transition: 'opacity 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                  onMouseLeave={(e) => e.target.style.opacity = '1'}
+                >
+                  REMOVE
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '15px', flexWrap: 'wrap' }}>
+            <button
+              onClick={onClose}
+              disabled={uploading}
+              style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '10px 20px',
+                background: 'none',
+                border: 'none',
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                color: dark ? '#666' : '#999',
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              CANCEL
+            </button>
+            <button
+              onClick={submit}
+              disabled={uploading || (!text.trim() && !img)}
+              style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '10px 20px',
+                backgroundColor: (uploading || (!text.trim() && !img)) ? 'transparent' : (dark ? '#fff' : '#000'),
+                border: `1px solid ${(uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#e5e5e5') : (dark ? '#fff' : '#000')}`,
+                cursor: (uploading || (!text.trim() && !img)) ? 'not-allowed' : 'pointer',
+                color: (uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#ccc') : (dark ? '#000' : '#fff'),
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => !(uploading || (!text.trim() && !img)) && (e.target.style.opacity = '0.7')}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              {uploading ? "UPLOADING..." : "POST"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1176,7 +1653,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
         <button
           onClick={() => setOpen((o) => !o)}
           style={{
@@ -1227,7 +1704,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
             />
           ))}
 
-          <div style={{ display: 'flex', gap: '10px', paddingTop: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', paddingTop: '10px', flexWrap: 'wrap' }}>
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -1241,6 +1718,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
               placeholder="ADD A COMMENT..."
               style={{
                 flex: 1,
+                minWidth: '200px',
                 fontSize: '10px',
                 letterSpacing: '0.05em',
                 padding: '8px 0',
@@ -1267,7 +1745,8 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
                 border: `1px solid ${text.trim() ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
                 cursor: text.trim() ? 'pointer' : 'not-allowed',
                 color: text.trim() ? (dark ? '#000' : '#fff') : (dark ? '#333' : '#ccc'),
-                transition: 'opacity 0.2s'
+                transition: 'opacity 0.2s',
+                whiteSpace: 'nowrap'
               }}
               onMouseEnter={(e) => text.trim() && (e.target.style.opacity = '0.7')}
               onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -1297,7 +1776,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
   const canDelete = user.isAdmin || comment.authorId === user.id || isRoomMod;
 
   return (
-    <div>
+    <div style={{ wordWrap: 'break-word', overflowWrap: 'break-word' }}>
       <div style={{ display: 'flex', gap: '10px' }}>
         {comment.replies?.length > 0 && (
           <button
@@ -1329,7 +1808,8 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                   fontSize: '10px',
                   letterSpacing: '0.05em',
                   fontWeight: '400',
-                  color: dark ? '#999' : '#666'
+                  color: dark ? '#999' : '#666',
+                  wordBreak: 'break-all'
                 }}>
                   {comment.author.toUpperCase()}
                 </span>
@@ -1359,12 +1839,14 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                 letterSpacing: '0.02em',
                 marginBottom: '12px',
                 color: dark ? '#fff' : '#000',
-                fontWeight: '300'
+                fontWeight: '300',
+                wordWrap: 'break-word',
+                overflowWrap: 'break-word'
               }}>
                 {comment.text}
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                   onClick={() => setShowReplyBox(!showReplyBox)}
                   style={{
@@ -1375,7 +1857,8 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                     border: 'none',
                     cursor: 'pointer',
                     color: dark ? '#666' : '#999',
-                    transition: 'opacity 0.2s'
+                    transition: 'opacity 0.2s',
+                    whiteSpace: 'nowrap'
                   }}
                   onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                   onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -1393,7 +1876,8 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                       border: 'none',
                       cursor: 'pointer',
                       color: dark ? '#666' : '#999',
-                      transition: 'opacity 0.2s'
+                      transition: 'opacity 0.2s',
+                      whiteSpace: 'nowrap'
                     }}
                     onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                     onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -1413,7 +1897,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
               </div>
 
               {showReplyBox && (
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}>
                   <input
                     value={replyText}
                     onChange={(e) => setReplyText(e.target.value)}
@@ -1431,6 +1915,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                     autoFocus
                     style={{
                       flex: 1,
+                      minWidth: '200px',
                       fontSize: '10px',
                       letterSpacing: '0.05em',
                       padding: '8px 0',
@@ -1452,7 +1937,8 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                       border: `1px solid ${replyText.trim() ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
                       cursor: replyText.trim() ? 'pointer' : 'not-allowed',
                       color: replyText.trim() ? (dark ? '#000' : '#fff') : (dark ? '#333' : '#ccc'),
-                      transition: 'opacity 0.2s'
+                      transition: 'opacity 0.2s',
+                      whiteSpace: 'nowrap'
                     }}
                     onMouseEnter={(e) => replyText.trim() && (e.target.style.opacity = '0.7')}
                     onMouseLeave={(e) => e.target.style.opacity = '1'}
@@ -1515,26 +2001,28 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
       alignItems: 'center', 
       justifyContent: 'center',
       backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
+      padding: '20px',
+      overflowY: 'auto'
     }}>
       <div style={{
         maxWidth: '900px',
         width: '100%',
         backgroundColor: dark ? '#0a0a0a' : '#fff',
         border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
+        padding: '40px 20px',
         maxHeight: '80vh',
         overflow: 'auto',
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px', flexWrap: 'wrap', gap: '10px' }}>
           <div>
             <h3 style={{ 
               fontSize: '14px', 
               letterSpacing: '0.1em',
               fontWeight: '300',
               color: dark ? '#fff' : '#000',
-              marginBottom: '8px'
+              marginBottom: '8px',
+              wordBreak: 'break-all'
             }}>
               {authorId.toUpperCase()}
             </h3>
@@ -1567,7 +2055,9 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
         <div style={{ 
           display: 'grid', 
           gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', 
-          gap: '20px' 
+          gap: '20px',
+          paddingLeft: '20px',
+          paddingRight: '20px'
         }}>
           {posts.map((p) => (
             <div
@@ -1575,7 +2065,9 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
               style={{
                 padding: '15px',
                 border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-                backgroundColor: dark ? '#0a0a0a' : '#fafafa'
+                backgroundColor: dark ? '#0a0a0a' : '#fafafa',
+                wordWrap: 'break-word',
+                overflowWrap: 'break-word'
               }}
             >
               {p.image && (
@@ -1595,7 +2087,9 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
                 lineHeight: '1.6',
                 letterSpacing: '0.02em',
                 color: dark ? '#fff' : '#000',
-                fontWeight: '300'
+                fontWeight: '300',
+                wordWrap: 'break-word',
+                overflowWrap: 'break-word'
               }}>
                 {p.text}
               </div>
@@ -1622,6 +2116,7 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
 function RoomModal({ onClose, onCreate, onJoin, dark }) {
   const [name, setName] = useState("");
   const [isPrivate, setIsPrivate] = useState(true);
+  const [creatorOnly, setCreatorOnly] = useState(false);
 
   return (
     <div style={{ 
@@ -1632,17 +2127,18 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
       alignItems: 'center', 
       justifyContent: 'center',
       backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
+      padding: '20px',
+      overflowY: 'auto'
     }}>
       <div style={{
         maxWidth: '450px',
         width: '100%',
         backgroundColor: dark ? '#0a0a0a' : '#fff',
         border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
+        padding: '40px 20px',
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', paddingLeft: '20px', paddingRight: '20px' }}>
           <h3 style={{ 
             fontSize: '12px', 
             letterSpacing: '0.15em',
@@ -1669,8 +2165,8 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
           </button>
         </div>
 
-        <div style={{ marginBottom: '25px' }}>
-          <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center' }}>
+        <div style={{ marginBottom: '25px', paddingLeft: '20px', paddingRight: '20px' }}>
+          <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{
               fontSize: '10px',
               letterSpacing: '0.1em',
@@ -1713,6 +2209,30 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
               PUBLIC
             </button>
           </div>
+
+          <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+            <label style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              color: dark ? '#fff' : '#000',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              cursor: 'pointer'
+            }}>
+              <input
+                type="checkbox"
+                checked={creatorOnly}
+                onChange={(e) => setCreatorOnly(e.target.checked)}
+                style={{
+                  width: '16px',
+                  height: '16px',
+                  cursor: 'pointer'
+                }}
+              />
+              CREATOR-ONLY POSTS
+            </label>
+          </div>
           
           <input
             value={name}
@@ -1728,13 +2248,14 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
               border: 'none',
               borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
               outline: 'none',
-              color: dark ? '#fff' : '#000'
+              color: dark ? '#fff' : '#000',
+              boxSizing: 'border-box'
             }}
           />
           
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <button
-              onClick={() => onCreate(name, isPrivate)}
+              onClick={() => onCreate(name, isPrivate, creatorOnly)}
               style={{
                 fontSize: '10px',
                 letterSpacing: '0.1em',
@@ -1777,15 +2298,17 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
           fontSize: '9px',
           letterSpacing: '0.05em',
           lineHeight: '1.5',
-          color: dark ? '#666' : '#999'
+          color: dark ? '#666' : '#999',
+          paddingLeft: '20px',
+          paddingRight: '20px'
         }}>
-          PRIVATE ROOMS: INVITE-ONLY VIA CODE • PUBLIC ROOMS: VISIBLE TO ALL USERS
+          PRIVATE ROOMS: INVITE-ONLY VIA CODE • PUBLIC ROOMS: VISIBLE TO ALL USERS • CREATOR-ONLY: ONLY YOU CAN POST
         </div>
       </div>
     </div>
   );
 }
-function SettingsModal({ dark, setDark, onClose }) {
+function SettingsModal({ dark, setDark, theme, setTheme, onClose }) {
   return (
     <div style={{ 
       position: 'fixed', 
@@ -1795,17 +2318,18 @@ function SettingsModal({ dark, setDark, onClose }) {
       alignItems: 'center', 
       justifyContent: 'center',
       backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
+      padding: '20px',
+      overflowY: 'auto'
     }}>
       <div style={{
-        maxWidth: '400px',
+        maxWidth: '500px',
         width: '100%',
         backgroundColor: dark ? '#0a0a0a' : '#fff',
         border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px',
+        padding: '40px 20px',
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px' }}>
           <h3 style={{ 
             fontSize: '12px', 
             letterSpacing: '0.15em',
@@ -1832,8 +2356,8 @@ function SettingsModal({ dark, setDark, onClose }) {
           </button>
         </div>
 
-        <div style={{ fontSize: '11px', letterSpacing: '0.05em' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontSize: '11px', letterSpacing: '0.05em', paddingLeft: '20px', paddingRight: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <span style={{ color: dark ? '#fff' : '#000' }}>DARK MODE</span>
             <button
               onClick={() => setDark((d) => !d)}
@@ -1852,6 +2376,33 @@ function SettingsModal({ dark, setDark, onClose }) {
             >
               {dark ? "ON" : "OFF"}
             </button>
+          </div>
+
+          <div style={{ marginBottom: '15px' }}>
+            <span style={{ color: dark ? '#fff' : '#000', display: 'block', marginBottom: '15px' }}>COLOR THEME</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+              {['default', 'serika', 'retrocast', 'botanical', 'ocean', 'rose'].map((themeName) => (
+                <button
+                  key={themeName}
+                  onClick={() => setTheme(themeName)}
+                  style={{
+                    fontSize: '10px',
+                    letterSpacing: '0.1em',
+                    padding: '10px 15px',
+                    backgroundColor: theme === themeName ? (dark ? '#fff' : '#000') : 'transparent',
+                    border: `1px solid ${theme === themeName ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
+                    cursor: 'pointer',
+                    color: theme === themeName ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
+                    transition: 'opacity 0.2s',
+                    textTransform: 'uppercase'
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+                  onMouseLeave={(e) => e.target.style.opacity = '1'}
+                >
+                  {themeName}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
