@@ -60,6 +60,8 @@ const EMPTY = {
   rooms: [{ id: DEFAULT_ROOM, name: "main room", invite: DEFAULT_ROOM }],
   posts: [],
   settings: { whisper: false },
+  inviteCodes: {}, // { code: { used: false, createdBy: userId, usedBy: null, created: timestamp } }
+  users: {} // Track which users have access
 };
 
 // ---------- Main Component ----------
@@ -73,6 +75,9 @@ export default function PinAnonBoard() {
       id: genAnonId(7), 
       display: null, 
       isAdmin: false,
+      hasAccess: false, // Whether they've used an invite code
+      inviteCodesRemaining: 0, // How many invites they can give out
+      inviteCodesCreated: [], // Codes they've created
       createdRooms: [], // Track rooms this user created
       createdPosts: [], // Track posts this user created
       joinedRooms: [DEFAULT_ROOM] // Track rooms user has joined
@@ -397,7 +402,7 @@ export default function PinAnonBoard() {
     const password = prompt("ENTER ADMIN PASSWORD:");
     if (password === ADMIN_PASSWORD) {
       setUser((prev) => {
-        const u = { ...prev, isAdmin: true };
+        const u = { ...prev, isAdmin: true, hasAccess: true, inviteCodesRemaining: 999 };
         saveUser(u);
         return u;
       });
@@ -405,6 +410,77 @@ export default function PinAnonBoard() {
     } else if (password) {
       alert("INCORRECT PASSWORD");
     }
+  }
+
+  function generateInviteCode() {
+    if (user.inviteCodesRemaining <= 0 && !user.isAdmin) {
+      alert("NO INVITE CODES REMAINING");
+      return null;
+    }
+
+    const code = genAnonId(8).toUpperCase();
+    const inviteData = {
+      used: false,
+      createdBy: user.id,
+      usedBy: null,
+      created: now()
+    };
+
+    const updates = {};
+    updates[`appState/inviteCodes/${code}`] = inviteData;
+    update(ref(database), updates);
+
+    // Update user's remaining codes and created list
+    setUser((prev) => {
+      const u = {
+        ...prev,
+        inviteCodesRemaining: user.isAdmin ? 999 : Math.max(0, prev.inviteCodesRemaining - 1),
+        inviteCodesCreated: [...(prev.inviteCodesCreated || []), code]
+      };
+      saveUser(u);
+      return u;
+    });
+
+    return code;
+  }
+
+  function redeemInviteCode(code) {
+    const upperCode = code.toUpperCase().trim();
+    const inviteData = state.inviteCodes?.[upperCode];
+
+    if (!inviteData) {
+      alert("INVALID INVITE CODE");
+      return false;
+    }
+
+    if (inviteData.used) {
+      alert("INVITE CODE ALREADY USED");
+      return false;
+    }
+
+    // Mark code as used
+    const updates = {};
+    updates[`appState/inviteCodes/${upperCode}/used`] = true;
+    updates[`appState/inviteCodes/${upperCode}/usedBy`] = user.id;
+    updates[`appState/users/${user.id}`] = {
+      id: user.id,
+      invitedBy: inviteData.createdBy,
+      joinedAt: now()
+    };
+    update(ref(database), updates);
+
+    // Grant access to user and give them invite codes
+    setUser((prev) => {
+      const u = {
+        ...prev,
+        hasAccess: true,
+        inviteCodesRemaining: 3 // Each new user gets 3 invites
+      };
+      saveUser(u);
+      return u;
+    });
+
+    return true;
   }
 
   function handleAdminLogout() {
@@ -506,18 +582,23 @@ export default function PinAnonBoard() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ 
-        backgroundColor: dark ? '#000' : '#fff',
-        color: dark ? '#fff' : '#000',
+        backgroundColor: getColor('bg'),
+        color: getColor('text'),
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
         <div className="text-center">
           <div className="text-xl font-light tracking-widest">PIN-ANON</div>
-          <div className="text-xs tracking-widest mt-2" style={{ color: dark ? '#999' : '#666' }}>
+          <div className="text-xs tracking-widest mt-2" style={{ color: getColor('textMuted') }}>
             LOADING...
           </div>
         </div>
       </div>
     );
+  }
+
+  // Invite gate - show if user doesn't have access
+  if (!user.hasAccess && !user.isAdmin) {
+    return <InviteGate onRedeem={redeemInviteCode} getColor={getColor} />;
   }
 
   return (
@@ -966,6 +1047,8 @@ export default function PinAnonBoard() {
           setDark={setDark}
           theme={theme}
           setTheme={setTheme}
+          user={user}
+          onGenerateInvite={generateInviteCode}
           onClose={() => setShowSettings(false)}
         />
       )}
@@ -974,6 +1057,130 @@ export default function PinAnonBoard() {
 }
 
 // ---------- UI Subcomponents ----------
+
+function InviteGate({ onRedeem, getColor }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+
+  const handleSubmit = () => {
+    if (!code.trim()) {
+      setError("PLEASE ENTER A CODE");
+      return;
+    }
+    const success = onRedeem(code);
+    if (!success) {
+      setError("INVALID OR USED CODE");
+      setCode("");
+    }
+  };
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      backgroundColor: getColor('bg'),
+      color: getColor('text'),
+      fontFamily: 'Helvetica Neue, Arial, sans-serif',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px'
+    }}>
+      <div style={{
+        maxWidth: '400px',
+        width: '100%',
+        textAlign: 'center'
+      }}>
+        <div style={{
+          fontSize: '32px',
+          fontWeight: '300',
+          letterSpacing: '0.15em',
+          marginBottom: '10px',
+          color: getColor('text')
+        }}>
+          PIN-ANON
+        </div>
+        <div style={{
+          fontSize: '10px',
+          letterSpacing: '0.2em',
+          color: getColor('textMuted'),
+          marginBottom: '60px'
+        }}>
+          ANONYMOUS ARCHIVE
+        </div>
+
+        <div style={{
+          fontSize: '11px',
+          letterSpacing: '0.1em',
+          color: getColor('textMuted'),
+          marginBottom: '30px',
+          lineHeight: '1.6'
+        }}>
+          THIS IS AN INVITE-ONLY COMMUNITY
+          <br />
+          ENTER YOUR INVITE CODE TO CONTINUE
+        </div>
+
+        <input
+          value={code}
+          onChange={(e) => {
+            setCode(e.target.value.toUpperCase());
+            setError("");
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSubmit();
+          }}
+          placeholder="INVITE CODE"
+          style={{
+            width: '100%',
+            fontSize: '14px',
+            letterSpacing: '0.2em',
+            padding: '15px',
+            marginBottom: '20px',
+            background: 'none',
+            border: `2px solid ${error ? '#ff4444' : getColor('border')}`,
+            outline: 'none',
+            color: getColor('text'),
+            textAlign: 'center',
+            fontFamily: 'Helvetica Neue, Arial, sans-serif',
+            textTransform: 'uppercase',
+            boxSizing: 'border-box'
+          }}
+        />
+
+        {error && (
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: '#ff4444',
+            marginBottom: '20px'
+          }}>
+            {error}
+          </div>
+        )}
+
+        <button
+          onClick={handleSubmit}
+          style={{
+            width: '100%',
+            fontSize: '11px',
+            letterSpacing: '0.15em',
+            padding: '15px',
+            backgroundColor: getColor('text'),
+            border: 'none',
+            cursor: 'pointer',
+            color: getColor('bg'),
+            transition: 'opacity 0.2s',
+            fontFamily: 'Helvetica Neue, Arial, sans-serif'
+          }}
+          onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+          onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          ENTER
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, userJoinedRooms }) {
   const [scrollPositions, setScrollPositions] = useState({});
@@ -2308,7 +2515,19 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
     </div>
   );
 }
-function SettingsModal({ dark, setDark, theme, setTheme, onClose }) {
+function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite }) {
+  const [showCopied, setShowCopied] = useState(false);
+
+  const handleGenerateInvite = () => {
+    const code = onGenerateInvite();
+    if (code) {
+      navigator.clipboard.writeText(code);
+      setShowCopied(true);
+      setTimeout(() => setShowCopied(false), 2000);
+      alert(`INVITE CODE: ${code}\n\nCopied to clipboard!`);
+    }
+  };
+
   return (
     <div style={{ 
       position: 'fixed', 
@@ -2357,6 +2576,35 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose }) {
         </div>
 
         <div style={{ fontSize: '11px', letterSpacing: '0.05em', paddingLeft: '20px', paddingRight: '20px' }}>
+          {/* Invite Codes Section */}
+          <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+              <span style={{ color: dark ? '#fff' : '#000' }}>INVITE CODES</span>
+              <span style={{ color: dark ? '#999' : '#666', fontSize: '10px' }}>
+                {user.isAdmin ? '∞' : user.inviteCodesRemaining} REMAINING
+              </span>
+            </div>
+            <button
+              onClick={handleGenerateInvite}
+              disabled={user.inviteCodesRemaining <= 0 && !user.isAdmin}
+              style={{
+                width: '100%',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '12px 20px',
+                backgroundColor: (user.inviteCodesRemaining > 0 || user.isAdmin) ? (dark ? '#fff' : '#000') : 'transparent',
+                border: `1px solid ${(user.inviteCodesRemaining > 0 || user.isAdmin) ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
+                cursor: (user.inviteCodesRemaining > 0 || user.isAdmin) ? 'pointer' : 'not-allowed',
+                color: (user.inviteCodesRemaining > 0 || user.isAdmin) ? (dark ? '#000' : '#fff') : (dark ? '#333' : '#ccc'),
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => (user.inviteCodesRemaining > 0 || user.isAdmin) && (e.target.style.opacity = '0.7')}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              {showCopied ? 'COPIED!' : 'GENERATE INVITE CODE'}
+            </button>
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <span style={{ color: dark ? '#fff' : '#000' }}>DARK MODE</span>
             <button
