@@ -2997,7 +2997,6 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
   );
 }
 function ProfileEditModal({ user, onSave, onClose, dark }) {
-  const [display, setDisplay] = useState(user.display || "");
   const [bio, setBio] = useState(user.bio || "");
   const [profileImage, setProfileImage] = useState(user.profileImage || "");
   const [bannerColor, setBannerColor] = useState(user.bannerColor || "#333333");
@@ -3037,7 +3036,6 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
   function handleSave() {
     onSave({
       ...user,
-      display: display.trim() || user.id,
       bio: bio.trim(),
       profileImage,
       bannerColor
@@ -3093,36 +3091,6 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
         </div>
 
         <div style={{ paddingLeft: '20px', paddingRight: '20px' }}>
-          {/* Display Name */}
-          <div style={{ marginBottom: '25px' }}>
-            <label style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#999' : '#666',
-              display: 'block',
-              marginBottom: '10px'
-            }}>
-              DISPLAY NAME
-            </label>
-            <input
-              value={display}
-              onChange={(e) => setDisplay(e.target.value)}
-              placeholder={user.id.toUpperCase()}
-              style={{
-                width: '100%',
-                fontSize: '11px',
-                letterSpacing: '0.05em',
-                padding: '12px',
-                background: 'none',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                color: dark ? '#fff' : '#000',
-                fontFamily: 'Helvetica Neue, Arial, sans-serif',
-                boxSizing: 'border-box'
-              }}
-            />
-          </div>
-
           {/* Bio */}
           <div style={{ marginBottom: '25px' }}>
             <label style={{
