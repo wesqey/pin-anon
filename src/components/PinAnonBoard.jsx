@@ -9,6 +9,11 @@ import {
   update,
   remove
 } from "firebase/database";
+import {
+  getAuth,
+  signInAnonymously,
+  onAuthStateChanged
+} from "firebase/auth";
 
 // ---------- Firebase Config ----------
 const firebaseConfig = {
@@ -23,6 +28,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
+const auth = getAuth(app);
 
 // ---------- Config & utils ----------
 const LS_USER = "pinanon_v3_user";
@@ -61,6 +67,7 @@ const EMPTY = {
   posts: [],
   settings: { whisper: false },
   inviteCodes: {}, // { code: { used: false, createdBy: userId, usedBy: null, created: timestamp } }
+  syncTokens: {}, // { token: { firebaseUID: uid, used: false, created: timestamp, expiresAt: timestamp } }
   users: {} // Track which users have access
 };
 
@@ -68,6 +75,8 @@ const EMPTY = {
 export default function PinAnonBoard() {
   const [state, setState] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
+  const [firebaseUser, setFirebaseUser] = useState(null);
+  const [syncToken, setSyncToken] = useState(null);
   const [user, setUser] = useState(() => {
     const existing = loadUser();
     if (existing?.id) {
@@ -215,6 +224,53 @@ export default function PinAnonBoard() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Firebase Auth - Sign in anonymously and sync user data
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // User is signed in
+        setFirebaseUser(firebaseUser);
+        
+        // Generate sync token for QR code
+        const token = await firebaseUser.getIdToken();
+        setSyncToken(token);
+        
+        // Try to load user data from Firebase
+        const userRef = ref(database, `users/${firebaseUser.uid}`);
+        onValue(userRef, (snapshot) => {
+          const firebaseData = snapshot.val();
+          
+          if (firebaseData) {
+            // User data exists in Firebase, use it
+            setUser(firebaseData);
+            saveUser(firebaseData);
+          } else {
+            // First time with this Firebase account, save current user data
+            const currentUser = loadUser();
+            if (currentUser) {
+              set(userRef, currentUser);
+            }
+          }
+        }, { onlyOnce: true });
+      } else {
+        // No user signed in, sign in anonymously
+        signInAnonymously(auth).catch((error) => {
+          console.error("Error signing in anonymously:", error);
+        });
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Sync user data to Firebase whenever it changes
+  useEffect(() => {
+    if (firebaseUser && user.id) {
+      const userRef = ref(database, `users/${firebaseUser.uid}`);
+      set(userRef, user);
+    }
+  }, [user, firebaseUser]);
 
   useEffect(() => {
     saveUser(user);
@@ -504,6 +560,87 @@ export default function PinAnonBoard() {
     return true;
   }
 
+  async function syncFromToken(token) {
+    try {
+      const upperToken = token.toUpperCase().trim();
+      const tokenRef = ref(database, `appState/syncTokens/${upperToken}`);
+      
+      return new Promise((resolve) => {
+        onValue(tokenRef, async (snapshot) => {
+          const tokenData = snapshot.val();
+          
+          if (!tokenData) {
+            alert("INVALID SYNC TOKEN");
+            resolve(false);
+            return;
+          }
+
+          if (tokenData.used) {
+            alert("SYNC TOKEN ALREADY USED");
+            resolve(false);
+            return;
+          }
+
+          if (tokenData.expiresAt < now()) {
+            alert("SYNC TOKEN EXPIRED");
+            resolve(false);
+            return;
+          }
+
+          // Token is valid! Load user data from Firebase
+          const userRef = ref(database, `users/${tokenData.firebaseUID}`);
+          onValue(userRef, (userSnapshot) => {
+            const syncedUserData = userSnapshot.val();
+            
+            if (syncedUserData) {
+              // Mark token as used
+              const updates = {};
+              updates[`appState/syncTokens/${upperToken}/used`] = true;
+              updates[`appState/syncTokens/${upperToken}/usedAt`] = now();
+              update(ref(database), updates);
+
+              // Sync the user data
+              setUser(syncedUserData);
+              saveUser(syncedUserData);
+              alert("ACCOUNT SYNCED SUCCESSFULLY!");
+              resolve(true);
+            } else {
+              alert("USER DATA NOT FOUND");
+              resolve(false);
+            }
+          }, { onlyOnce: true });
+        }, { onlyOnce: true });
+      });
+    } catch (error) {
+      console.error("Sync error:", error);
+      alert("SYNC FAILED");
+      return false;
+    }
+  }
+
+  function generateSyncToken() {
+    if (!firebaseUser) {
+      alert("PLEASE WAIT, LOADING...");
+      return null;
+    }
+
+    const token = genAnonId(8).toUpperCase();
+    const expiresAt = now() + (24 * 60 * 60 * 1000); // 24 hours
+
+    const tokenData = {
+      firebaseUID: firebaseUser.uid,
+      used: false,
+      created: now(),
+      expiresAt: expiresAt
+    };
+
+    const updates = {};
+    updates[`appState/syncTokens/${token}`] = tokenData;
+    update(ref(database), updates);
+
+    return token;
+  }
+
   function handleAdminLogout() {
     setUser((prev) => {
       const u = { ...prev, isAdmin: false };
@@ -619,7 +756,7 @@ export default function PinAnonBoard() {
 
   // Invite gate - show if user doesn't have access
   if (!user.hasAccess && !user.isAdmin) {
-    return <InviteGate onRedeem={redeemInviteCode} getColor={getColor} />;
+    return <InviteGate onRedeem={redeemInviteCode} onSync={syncFromToken} getColor={getColor} />;
   }
 
   return (
@@ -1070,6 +1207,7 @@ export default function PinAnonBoard() {
           setTheme={setTheme}
           user={user}
           onGenerateInvite={generateInviteCode}
+          onGenerateSyncToken={generateSyncToken}
           onClose={() => setShowSettings(false)}
         />
       )}
@@ -1079,20 +1217,29 @@ export default function PinAnonBoard() {
 
 // ---------- UI Subcomponents ----------
 
-function InviteGate({ onRedeem, getColor }) {
+function InviteGate({ onRedeem, onSync, getColor }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [mode, setMode] = useState("invite"); // "invite" or "sync"
 
   const handleSubmit = () => {
     if (!code.trim()) {
       setError("PLEASE ENTER A CODE");
       return;
     }
-    const success = onRedeem(code);
-    if (!success) {
-      setError("INVALID OR USED CODE");
-      setCode("");
+    
+    if (mode === "invite") {
+      const success = onRedeem(code);
+      if (!success) {
+        setError("INVALID OR USED CODE");
+        setCode("");
+      }
+    } else {
+      const success = onSync(code);
+      if (!success) {
+        setError("INVALID SYNC CODE");
+        setCode("");
+      }
     }
   };
 
@@ -1150,23 +1297,75 @@ function InviteGate({ onRedeem, getColor }) {
         }}>
           THIS IS AN INVITE-ONLY COMMUNITY
           <br />
-          ENTER YOUR INVITE CODE TO CONTINUE
+          {mode === "invite" ? "ENTER YOUR INVITE CODE TO CONTINUE" : "SYNC YOUR EXISTING ACCOUNT"}
+        </div>
+
+        {/* Tab Switcher */}
+        <div style={{
+          display: 'flex',
+          marginBottom: '20px',
+          border: `1px solid ${getColor('border')}`,
+          overflow: 'hidden'
+        }}>
+          <button
+            onClick={() => {
+              setMode("invite");
+              setCode("");
+              setError("");
+            }}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px',
+              backgroundColor: mode === "invite" ? getColor('text') : 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: mode === "invite" ? getColor('bg') : getColor('textMuted'),
+              transition: 'all 0.2s',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+          >
+            INVITE CODE
+          </button>
+          <button
+            onClick={() => {
+              setMode("sync");
+              setCode("");
+              setError("");
+            }}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px',
+              backgroundColor: mode === "sync" ? getColor('text') : 'transparent',
+              border: 'none',
+              borderLeft: `1px solid ${getColor('border')}`,
+              cursor: 'pointer',
+              color: mode === "sync" ? getColor('bg') : getColor('textMuted'),
+              transition: 'all 0.2s',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+          >
+            SYNC ACCOUNT
+          </button>
         </div>
 
         <input
           value={code}
           onChange={(e) => {
-            setCode(e.target.value.toUpperCase());
+            setCode(mode === "invite" ? e.target.value.toUpperCase() : e.target.value);
             setError("");
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') handleSubmit();
           }}
-          placeholder="INVITE CODE"
+          placeholder={mode === "invite" ? "INVITE CODE" : "SYNC CODE"}
           style={{
             width: '100%',
-            fontSize: '14px',
-            letterSpacing: '0.2em',
+            fontSize: mode === "sync" ? '11px' : '14px',
+            letterSpacing: mode === "sync" ? '0.05em' : '0.2em',
             padding: '15px',
             marginBottom: '20px',
             background: 'none',
@@ -1175,7 +1374,7 @@ function InviteGate({ onRedeem, getColor }) {
             color: getColor('text'),
             textAlign: 'center',
             fontFamily: 'Helvetica Neue, Arial, sans-serif',
-            textTransform: 'uppercase',
+            textTransform: mode === "invite" ? 'uppercase' : 'none',
             boxSizing: 'border-box'
           }}
         />
@@ -1204,13 +1403,25 @@ function InviteGate({ onRedeem, getColor }) {
             color: getColor('bg'),
             transition: 'opacity 0.2s',
             fontFamily: 'Helvetica Neue, Arial, sans-serif',
-            marginBottom: '40px'
+            marginBottom: '20px'
           }}
           onMouseEnter={(e) => e.target.style.opacity = '0.8'}
           onMouseLeave={(e) => e.target.style.opacity = '1'}
         >
-          ENTER
+          {mode === "invite" ? "ENTER" : "SYNC ACCOUNT"}
         </button>
+
+        {mode === "sync" && (
+          <div style={{
+            fontSize: '9px',
+            letterSpacing: '0.05em',
+            color: getColor('textDim'),
+            lineHeight: '1.5',
+            marginBottom: '20px'
+          }}>
+            Find your sync code in Settings → Account Sync
+          </div>
+        )}
 
         {/* Hidden admin login - triple click to reveal */}
         <div 
@@ -2567,8 +2778,9 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
     </div>
   );
 }
-function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite }) {
+function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onGenerateSyncToken }) {
   const [showCopied, setShowCopied] = useState(false);
+  const [showSyncCopied, setShowSyncCopied] = useState(false);
 
   const handleGenerateInvite = () => {
     const code = onGenerateInvite();
@@ -2577,6 +2789,16 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
       setShowCopied(true);
       setTimeout(() => setShowCopied(false), 2000);
       alert(`INVITE CODE: ${code}\n\nCopied to clipboard!`);
+    }
+  };
+
+  const handleGenerateSyncToken = () => {
+    const token = onGenerateSyncToken();
+    if (token) {
+      navigator.clipboard.writeText(token);
+      setShowSyncCopied(true);
+      setTimeout(() => setShowSyncCopied(false), 2000);
+      alert(`SYNC TOKEN: ${token}\n\nCopied to clipboard!\n\nThis token expires in 24 hours and can only be used once.\nUse it to sync your account on another device.`);
     }
   };
 
@@ -2628,6 +2850,50 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
         </div>
 
         <div style={{ fontSize: '11px', letterSpacing: '0.05em', paddingLeft: '20px', paddingRight: '20px' }}>
+          {/* Account Sync Section */}
+          <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
+            <div style={{ marginBottom: '15px' }}>
+              <span style={{ color: dark ? '#fff' : '#000', display: 'block', marginBottom: '10px' }}>ACCOUNT SYNC</span>
+              <div style={{ 
+                fontSize: '9px', 
+                letterSpacing: '0.05em',
+                color: dark ? '#666' : '#999',
+                marginBottom: '15px',
+                lineHeight: '1.5'
+              }}>
+                Generate a one-time sync token to access your account on another device.
+                Tokens expire in 24 hours.
+              </div>
+            </div>
+            <button
+              onClick={handleGenerateSyncToken}
+              style={{
+                width: '100%',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '12px 20px',
+                backgroundColor: dark ? '#fff' : '#000',
+                border: `1px solid ${dark ? '#fff' : '#000'}`,
+                cursor: 'pointer',
+                color: dark ? '#000' : '#fff',
+                transition: 'opacity 0.2s',
+                marginBottom: '10px'
+              }}
+              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              {showSyncCopied ? 'COPIED!' : 'GENERATE SYNC TOKEN'}
+            </button>
+            <div style={{ 
+              fontSize: '8px', 
+              letterSpacing: '0.05em',
+              color: dark ? '#666' : '#999',
+              lineHeight: '1.4'
+            }}>
+              ⚠️ Treat sync tokens like passwords. Anyone with the token can access your account until it's used or expires.
+            </div>
+          </div>
+
           {/* Invite Codes Section */}
           <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
