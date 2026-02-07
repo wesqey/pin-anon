@@ -70,7 +70,15 @@ export default function PinAnonBoard() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(() => {
     const existing = loadUser();
-    if (existing?.id) return existing;
+    if (existing?.id) {
+      // Grandfather in existing users - if they don't have hasAccess field yet, give them access
+      if (existing.hasAccess === undefined) {
+        existing.hasAccess = true;
+        existing.inviteCodesRemaining = 3;
+        localStorage.setItem(LS_USER, JSON.stringify(existing));
+      }
+      return existing;
+    }
     const newUser = { 
       id: genAnonId(7), 
       display: null, 
@@ -177,7 +185,20 @@ export default function PinAnonBoard() {
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    
+    const handleAdminBypass = () => {
+      setUser((prev) => {
+        const u = { ...prev, isAdmin: true, hasAccess: true, inviteCodesRemaining: 999 };
+        saveUser(u);
+        return u;
+      });
+    };
+    window.addEventListener('adminBypass', handleAdminBypass);
+    
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('adminBypass', handleAdminBypass);
+    };
   }, []);
 
   useEffect(() => {
@@ -1061,6 +1082,7 @@ export default function PinAnonBoard() {
 function InviteGate({ onRedeem, getColor }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
 
   const handleSubmit = () => {
     if (!code.trim()) {
@@ -1071,6 +1093,17 @@ function InviteGate({ onRedeem, getColor }) {
     if (!success) {
       setError("INVALID OR USED CODE");
       setCode("");
+    }
+  };
+
+  const handleAdminBypass = () => {
+    const password = prompt("ENTER ADMIN PASSWORD:");
+    if (password === "EpicMan101") {
+      // Bypass invite gate with admin access
+      const event = new CustomEvent('adminBypass');
+      window.dispatchEvent(event);
+    } else if (password) {
+      alert("INCORRECT PASSWORD");
     }
   };
 
@@ -1170,13 +1203,32 @@ function InviteGate({ onRedeem, getColor }) {
             cursor: 'pointer',
             color: getColor('bg'),
             transition: 'opacity 0.2s',
-            fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            fontFamily: 'Helvetica Neue, Arial, sans-serif',
+            marginBottom: '40px'
           }}
           onMouseEnter={(e) => e.target.style.opacity = '0.8'}
           onMouseLeave={(e) => e.target.style.opacity = '1'}
         >
           ENTER
         </button>
+
+        {/* Hidden admin login - triple click to reveal */}
+        <div 
+          onClick={(e) => {
+            if (e.detail === 3) { // Triple click
+              handleAdminBypass();
+            }
+          }}
+          style={{
+            fontSize: '8px',
+            letterSpacing: '0.1em',
+            color: getColor('borderDim'),
+            cursor: 'default',
+            userSelect: 'none'
+          }}
+        >
+          •
+        </div>
       </div>
     </div>
   );
