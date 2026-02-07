@@ -122,6 +122,7 @@ export default function PinAnonBoard() {
   const [search, setSearch] = useState("");
   const [inviteModal, setInviteModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("pinanon_dark") === "1";
   });
@@ -490,6 +491,11 @@ export default function PinAnonBoard() {
     } else if (password) {
       alert("INCORRECT PASSWORD");
     }
+  }
+
+  function saveProfile(updatedUser) {
+    setUser(updatedUser);
+    saveUser(updatedUser);
   }
 
   function generateInviteCode() {
@@ -1246,7 +1252,16 @@ export default function PinAnonBoard() {
           user={user}
           onGenerateInvite={generateInviteCode}
           onGenerateSyncToken={generateSyncToken}
+          setShowProfileEdit={setShowProfileEdit}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+      {showProfileEdit && (
+        <ProfileEditModal
+          user={user}
+          onSave={saveProfile}
+          onClose={() => setShowProfileEdit(false)}
+          dark={dark}
         />
       )}
     </div>
@@ -1903,6 +1918,8 @@ function NewPostModal({ onClose, onPost, dark }) {
   const [videoUrl, setVideoUrl] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
 
   const CLOUDINARY_CLOUD_NAME = "dnulbfj48";
   const CLOUDINARY_UPLOAD_PRESET = "pin-anon-uploads";
@@ -1934,6 +1951,68 @@ function NewPostModal({ onClose, onPost, dark }) {
       console.error("Upload error:", error);
       alert("FAILED TO UPLOAD IMAGE");
       setUploading(false);
+    }
+  }
+
+  async function handleVideoFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 100 * 1024 * 1024) { // 100MB limit for video
+      alert("VIDEO TOO LARGE (MAX 100MB)");
+      return;
+    }
+    setUploadingVideo(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      formData.append("resource_type", "video");
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`,
+        { method: "POST", body: formData }
+      );
+      const data = await response.json();
+      if (data.secure_url) {
+        setVideoUrl(data.secure_url);
+      } else {
+        throw new Error("Upload failed");
+      }
+      setUploadingVideo(false);
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("FAILED TO UPLOAD VIDEO");
+      setUploadingVideo(false);
+    }
+  }
+
+  async function handleAudioFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) { // 50MB limit for audio
+      alert("AUDIO TOO LARGE (MAX 50MB)");
+      return;
+    }
+    setUploadingAudio(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      formData.append("resource_type", "video"); // Cloudinary uses 'video' for audio too
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`,
+        { method: "POST", body: formData }
+      );
+      const data = await response.json();
+      if (data.secure_url) {
+        setAudioUrl(data.secure_url);
+      } else {
+        throw new Error("Upload failed");
+      }
+      setUploadingAudio(false);
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("FAILED TO UPLOAD AUDIO");
+      setUploadingAudio(false);
     }
   }
 
@@ -2024,7 +2103,7 @@ function NewPostModal({ onClose, onPost, dark }) {
           />
 
           <div style={{ marginBottom: '20px' }}>
-            <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '15px', flexWrap: 'wrap' }}>
               <label style={{
                 fontSize: '10px',
                 letterSpacing: '0.1em',
@@ -2043,6 +2122,50 @@ function NewPostModal({ onClose, onPost, dark }) {
                   accept="image/*"
                   onChange={handleFile}
                   disabled={uploading}
+                  style={{ display: 'none' }}
+                />
+              </label>
+              
+              <label style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '10px 15px',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                cursor: uploadingVideo ? 'not-allowed' : 'pointer',
+                color: uploadingVideo ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => !uploadingVideo && (e.target.style.opacity = '0.5')}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                {uploadingVideo ? "UPLOADING..." : "CHOOSE VIDEO"}
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={handleVideoFile}
+                  disabled={uploadingVideo}
+                  style={{ display: 'none' }}
+                />
+              </label>
+              
+              <label style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '10px 15px',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                cursor: uploadingAudio ? 'not-allowed' : 'pointer',
+                color: uploadingAudio ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => !uploadingAudio && (e.target.style.opacity = '0.5')}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                {uploadingAudio ? "UPLOADING..." : "CHOOSE AUDIO"}
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={handleAudioFile}
+                  disabled={uploadingAudio}
                   style={{ display: 'none' }}
                 />
               </label>
@@ -2873,7 +2996,326 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
     </div>
   );
 }
-function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onGenerateSyncToken }) {
+function ProfileEditModal({ user, onSave, onClose, dark }) {
+  const [display, setDisplay] = useState(user.display || "");
+  const [bio, setBio] = useState(user.bio || "");
+  const [profileImage, setProfileImage] = useState(user.profileImage || "");
+  const [bannerColor, setBannerColor] = useState(user.bannerColor || "#333333");
+  const [uploading, setUploading] = useState(false);
+
+  const CLOUDINARY_CLOUD_NAME = "dnulbfj48";
+  const CLOUDINARY_UPLOAD_PRESET = "pin-anon-uploads";
+
+  async function handleProfileImageUpload(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("IMAGE TOO LARGE (MAX 5MB)");
+      return;
+    }
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+        { method: "POST", body: formData }
+      );
+      const data = await response.json();
+      if (data.secure_url) {
+        setProfileImage(data.secure_url);
+      }
+      setUploading(false);
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("FAILED TO UPLOAD IMAGE");
+      setUploading(false);
+    }
+  }
+
+  function handleSave() {
+    onSave({
+      ...user,
+      display: display.trim() || user.id,
+      bio: bio.trim(),
+      profileImage,
+      bannerColor
+    });
+    onClose();
+  }
+
+  return (
+    <div style={{ 
+      position: 'fixed', 
+      inset: 0, 
+      zIndex: 60, 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.8)',
+      padding: '20px',
+      overflowY: 'auto'
+    }}>
+      <div style={{
+        maxWidth: '500px',
+        width: '100%',
+        backgroundColor: dark ? '#0a0a0a' : '#fff',
+        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+        padding: '40px 20px',
+        fontFamily: 'Helvetica Neue, Arial, sans-serif'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px' }}>
+          <h3 style={{ 
+            fontSize: '12px', 
+            letterSpacing: '0.15em',
+            fontWeight: '300',
+            color: dark ? '#fff' : '#000'
+          }}>
+            EDIT PROFILE
+          </h3>
+          <button 
+            onClick={onClose}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            CLOSE
+          </button>
+        </div>
+
+        <div style={{ paddingLeft: '20px', paddingRight: '20px' }}>
+          {/* Display Name */}
+          <div style={{ marginBottom: '25px' }}>
+            <label style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              color: dark ? '#999' : '#666',
+              display: 'block',
+              marginBottom: '10px'
+            }}>
+              DISPLAY NAME
+            </label>
+            <input
+              value={display}
+              onChange={(e) => setDisplay(e.target.value)}
+              placeholder={user.id.toUpperCase()}
+              style={{
+                width: '100%',
+                fontSize: '11px',
+                letterSpacing: '0.05em',
+                padding: '12px',
+                background: 'none',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                color: dark ? '#fff' : '#000',
+                fontFamily: 'Helvetica Neue, Arial, sans-serif',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          {/* Bio */}
+          <div style={{ marginBottom: '25px' }}>
+            <label style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              color: dark ? '#999' : '#666',
+              display: 'block',
+              marginBottom: '10px'
+            }}>
+              BIO
+            </label>
+            <textarea
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              placeholder="TELL US ABOUT YOURSELF..."
+              maxLength={200}
+              style={{
+                width: '100%',
+                height: '80px',
+                fontSize: '11px',
+                letterSpacing: '0.05em',
+                padding: '12px',
+                background: 'none',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                resize: 'none',
+                color: dark ? '#fff' : '#000',
+                fontFamily: 'Helvetica Neue, Arial, sans-serif',
+                boxSizing: 'border-box'
+              }}
+            />
+            <div style={{
+              fontSize: '9px',
+              letterSpacing: '0.05em',
+              color: dark ? '#666' : '#999',
+              marginTop: '5px',
+              textAlign: 'right'
+            }}>
+              {bio.length}/200
+            </div>
+          </div>
+
+          {/* Profile Image */}
+          <div style={{ marginBottom: '25px' }}>
+            <label style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              color: dark ? '#999' : '#666',
+              display: 'block',
+              marginBottom: '10px'
+            }}>
+              PROFILE IMAGE
+            </label>
+            <div style={{ display: 'flex', gap: '15px', alignItems: 'center', marginBottom: '10px' }}>
+              {profileImage && (
+                <img
+                  src={profileImage}
+                  style={{
+                    width: '60px',
+                    height: '60px',
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                    border: `2px solid ${dark ? '#333' : '#e5e5e5'}`
+                  }}
+                  alt="profile preview"
+                />
+              )}
+              <label style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '10px 15px',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                cursor: uploading ? 'not-allowed' : 'pointer',
+                color: uploading ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                {uploading ? "UPLOADING..." : profileImage ? "CHANGE" : "UPLOAD"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleProfileImageUpload}
+                  disabled={uploading}
+                  style={{ display: 'none' }}
+                />
+              </label>
+              {profileImage && (
+                <button
+                  onClick={() => setProfileImage("")}
+                  style={{
+                    fontSize: '10px',
+                    letterSpacing: '0.1em',
+                    padding: '10px 15px',
+                    background: 'none',
+                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    cursor: 'pointer',
+                    color: dark ? '#999' : '#666',
+                    transition: 'opacity 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                  onMouseLeave={(e) => e.target.style.opacity = '1'}
+                >
+                  REMOVE
+                </button>
+              )}
+            </div>
+            <input
+              value={profileImage}
+              onChange={(e) => setProfileImage(e.target.value)}
+              placeholder="OR PASTE IMAGE URL"
+              style={{
+                width: '100%',
+                padding: '10px 0',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                background: 'none',
+                border: 'none',
+                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                color: dark ? '#fff' : '#000',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          {/* Banner Color */}
+          <div style={{ marginBottom: '30px' }}>
+            <label style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              color: dark ? '#999' : '#666',
+              display: 'block',
+              marginBottom: '10px'
+            }}>
+              BANNER COLOR
+            </label>
+            <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+              <input
+                type="color"
+                value={bannerColor}
+                onChange={(e) => setBannerColor(e.target.value)}
+                style={{
+                  width: '60px',
+                  height: '40px',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer'
+                }}
+              />
+              <div style={{
+                flex: 1,
+                height: '40px',
+                backgroundColor: bannerColor,
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`
+              }} />
+              <span style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                color: dark ? '#999' : '#666'
+              }}>
+                {bannerColor.toUpperCase()}
+              </span>
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <button
+            onClick={handleSave}
+            style={{
+              width: '100%',
+              fontSize: '11px',
+              letterSpacing: '0.15em',
+              padding: '15px',
+              backgroundColor: dark ? '#fff' : '#000',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#000' : '#fff',
+              transition: 'opacity 0.2s',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            SAVE PROFILE
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onGenerateSyncToken, setShowProfileEdit }) {
   const [showCopied, setShowCopied] = useState(false);
   const [showSyncCopied, setShowSyncCopied] = useState(false);
 
@@ -2945,6 +3387,32 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
         </div>
 
         <div style={{ fontSize: '11px', letterSpacing: '0.05em', paddingLeft: '20px', paddingRight: '20px' }}>
+          {/* Edit Profile Section */}
+          <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
+            <span style={{ color: dark ? '#fff' : '#000', display: 'block', marginBottom: '15px' }}>PROFILE</span>
+            <button
+              onClick={() => {
+                setShowProfileEdit(true);
+                onClose();
+              }}
+              style={{
+                width: '100%',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '12px 20px',
+                backgroundColor: dark ? '#fff' : '#000',
+                border: `1px solid ${dark ? '#fff' : '#000'}`,
+                cursor: 'pointer',
+                color: dark ? '#000' : '#fff',
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              EDIT PROFILE
+            </button>
+          </div>
+
           {/* Account Sync Section */}
           <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
             <div style={{ marginBottom: '15px' }}>
