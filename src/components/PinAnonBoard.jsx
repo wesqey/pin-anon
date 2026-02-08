@@ -840,41 +840,15 @@ export default function PinAnonBoard() {
             </button>
 
             <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flexWrap: 'wrap' }}>
-              {!user.isAdmin ? (
-                <button
-                  onClick={() => setShowLoginModal(true)}
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.15em',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: dark ? '#fff' : '#000',
-                    transition: 'opacity 0.2s'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  LOGIN
-                </button>
-              ) : (
-                <button
-                  onClick={handleAdminLogout}
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.15em',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: dark ? '#999' : '#666',
-                    transition: 'opacity 0.2s'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  LOGOUT
-                </button>
-              )}
+              <div
+                style={{
+                  fontSize: '10px',
+                  letterSpacing: '0.15em',
+                  color: dark ? '#999' : '#666'
+                }}
+              >
+                {user.id.toUpperCase()}
+              </div>
               <button
                 onClick={() => enterProfile(user.id)}
                 style={{
@@ -1018,6 +992,7 @@ export default function PinAnonBoard() {
             posts={state.posts.filter((p) => p.author === profileView)}
             allPosts={state.posts}
             user={user}
+            firebaseUser={firebaseUser}
             onBack={() => {
               setProfileView(null);
               setView("home");
@@ -2746,7 +2721,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
   );
 }
 
-function ProfilePage({ authorId, posts, onBack, dark, allPosts, user, onEditProfile, onDeletePost }) {
+function ProfilePage({ authorId, posts, onBack, dark, allPosts, user, firebaseUser, onEditProfile, onDeletePost }) {
   const [profileData, setProfileData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -2986,7 +2961,20 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts, user, onEditProf
               }}
             >
               {/* Delete button (only show if it's user's own post) */}
-              {user.id === authorId && (
+              {(() => {
+                const canDelete = p.author === user.id || (firebaseUser && p.authorId === firebaseUser.uid) || user.isAdmin;
+                // Debug logging for troubleshooting
+                if (!canDelete && p.author === authorId) {
+                  console.warn('Post delete mismatch:', {
+                    postAuthor: p.author,
+                    postAuthorId: p.authorId,
+                    userId: user.id,
+                    firebaseUid: firebaseUser?.uid,
+                    profileAuthorId: authorId
+                  });
+                }
+                return canDelete;
+              })() && (
                 <button
                   onClick={() => {
                     if (window.confirm('DELETE THIS POST?')) {
