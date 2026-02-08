@@ -229,11 +229,9 @@ export default function PinAnonBoard() {
 
   // Firebase Auth - Sign in anonymously and sync user data
   useEffect(() => {
-    console.log('=== FIREBASE AUTH INIT ===');
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         // User is signed in
-        console.log('✅ Firebase user signed in:', firebaseUser.uid);
         setFirebaseUser(firebaseUser);
         
         // Generate sync token for QR code
@@ -244,26 +242,21 @@ export default function PinAnonBoard() {
         const userRef = ref(database, `users/${firebaseUser.uid}`);
         onValue(userRef, (snapshot) => {
           const firebaseData = snapshot.val();
-          console.log('Firebase user data at users/' + firebaseUser.uid + ':', firebaseData);
           
           if (firebaseData) {
             // User data exists in Firebase, use it
-            console.log('Loading user data from Firebase');
             setUser(firebaseData);
             saveUser(firebaseData);
           } else {
             // First time with this Firebase account, save current user data
-            console.log('No Firebase data found, saving current user data');
             const currentUser = loadUser();
             if (currentUser) {
               set(userRef, currentUser);
-              console.log('Saved current user to Firebase:', currentUser);
             }
           }
         }, { onlyOnce: true });
       } else {
         // No user signed in, sign in anonymously
-        console.log('No Firebase user, signing in anonymously...');
         signInAnonymously(auth).catch((error) => {
           console.error("Error signing in anonymously:", error);
         });
@@ -504,10 +497,6 @@ export default function PinAnonBoard() {
   }
 
   function saveProfile(updatedUser) {
-    console.log('=== SAVE PROFILE START ===');
-    console.log('updatedUser:', updatedUser);
-    console.log('firebaseUser:', firebaseUser);
-    console.log('firebaseUser.uid:', firebaseUser?.uid);
     
     setUser(updatedUser);
     saveUser(updatedUser);
@@ -516,15 +505,12 @@ export default function PinAnonBoard() {
     if (firebaseUser) {
       const userRef = ref(database, `users/${firebaseUser.uid}`);
       set(userRef, updatedUser).then(() => {
-        console.log('✅ Profile saved to Firebase successfully at:', `users/${firebaseUser.uid}`);
-        console.log('Saved data:', updatedUser);
       }).catch((error) => {
         console.error('❌ Failed to save profile to Firebase:', error);
       });
     } else {
       console.error('❌ Cannot save profile: firebaseUser is null');
     }
-    console.log('=== SAVE PROFILE END ===');
   }
 
   function generateInviteCode() {
@@ -600,44 +586,36 @@ export default function PinAnonBoard() {
 
   async function syncFromToken(token) {
     try {
-      console.log('=== SYNC FROM TOKEN START ===');
-      console.log('Token:', token);
       const upperToken = token.toUpperCase().trim();
       const tokenRef = ref(database, `appState/syncTokens/${upperToken}`);
       
       return new Promise((resolve) => {
         onValue(tokenRef, async (snapshot) => {
           const tokenData = snapshot.val();
-          console.log('Token data from Firebase:', tokenData);
           
           if (!tokenData) {
-            console.log('❌ Token not found');
             alert("INVALID SYNC TOKEN");
             resolve(false);
             return;
           }
 
           if (tokenData.used) {
-            console.log('❌ Token already used');
             alert("SYNC TOKEN ALREADY USED");
             resolve(false);
             return;
           }
 
           if (tokenData.expiresAt < now()) {
-            console.log('❌ Token expired');
             alert("SYNC TOKEN EXPIRED");
             resolve(false);
             return;
           }
 
-          console.log('✅ Token valid! Loading user data from:', `users/${tokenData.firebaseUID}`);
           
           // Token is valid! Load user data from Firebase
           const userRef = ref(database, `users/${tokenData.firebaseUID}`);
           onValue(userRef, (userSnapshot) => {
             const syncedUserData = userSnapshot.val();
-            console.log('Synced user data:', syncedUserData);
             
             if (syncedUserData) {
               // Mark token as used
@@ -649,11 +627,9 @@ export default function PinAnonBoard() {
               // Sync the user data
               setUser(syncedUserData);
               saveUser(syncedUserData);
-              console.log('✅ Account synced successfully!');
               alert("ACCOUNT SYNCED SUCCESSFULLY!");
               resolve(true);
             } else {
-              console.log('❌ User data not found in Firebase');
               alert("USER DATA NOT FOUND");
               resolve(false);
             }
@@ -670,7 +646,6 @@ export default function PinAnonBoard() {
   function generateSyncToken() {
     if (!firebaseUser) {
       alert("ACCOUNT NOT READY YET. PLEASE WAIT A MOMENT AND TRY AGAIN.");
-      console.log('generateSyncToken: firebaseUser not ready yet');
       return null;
     }
 
@@ -688,7 +663,6 @@ export default function PinAnonBoard() {
     updates[`appState/syncTokens/${token}`] = tokenData;
     update(ref(database), updates);
 
-    console.log('Generated sync token:', token, 'for UID:', firebaseUser.uid);
     return token;
   }
 
@@ -734,10 +708,6 @@ export default function PinAnonBoard() {
       return;
     }
     
-    console.log('=== POST NEW START ===');
-    console.log('user.id:', user.id);
-    console.log('firebaseUser:', firebaseUser);
-    console.log('firebaseUser.uid:', firebaseUser?.uid);
     
     const postId = crypto.randomUUID();
     const post = {
@@ -755,9 +725,6 @@ export default function PinAnonBoard() {
       comments: [],
     };
     
-    console.log('Created post with author:', post.author);
-    console.log('Created post with authorId:', post.authorId);
-    console.log('=== POST NEW END ===');
     
     const newPosts = [post, ...(state.posts || [])];
     const updates = {};
@@ -1407,6 +1374,23 @@ function InviteGate({ onRedeem, onSync, getColor }) {
           THIS IS AN INVITE-ONLY COMMUNITY
           <br />
           {mode === "invite" ? "ENTER YOUR INVITE CODE TO CONTINUE" : "SYNC YOUR EXISTING ACCOUNT"}
+          {mode === "sync" && (
+            <div style={{
+              fontSize: '9px',
+              marginTop: '15px',
+              padding: '12px',
+              backgroundColor: getColor('bgAlt'),
+              border: `1px solid ${getColor('borderDim')}`,
+              lineHeight: '1.5',
+              textAlign: 'left'
+            }}>
+              <strong style={{ display: 'block', marginBottom: '8px' }}>HOW TO GET A SYNC TOKEN:</strong>
+              1. Open PIN-ANON on your other device<br/>
+              2. Go to Settings (⚙️)<br/>
+              3. Under "Account Sync", click "Generate Sync Token"<br/>
+              4. Copy the token and paste it here
+            </div>
+          )}
         </div>
 
         {/* Tab Switcher */}
@@ -2746,14 +2730,11 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
     const postByAuthor = allPosts.find(p => p.author === authorId);
     const firebaseUserId = postByAuthor?.authorId;
 
-    console.log('ProfilePage - authorId:', authorId);
-    console.log('ProfilePage - firebaseUserId:', firebaseUserId);
 
     if (firebaseUserId) {
       const userRef = ref(database, `users/${firebaseUserId}`);
       onValue(userRef, (snapshot) => {
         const userData = snapshot.val();
-        console.log('ProfilePage - userData from Firebase:', userData);
         if (userData) {
           setProfileData(userData);
         }
@@ -2764,10 +2745,8 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
       const usersRef = ref(database, 'users');
       onValue(usersRef, (snapshot) => {
         const users = snapshot.val();
-        console.log('ProfilePage - all users:', users);
         if (users) {
           const userData = Object.values(users).find(u => u.id === authorId);
-          console.log('ProfilePage - found userData:', userData);
           setProfileData(userData);
         }
         setLoading(false);
@@ -3556,8 +3535,24 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
                 marginBottom: '15px',
                 lineHeight: '1.5'
               }}>
-                Generate a one-time sync token to access your account on another device.
-                Tokens expire in 24 hours.
+                Sync your account across multiple devices using a one-time token.
+              </div>
+              <div style={{ 
+                fontSize: '9px', 
+                letterSpacing: '0.05em',
+                color: dark ? '#888' : '#777',
+                marginBottom: '15px',
+                lineHeight: '1.6',
+                padding: '10px',
+                backgroundColor: dark ? '#0f0f0f' : '#f9f9f9',
+                border: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`
+              }}>
+                <strong style={{ display: 'block', marginBottom: '5px', color: dark ? '#fff' : '#000' }}>HOW IT WORKS:</strong>
+                1. Generate a sync token below<br/>
+                2. Copy the token (auto-copied to clipboard)<br/>
+                3. On your other device, visit pinanon.vercel.app<br/>
+                4. On the invite screen, click "SYNC ACCOUNT"<br/>
+                5. Paste your token to sync your account
               </div>
             </div>
             <button
@@ -3585,7 +3580,7 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
               color: dark ? '#666' : '#999',
               lineHeight: '1.4'
             }}>
-              ⚠️ Treat sync tokens like passwords. Anyone with the token can access your account until it's used or expires.
+              ⚠️ Tokens expire in 24 hours and can only be used once. Treat them like passwords.
             </div>
           </div>
 
