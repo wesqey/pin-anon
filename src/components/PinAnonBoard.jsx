@@ -7,7 +7,8 @@ import {
   onValue, 
   push,
   update,
-  remove
+  remove,
+  get
 } from "firebase/database";
 import {
   getAuth,
@@ -253,6 +254,29 @@ export default function PinAnonBoard() {
             const currentUser = loadUser();
             if (currentUser) {
               set(userRef, currentUser);
+              
+              // MIGRATION: Update old posts' authorId to match new Firebase UID
+              // This fixes posts created on Netlify before Firebase Auth
+              const postsRef = ref(database, 'appState/posts');
+              get(postsRef).then((postsSnapshot) => {
+                if (postsSnapshot.exists()) {
+                  const posts = postsSnapshot.val();
+                  const updates = {};
+                  let needsUpdate = false;
+                  
+                  posts.forEach((post, index) => {
+                    // If post author matches user.id but authorId doesn't match Firebase UID
+                    if (post.author === currentUser.id && post.authorId !== firebaseUser.uid) {
+                      updates[`appState/posts/${index}/authorId`] = firebaseUser.uid;
+                      needsUpdate = true;
+                    }
+                  });
+                  
+                  if (needsUpdate) {
+                    update(ref(database), updates);
+                  }
+                }
+              });
             }
           }
         }, { onlyOnce: true });
@@ -1268,6 +1292,7 @@ export default function PinAnonBoard() {
           theme={theme}
           setTheme={setTheme}
           user={user}
+          firebaseUser={firebaseUser}
           onGenerateInvite={generateInviteCode}
           onGenerateSyncToken={generateSyncToken}
           onClose={() => setShowSettings(false)}
@@ -3721,7 +3746,7 @@ function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
   );
 }
 
-function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onGenerateSyncToken }) {
+function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, firebaseUser, onGenerateInvite, onGenerateSyncToken }) {
   const [showCopied, setShowCopied] = useState(false);
   const [showSyncCopied, setShowSyncCopied] = useState(false);
 
@@ -3742,6 +3767,45 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
       setShowSyncCopied(true);
       setTimeout(() => setShowSyncCopied(false), 2000);
       alert(`SYNC TOKEN: ${token}\n\nCopied to clipboard!\n\nThis token expires in 24 hours and can only be used once.\nUse it to sync your account on another device.`);
+    }
+  };
+
+  const handleReclaimPosts = async () => {
+    if (!firebaseUser) {
+      alert("Firebase authentication not ready. Please wait a moment and try again.");
+      return;
+    }
+    
+    if (!window.confirm("Reclaim all posts authored by your username and link them to your current account?\n\nThis will update old posts to match your current Firebase account.")) {
+      return;
+    }
+    
+    try {
+      const postsRef = ref(database, 'appState/posts');
+      const snapshot = await get(postsRef);
+      
+      if (snapshot.exists()) {
+        const posts = snapshot.val();
+        const updates = {};
+        let count = 0;
+        
+        posts.forEach((post, index) => {
+          if (post.author === user.id && post.authorId !== firebaseUser.uid) {
+            updates[`appState/posts/${index}/authorId`] = firebaseUser.uid;
+            count++;
+          }
+        });
+        
+        if (count > 0) {
+          await update(ref(database), updates);
+          alert(`Successfully reclaimed ${count} post(s)! You can now delete them from your profile.`);
+        } else {
+          alert("No posts found that need reclaiming. Your posts are already linked to your account.");
+        }
+      }
+    } catch (error) {
+      console.error("Error reclaiming posts:", error);
+      alert("Failed to reclaim posts. Please try again.");
     }
   };
 
@@ -3863,6 +3927,44 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
             }}>
               ℹ️ Profile changes sync live across all devices. Refresh the page on other devices to see updates immediately.
             </div>
+          </div>
+
+          {/* Reclaim Posts Section */}
+          <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
+            <div style={{ marginBottom: '15px' }}>
+              <span style={{ color: dark ? '#fff' : '#000', display: 'block', marginBottom: '10px' }}>RECLAIM OLD POSTS</span>
+              <div style={{ 
+                fontSize: '9px', 
+                letterSpacing: '0.05em',
+                color: dark ? '#888' : '#777',
+                marginBottom: '15px',
+                lineHeight: '1.6',
+                padding: '10px',
+                backgroundColor: dark ? '#0f0f0f' : '#f9f9f9',
+                border: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`
+              }}>
+                <strong style={{ display: 'block', marginBottom: '5px', color: dark ? '#fff' : '#000' }}>FOR LEGACY USERS:</strong>
+                If you created posts before we added Firebase authentication (when the site was on Netlify), you may not be able to delete them. Click below to link those old posts to your current account.
+              </div>
+            </div>
+            <button
+              onClick={handleReclaimPosts}
+              style={{
+                width: '100%',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '12px 20px',
+                backgroundColor: dark ? '#fff' : '#000',
+                border: `1px solid ${dark ? '#fff' : '#000'}`,
+                cursor: 'pointer',
+                color: dark ? '#000' : '#fff',
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              RECLAIM MY OLD POSTS
+            </button>
           </div>
 
           {/* Invite Codes Section */}
