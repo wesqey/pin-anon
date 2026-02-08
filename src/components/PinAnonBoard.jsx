@@ -1220,6 +1220,7 @@ export default function PinAnonBoard() {
         <ProfileModal
           authorId={profileView}
           posts={state.posts.filter((p) => p.author === profileView)}
+          allPosts={state.posts}
           onClose={() => setProfileView(null)}
           dark={dark}
         />
@@ -2679,7 +2680,34 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
   );
 }
 
-function ProfileModal({ authorId, posts, onClose, dark }) {
+function ProfileModal({ authorId, posts, onClose, dark, allPosts }) {
+  const [profileData, setProfileData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Fetch user profile data from Firebase
+    const usersRef = ref(database, 'users');
+    onValue(usersRef, (snapshot) => {
+      const users = snapshot.val();
+      if (users) {
+        // Find the user by matching authorId with either user.id or user.display
+        const userData = Object.values(users).find(u => 
+          u.id === authorId || u.display === authorId
+        );
+        setProfileData(userData);
+      }
+      setLoading(false);
+    }, { onlyOnce: true });
+  }, [authorId]);
+
+  // Calculate comment count across all posts
+  const commentCount = allPosts ? allPosts.reduce((count, p) => 
+    count + (p.comments || []).filter(c => c.author === authorId).length, 0
+  ) : 0;
+
+  // Calculate total votes
+  const totalVotes = posts.reduce((sum, p) => sum + (p.votes || 0), 0);
+
   return (
     <div style={{ 
       position: 'fixed', 
@@ -2697,104 +2725,215 @@ function ProfileModal({ authorId, posts, onClose, dark }) {
         width: '100%',
         backgroundColor: dark ? '#0a0a0a' : '#fff',
         border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px 20px',
         maxHeight: '80vh',
         overflow: 'auto',
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px', flexWrap: 'wrap', gap: '10px' }}>
-          <div>
-            <h3 style={{ 
-              fontSize: '14px', 
-              letterSpacing: '0.1em',
-              fontWeight: '300',
-              color: dark ? '#fff' : '#000',
-              marginBottom: '8px',
-              wordBreak: 'break-all'
-            }}>
-              {authorId.toUpperCase()}
-            </h3>
-            <div style={{ 
-              fontSize: '9px',
-              letterSpacing: '0.1em',
-              color: dark ? '#666' : '#999'
-            }}>
-              {posts.length} POSTS
-            </div>
-          </div>
+        {/* Banner */}
+        <div style={{
+          height: '120px',
+          backgroundColor: profileData?.bannerColor || (dark ? '#1a1a1a' : '#e5e5e5'),
+          position: 'relative'
+        }}>
           <button 
             onClick={onClose}
             style={{
+              position: 'absolute',
+              top: '15px',
+              right: '15px',
               fontSize: '10px',
               letterSpacing: '0.1em',
-              background: 'none',
+              background: 'rgba(0,0,0,0.5)',
               border: 'none',
               cursor: 'pointer',
-              color: dark ? '#999' : '#666',
+              color: '#fff',
+              padding: '8px 12px',
               transition: 'opacity 0.2s'
             }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
             onMouseLeave={(e) => e.target.style.opacity = '1'}
           >
             CLOSE
           </button>
         </div>
 
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', 
-          gap: '20px',
-          paddingLeft: '20px',
-          paddingRight: '20px'
-        }}>
-          {posts.map((p) => (
-            <div
-              key={p.id}
+        {/* Profile Section */}
+        <div style={{ padding: '0 40px 40px 40px', marginTop: '-40px' }}>
+          {/* Profile Image */}
+          {profileData?.profileImage ? (
+            <img
+              src={profileData.profileImage}
               style={{
-                padding: '15px',
-                border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-                backgroundColor: dark ? '#0a0a0a' : '#fafafa',
-                wordWrap: 'break-word',
-                overflowWrap: 'break-word'
+                width: '100px',
+                height: '100px',
+                borderRadius: '50%',
+                objectFit: 'cover',
+                border: `4px solid ${dark ? '#0a0a0a' : '#fff'}`,
+                marginBottom: '20px'
               }}
-            >
-              {p.image && (
-                <img
-                  src={p.image}
-                  style={{ 
-                    width: '100%',
-                    maxHeight: '200px',
-                    objectFit: 'contain',
-                    marginBottom: '10px'
-                  }}
-                  alt="post"
-                />
-              )}
+              alt="profile"
+            />
+          ) : (
+            <div style={{
+              width: '100px',
+              height: '100px',
+              borderRadius: '50%',
+              backgroundColor: dark ? '#1a1a1a' : '#e5e5e5',
+              border: `4px solid ${dark ? '#0a0a0a' : '#fff'}`,
+              marginBottom: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '32px',
+              color: dark ? '#666' : '#999'
+            }}>
+              {authorId[0].toUpperCase()}
+            </div>
+          )}
+
+          {/* Username */}
+          <h3 style={{ 
+            fontSize: '18px', 
+            letterSpacing: '0.1em',
+            fontWeight: '400',
+            color: dark ? '#fff' : '#000',
+            marginBottom: '12px',
+            wordBreak: 'break-all'
+          }}>
+            {authorId.toUpperCase()}
+          </h3>
+
+          {/* Bio */}
+          {profileData?.bio && (
+            <div style={{
+              fontSize: '12px',
+              lineHeight: '1.6',
+              letterSpacing: '0.02em',
+              color: dark ? '#ccc' : '#666',
+              marginBottom: '20px',
+              fontStyle: 'italic',
+              maxWidth: '600px'
+            }}>
+              {profileData.bio}
+            </div>
+          )}
+
+          {/* Stats */}
+          <div style={{ 
+            display: 'flex', 
+            gap: '30px',
+            marginBottom: '30px',
+            paddingBottom: '20px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+          }}>
+            <div>
               <div style={{ 
-                fontSize: '11px',
-                lineHeight: '1.6',
-                letterSpacing: '0.02em',
+                fontSize: '16px',
+                fontWeight: '500',
                 color: dark ? '#fff' : '#000',
-                fontWeight: '300',
-                wordWrap: 'break-word',
-                overflowWrap: 'break-word'
+                marginBottom: '4px'
               }}>
-                {p.text}
+                {posts.length}
               </div>
-              <div style={{
+              <div style={{ 
                 fontSize: '9px',
-                marginTop: '10px',
-                letterSpacing: '0.05em',
+                letterSpacing: '0.1em',
                 color: dark ? '#666' : '#999'
               }}>
-                {new Date(p.created).toLocaleDateString('en-US', { 
-                  year: 'numeric', 
-                  month: '2-digit', 
-                  day: '2-digit' 
-                }).toUpperCase()}
+                POSTS
               </div>
             </div>
-          ))}
+            <div>
+              <div style={{ 
+                fontSize: '16px',
+                fontWeight: '500',
+                color: dark ? '#fff' : '#000',
+                marginBottom: '4px'
+              }}>
+                {commentCount}
+              </div>
+              <div style={{ 
+                fontSize: '9px',
+                letterSpacing: '0.1em',
+                color: dark ? '#666' : '#999'
+              }}>
+                COMMENTS
+              </div>
+            </div>
+            <div>
+              <div style={{ 
+                fontSize: '16px',
+                fontWeight: '500',
+                color: dark ? '#fff' : '#000',
+                marginBottom: '4px'
+              }}>
+                {totalVotes}
+              </div>
+              <div style={{ 
+                fontSize: '9px',
+                letterSpacing: '0.1em',
+                color: dark ? '#666' : '#999'
+              }}>
+                VOTES
+              </div>
+            </div>
+          </div>
+
+          {/* Posts Grid */}
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', 
+            gap: '20px'
+          }}>
+            {posts.map((p) => (
+              <div
+                key={p.id}
+                style={{
+                  padding: '15px',
+                  border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                  backgroundColor: dark ? '#0a0a0a' : '#fafafa',
+                  wordWrap: 'break-word',
+                  overflowWrap: 'break-word'
+                }}
+              >
+                {p.image && (
+                  <img
+                    src={p.image}
+                    style={{ 
+                      width: '100%',
+                      maxHeight: '200px',
+                      objectFit: 'contain',
+                      marginBottom: '10px'
+                    }}
+                    alt="post"
+                  />
+                )}
+                <div style={{ 
+                  fontSize: '11px',
+                  lineHeight: '1.6',
+                  letterSpacing: '0.02em',
+                  color: dark ? '#fff' : '#000',
+                  fontWeight: '300',
+                  wordWrap: 'break-word',
+                  overflowWrap: 'break-word'
+                }}>
+                  {p.text}
+                </div>
+                <div style={{
+                  fontSize: '9px',
+                  marginTop: '10px',
+                  letterSpacing: '0.05em',
+                  color: dark ? '#666' : '#999'
+                }}>
+                  {new Date(p.created).toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: '2-digit', 
+                    day: '2-digit' 
+                  }).toUpperCase()}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
