@@ -501,6 +501,13 @@ export default function PinAnonBoard() {
   function saveProfile(updatedUser) {
     setUser(updatedUser);
     saveUser(updatedUser);
+    
+    // Explicitly save to Firebase
+    if (firebaseUser) {
+      const userRef = ref(database, `users/${firebaseUser.uid}`);
+      set(userRef, updatedUser);
+      console.log('Profile saved to Firebase at:', `users/${firebaseUser.uid}`, updatedUser);
+    }
   }
 
   function generateInviteCode() {
@@ -701,7 +708,7 @@ export default function PinAnonBoard() {
     const post = {
       id: postId,
       author: user.display || user.id,
-      authorId: user.id, // Store actual user ID for ownership checking
+      authorId: firebaseUser ? firebaseUser.uid : user.id, // Store Firebase UID for profile lookup
       text,
       image,
       videoUrl: videoUrl || null,
