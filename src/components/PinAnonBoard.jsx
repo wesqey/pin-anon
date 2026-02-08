@@ -2686,19 +2686,35 @@ function ProfileModal({ authorId, posts, onClose, dark, allPosts }) {
 
   useEffect(() => {
     // Fetch user profile data from Firebase
-    const usersRef = ref(database, 'users');
-    onValue(usersRef, (snapshot) => {
-      const users = snapshot.val();
-      if (users) {
-        // Find the user by matching authorId with either user.id or user.display
-        const userData = Object.values(users).find(u => 
-          u.id === authorId || u.display === authorId
-        );
-        setProfileData(userData);
-      }
-      setLoading(false);
-    }, { onlyOnce: true });
-  }, [authorId]);
+    // The authorId might be the display name, so we need to find the user
+    // by checking if any post by this author has an authorId field
+    const postByAuthor = allPosts.find(p => p.author === authorId);
+    const firebaseUserId = postByAuthor?.authorId;
+
+    if (firebaseUserId) {
+      const userRef = ref(database, `users/${firebaseUserId}`);
+      onValue(userRef, (snapshot) => {
+        const userData = snapshot.val();
+        if (userData) {
+          setProfileData(userData);
+        }
+        setLoading(false);
+      }, { onlyOnce: true });
+    } else {
+      // Fallback: search all users
+      const usersRef = ref(database, 'users');
+      onValue(usersRef, (snapshot) => {
+        const users = snapshot.val();
+        if (users) {
+          const userData = Object.values(users).find(u => 
+            u.id === authorId || u.display === authorId
+          );
+          setProfileData(userData);
+        }
+        setLoading(false);
+      }, { onlyOnce: true });
+    }
+  }, [authorId, allPosts]);
 
   // Calculate comment count across all posts
   const commentCount = allPosts ? allPosts.reduce((count, p) => 
@@ -2732,7 +2748,7 @@ function ProfileModal({ authorId, posts, onClose, dark, allPosts }) {
         {/* Banner */}
         <div style={{
           height: '120px',
-          backgroundColor: profileData?.bannerColor || (dark ? '#1a1a1a' : '#e5e5e5'),
+          backgroundColor: dark ? '#1a1a1a' : '#e5e5e5',
           position: 'relative'
         }}>
           <button 
@@ -3138,7 +3154,6 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
 function ProfileEditModal({ user, onSave, onClose, dark }) {
   const [bio, setBio] = useState(user.bio || "");
   const [profileImage, setProfileImage] = useState(user.profileImage || "");
-  const [bannerColor, setBannerColor] = useState(user.bannerColor || "#333333");
   const [uploading, setUploading] = useState(false);
 
   const CLOUDINARY_CLOUD_NAME = "dnulbfj48";
@@ -3176,8 +3191,7 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
     onSave({
       ...user,
       bio: bio.trim(),
-      profileImage,
-      bannerColor
+      profileImage
     });
     onClose();
   }
@@ -3355,45 +3369,6 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
                 boxSizing: 'border-box'
               }}
             />
-          </div>
-
-          {/* Banner Color */}
-          <div style={{ marginBottom: '30px' }}>
-            <label style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#999' : '#666',
-              display: 'block',
-              marginBottom: '10px'
-            }}>
-              BANNER COLOR
-            </label>
-            <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-              <input
-                type="color"
-                value={bannerColor}
-                onChange={(e) => setBannerColor(e.target.value)}
-                style={{
-                  width: '60px',
-                  height: '40px',
-                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                  cursor: 'pointer'
-                }}
-              />
-              <div style={{
-                flex: 1,
-                height: '40px',
-                backgroundColor: bannerColor,
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`
-              }} />
-              <span style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                color: dark ? '#999' : '#666'
-              }}>
-                {bannerColor.toUpperCase()}
-              </span>
-            </div>
           </div>
 
           {/* Save Button */}
