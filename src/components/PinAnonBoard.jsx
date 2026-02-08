@@ -876,6 +876,22 @@ export default function PinAnonBoard() {
                 </button>
               )}
               <button
+                onClick={() => enterProfile(user.id)}
+                style={{
+                  fontSize: '10px',
+                  letterSpacing: '0.15em',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: dark ? '#fff' : '#000',
+                  transition: 'opacity 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                PROFILE
+              </button>
+              <button
                 onClick={() => setShowSettings(true)}
                 style={{
                   fontSize: '10px',
@@ -1001,10 +1017,13 @@ export default function PinAnonBoard() {
             authorId={profileView}
             posts={state.posts.filter((p) => p.author === profileView)}
             allPosts={state.posts}
+            user={user}
             onBack={() => {
               setProfileView(null);
               setView("home");
             }}
+            onEditProfile={() => setShowProfileEdit(true)}
+            onDeletePost={removePost}
             dark={dark}
           />
         ) : view === "home" ? (
@@ -1276,7 +1295,6 @@ export default function PinAnonBoard() {
           user={user}
           onGenerateInvite={generateInviteCode}
           onGenerateSyncToken={generateSyncToken}
-          setShowProfileEdit={setShowProfileEdit}
           onClose={() => setShowSettings(false)}
         />
       )}
@@ -2728,7 +2746,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
   );
 }
 
-function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
+function ProfilePage({ authorId, posts, onBack, dark, allPosts, user, onEditProfile, onDeletePost }) {
   const [profileData, setProfileData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -2869,7 +2887,7 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
         <div style={{ 
           display: 'flex', 
           gap: '40px',
-          marginBottom: '50px',
+          marginBottom: '30px',
           paddingBottom: '30px',
           borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
         }}>
@@ -2926,6 +2944,29 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
           </div>
         </div>
 
+        {/* Edit Profile Button (only show if it's user's own profile) */}
+        {user.id === authorId && (
+          <button
+            onClick={onEditProfile}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px 30px',
+              marginBottom: '40px',
+              backgroundColor: dark ? '#fff' : '#000',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#000' : '#fff',
+              transition: 'opacity 0.2s',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            EDIT PROFILE
+          </button>
+        )}
+
         {/* Posts Grid */}
         <div style={{ 
           display: 'grid', 
@@ -2940,9 +2981,38 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
                 border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
                 backgroundColor: dark ? '#0a0a0a' : '#fafafa',
                 wordWrap: 'break-word',
-                overflowWrap: 'break-word'
+                overflowWrap: 'break-word',
+                position: 'relative'
               }}
             >
+              {/* Delete button (only show if it's user's own post) */}
+              {user.id === authorId && (
+                <button
+                  onClick={() => {
+                    if (window.confirm('DELETE THIS POST?')) {
+                      onDeletePost(p.id);
+                    }
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: '10px',
+                    right: '10px',
+                    fontSize: '9px',
+                    letterSpacing: '0.1em',
+                    padding: '6px 10px',
+                    backgroundColor: dark ? 'rgba(255,0,0,0.1)' : 'rgba(255,0,0,0.05)',
+                    border: `1px solid ${dark ? '#ff4444' : '#ffaaaa'}`,
+                    cursor: 'pointer',
+                    color: '#ff4444',
+                    transition: 'opacity 0.2s',
+                    fontFamily: 'Helvetica Neue, Arial, sans-serif'
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+                  onMouseLeave={(e) => e.target.style.opacity = '1'}
+                >
+                  DELETE
+                </button>
+              )}
               {p.image && (
                 <img
                   src={p.image}
@@ -3663,7 +3733,7 @@ function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
   );
 }
 
-function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onGenerateSyncToken, setShowProfileEdit }) {
+function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onGenerateSyncToken }) {
   const [showCopied, setShowCopied] = useState(false);
   const [showSyncCopied, setShowSyncCopied] = useState(false);
 
@@ -3735,32 +3805,6 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
         </div>
 
         <div style={{ fontSize: '11px', letterSpacing: '0.05em', paddingLeft: '20px', paddingRight: '20px' }}>
-          {/* Edit Profile Section */}
-          <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
-            <span style={{ color: dark ? '#fff' : '#000', display: 'block', marginBottom: '15px' }}>PROFILE</span>
-            <button
-              onClick={() => {
-                setShowProfileEdit(true);
-                onClose();
-              }}
-              style={{
-                width: '100%',
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '12px 20px',
-                backgroundColor: dark ? '#fff' : '#000',
-                border: `1px solid ${dark ? '#fff' : '#000'}`,
-                cursor: 'pointer',
-                color: dark ? '#000' : '#fff',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              EDIT PROFILE
-            </button>
-          </div>
-
           {/* Account Sync Section */}
           <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
             <div style={{ marginBottom: '15px' }}>
