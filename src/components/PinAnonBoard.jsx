@@ -398,7 +398,8 @@ export default function PinAnonBoard() {
     
     if (!comment) return;
     
-    const isCreator = comment.authorId === user.id;
+    // Check ownership: either localStorage ID or Firebase UID
+    const isCreator = comment.author === user.id || (firebaseUser && comment.authorId === firebaseUser.uid);
     const isRoomModerator = isRoomMod(post.room);
     
     if (!user.isAdmin && !isCreator && !isRoomModerator) {
@@ -427,7 +428,8 @@ export default function PinAnonBoard() {
     const post = (state.posts || []).find(p => p.id === postId);
     if (!post) return;
     
-    const isCreator = post.authorId === user.id;
+    // Check ownership: either localStorage ID or Firebase UID
+    const isCreator = post.author === user.id || (firebaseUser && post.authorId === firebaseUser.uid);
     const isRoomModerator = isRoomMod(post.room);
     
     if (!user.isAdmin && !isCreator && !isRoomModerator) {
@@ -1088,7 +1090,7 @@ export default function PinAnonBoard() {
                       </div>
 
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                        {(user.isAdmin || post.authorId === user.id || isRoomMod(post.room)) && (
+                        {(user.isAdmin || post.author === user.id || (firebaseUser && post.authorId === firebaseUser.uid) || isRoomMod(post.room)) && (
                           <button
                             onClick={() => removePost(post.id)}
                             style={{
@@ -1222,6 +1224,7 @@ export default function PinAnonBoard() {
                         whisper={whisper}
                         dark={dark}
                         user={user}
+                        firebaseUser={firebaseUser}
                         isRoomMod={isRoomMod(post.room)}
                         enterProfile={enterProfile}
                       />
@@ -2349,7 +2352,7 @@ function NewPostModal({ onClose, onPost, dark }) {
   );
 }
 
-function CommentBlock({ post, addComment, removeComment, whisper, dark, user, isRoomMod, enterProfile }) {
+function CommentBlock({ post, addComment, removeComment, whisper, dark, user, firebaseUser, isRoomMod, enterProfile }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
 
@@ -2419,6 +2422,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
               removeComment={removeComment}
               dark={dark}
               user={user}
+              firebaseUser={firebaseUser}
               isRoomMod={isRoomMod}
               enterProfile={enterProfile}
               depth={0}
@@ -2481,7 +2485,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, is
   );
 }
 
-function CommentThread({ comment, postId, addComment, removeComment, dark, user, isRoomMod, depth, enterProfile }) {
+function CommentThread({ comment, postId, addComment, removeComment, dark, user, firebaseUser, isRoomMod, depth, enterProfile }) {
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [collapsed, setCollapsed] = useState(false);
@@ -2494,7 +2498,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
     }
   };
   
-  const canDelete = user.isAdmin || comment.authorId === user.id || isRoomMod;
+  const canDelete = user.isAdmin || comment.author === user.id || (firebaseUser && comment.authorId === firebaseUser.uid) || isRoomMod;
 
   return (
     <div style={{ wordWrap: 'break-word', overflowWrap: 'break-word' }}>
@@ -2708,6 +2712,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                   removeComment={removeComment}
                   dark={dark}
                   user={user}
+                  firebaseUser={firebaseUser}
                   isRoomMod={isRoomMod}
                   enterProfile={enterProfile}
                   depth={depth + 1}
