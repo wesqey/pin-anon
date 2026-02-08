@@ -229,9 +229,11 @@ export default function PinAnonBoard() {
 
   // Firebase Auth - Sign in anonymously and sync user data
   useEffect(() => {
+    console.log('=== FIREBASE AUTH INIT ===');
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         // User is signed in
+        console.log('✅ Firebase user signed in:', firebaseUser.uid);
         setFirebaseUser(firebaseUser);
         
         // Generate sync token for QR code
@@ -242,21 +244,26 @@ export default function PinAnonBoard() {
         const userRef = ref(database, `users/${firebaseUser.uid}`);
         onValue(userRef, (snapshot) => {
           const firebaseData = snapshot.val();
+          console.log('Firebase user data at users/' + firebaseUser.uid + ':', firebaseData);
           
           if (firebaseData) {
             // User data exists in Firebase, use it
+            console.log('Loading user data from Firebase');
             setUser(firebaseData);
             saveUser(firebaseData);
           } else {
             // First time with this Firebase account, save current user data
+            console.log('No Firebase data found, saving current user data');
             const currentUser = loadUser();
             if (currentUser) {
               set(userRef, currentUser);
+              console.log('Saved current user to Firebase:', currentUser);
             }
           }
         }, { onlyOnce: true });
       } else {
         // No user signed in, sign in anonymously
+        console.log('No Firebase user, signing in anonymously...');
         signInAnonymously(auth).catch((error) => {
           console.error("Error signing in anonymously:", error);
         });
@@ -497,15 +504,27 @@ export default function PinAnonBoard() {
   }
 
   function saveProfile(updatedUser) {
+    console.log('=== SAVE PROFILE START ===');
+    console.log('updatedUser:', updatedUser);
+    console.log('firebaseUser:', firebaseUser);
+    console.log('firebaseUser.uid:', firebaseUser?.uid);
+    
     setUser(updatedUser);
     saveUser(updatedUser);
     
     // Explicitly save to Firebase
     if (firebaseUser) {
       const userRef = ref(database, `users/${firebaseUser.uid}`);
-      set(userRef, updatedUser);
-      console.log('Profile saved to Firebase at:', `users/${firebaseUser.uid}`, updatedUser);
+      set(userRef, updatedUser).then(() => {
+        console.log('✅ Profile saved to Firebase successfully at:', `users/${firebaseUser.uid}`);
+        console.log('Saved data:', updatedUser);
+      }).catch((error) => {
+        console.error('❌ Failed to save profile to Firebase:', error);
+      });
+    } else {
+      console.error('❌ Cannot save profile: firebaseUser is null');
     }
+    console.log('=== SAVE PROFILE END ===');
   }
 
   function generateInviteCode() {
@@ -581,35 +600,44 @@ export default function PinAnonBoard() {
 
   async function syncFromToken(token) {
     try {
+      console.log('=== SYNC FROM TOKEN START ===');
+      console.log('Token:', token);
       const upperToken = token.toUpperCase().trim();
       const tokenRef = ref(database, `appState/syncTokens/${upperToken}`);
       
       return new Promise((resolve) => {
         onValue(tokenRef, async (snapshot) => {
           const tokenData = snapshot.val();
+          console.log('Token data from Firebase:', tokenData);
           
           if (!tokenData) {
+            console.log('❌ Token not found');
             alert("INVALID SYNC TOKEN");
             resolve(false);
             return;
           }
 
           if (tokenData.used) {
+            console.log('❌ Token already used');
             alert("SYNC TOKEN ALREADY USED");
             resolve(false);
             return;
           }
 
           if (tokenData.expiresAt < now()) {
+            console.log('❌ Token expired');
             alert("SYNC TOKEN EXPIRED");
             resolve(false);
             return;
           }
 
+          console.log('✅ Token valid! Loading user data from:', `users/${tokenData.firebaseUID}`);
+          
           // Token is valid! Load user data from Firebase
           const userRef = ref(database, `users/${tokenData.firebaseUID}`);
           onValue(userRef, (userSnapshot) => {
             const syncedUserData = userSnapshot.val();
+            console.log('Synced user data:', syncedUserData);
             
             if (syncedUserData) {
               // Mark token as used
@@ -621,9 +649,11 @@ export default function PinAnonBoard() {
               // Sync the user data
               setUser(syncedUserData);
               saveUser(syncedUserData);
+              console.log('✅ Account synced successfully!');
               alert("ACCOUNT SYNCED SUCCESSFULLY!");
               resolve(true);
             } else {
+              console.log('❌ User data not found in Firebase');
               alert("USER DATA NOT FOUND");
               resolve(false);
             }
@@ -631,7 +661,7 @@ export default function PinAnonBoard() {
         }, { onlyOnce: true });
       });
     } catch (error) {
-      console.error("Sync error:", error);
+      console.error("❌ Sync error:", error);
       alert("SYNC FAILED");
       return false;
     }
@@ -704,6 +734,11 @@ export default function PinAnonBoard() {
       return;
     }
     
+    console.log('=== POST NEW START ===');
+    console.log('user.id:', user.id);
+    console.log('firebaseUser:', firebaseUser);
+    console.log('firebaseUser.uid:', firebaseUser?.uid);
+    
     const postId = crypto.randomUUID();
     const post = {
       id: postId,
@@ -719,6 +754,11 @@ export default function PinAnonBoard() {
       voters: {},
       comments: [],
     };
+    
+    console.log('Created post with author:', post.author);
+    console.log('Created post with authorId:', post.authorId);
+    console.log('=== POST NEW END ===');
+    
     const newPosts = [post, ...(state.posts || [])];
     const updates = {};
     updates['appState/posts'] = newPosts;
