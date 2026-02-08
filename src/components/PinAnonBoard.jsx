@@ -2699,10 +2699,14 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
     const postByAuthor = allPosts.find(p => p.author === authorId);
     const firebaseUserId = postByAuthor?.authorId;
 
+    console.log('ProfilePage - authorId:', authorId);
+    console.log('ProfilePage - firebaseUserId:', firebaseUserId);
+
     if (firebaseUserId) {
       const userRef = ref(database, `users/${firebaseUserId}`);
       onValue(userRef, (snapshot) => {
         const userData = snapshot.val();
+        console.log('ProfilePage - userData from Firebase:', userData);
         if (userData) {
           setProfileData(userData);
         }
@@ -2713,10 +2717,12 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
       const usersRef = ref(database, 'users');
       onValue(usersRef, (snapshot) => {
         const users = snapshot.val();
+        console.log('ProfilePage - all users:', users);
         if (users) {
           const userData = Object.values(users).find(u => 
             u.id === authorId || u.display === authorId
           );
+          console.log('ProfilePage - found userData:', userData);
           setProfileData(userData);
         }
         setLoading(false);
@@ -2737,30 +2743,24 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
       minHeight: '100vh',
       backgroundColor: dark ? '#000' : '#fff',
       color: dark ? '#fff' : '#000',
-      fontFamily: 'Helvetica Neue, Arial, sans-serif'
+      fontFamily: 'Helvetica Neue, Arial, sans-serif',
+      padding: '40px 20px'
     }}>
-      {/* Banner */}
-      <div style={{
-        height: '200px',
-        backgroundColor: dark ? '#1a1a1a' : '#e5e5e5',
-        position: 'relative'
-      }}>
+      {/* Back Button */}
+      <div style={{ maxWidth: '1200px', margin: '0 auto', marginBottom: '40px' }}>
         <button 
           onClick={onBack}
           style={{
-            position: 'absolute',
-            top: '20px',
-            left: '20px',
             fontSize: '10px',
             letterSpacing: '0.1em',
-            background: 'rgba(0,0,0,0.5)',
-            border: 'none',
+            background: 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
             cursor: 'pointer',
-            color: '#fff',
+            color: dark ? '#fff' : '#000',
             padding: '10px 16px',
             transition: 'opacity 0.2s'
           }}
-          onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
           onMouseLeave={(e) => e.target.style.opacity = '1'}
         >
           ← BACK
@@ -2771,39 +2771,36 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
       <div style={{ 
         maxWidth: '1200px', 
         margin: '0 auto', 
-        padding: '0 40px 60px 40px',
-        marginTop: '-80px'
+        padding: '0 20px'
       }}>
         {/* Profile Image */}
         {profileData?.profileImage ? (
           <img
             src={profileData.profileImage}
             style={{
-              width: '160px',
-              height: '160px',
+              width: '120px',
+              height: '120px',
               borderRadius: '50%',
               objectFit: 'cover',
-              border: `6px solid ${dark ? '#000' : '#fff'}`,
-              marginBottom: '30px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              border: `3px solid ${dark ? '#1a1a1a' : '#e5e5e5'}`,
+              marginBottom: '20px'
             }}
             alt="profile"
           />
         ) : (
           <div style={{
-            width: '160px',
-            height: '160px',
+            width: '120px',
+            height: '120px',
             borderRadius: '50%',
             backgroundColor: dark ? '#1a1a1a' : '#e5e5e5',
-            border: `6px solid ${dark ? '#000' : '#fff'}`,
-            marginBottom: '30px',
+            border: `3px solid ${dark ? '#333' : '#ccc'}`,
+            marginBottom: '20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: '48px',
             fontWeight: '300',
-            color: dark ? '#666' : '#999',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+            color: dark ? '#666' : '#999'
           }}>
             {authorId[0].toUpperCase()}
           </div>
