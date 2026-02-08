@@ -792,63 +792,41 @@ export default function PinAnonBoard() {
     return <InviteGate onRedeem={redeemInviteCode} onSync={syncFromToken} getColor={getColor} />;
   }
 
-  // Add custom scrollbar styles
+  // Add custom scrollbar styles once
+  // Temporarily disabled for debugging
+  /*
   useEffect(() => {
     const styleId = 'custom-scrollbar-styles';
-    if (!document.getElementById(styleId)) {
-      const styleElement = document.createElement('style');
+    let styleElement = document.getElementById(styleId);
+    
+    if (!styleElement) {
+      styleElement = document.createElement('style');
       styleElement.id = styleId;
-      styleElement.textContent = `
-        /* Custom minimal scrollbar */
-        ::-webkit-scrollbar {
-          width: 8px;
-          height: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-          background: ${dark ? '#0a0a0a' : '#fafafa'};
-        }
-        
-        ::-webkit-scrollbar-thumb {
-          background: ${dark ? '#1a1a1a' : '#e5e5e5'};
-          border-radius: 0;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-          background: ${dark ? '#2a2a2a' : '#d5d5d5'};
-        }
-        
-        /* Firefox */
-        * {
-          scrollbar-width: thin;
-          scrollbar-color: ${dark ? '#1a1a1a #0a0a0a' : '#e5e5e5 #fafafa'};
-        }
-      `;
       document.head.appendChild(styleElement);
-    } else {
-      const styleElement = document.getElementById(styleId);
-      styleElement.textContent = `
-        ::-webkit-scrollbar {
-          width: 8px;
-          height: 8px;
-        }
-        ::-webkit-scrollbar-track {
-          background: ${dark ? '#0a0a0a' : '#fafafa'};
-        }
-        ::-webkit-scrollbar-thumb {
-          background: ${dark ? '#1a1a1a' : '#e5e5e5'};
-          border-radius: 0;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: ${dark ? '#2a2a2a' : '#d5d5d5'};
-        }
-        * {
-          scrollbar-width: thin;
-          scrollbar-color: ${dark ? '#1a1a1a #0a0a0a' : '#e5e5e5 #fafafa'};
-        }
-      `;
     }
+    
+    styleElement.textContent = `
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: ${dark ? '#0a0a0a' : '#fafafa'};
+      }
+      ::-webkit-scrollbar-thumb {
+        background: ${dark ? '#1a1a1a' : '#e5e5e5'};
+        border-radius: 0;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: ${dark ? '#2a2a2a' : '#d5d5d5'};
+      }
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: ${dark ? '#1a1a1a #0a0a0a' : '#e5e5e5 #fafafa'};
+      }
+    `;
   }, [dark]);
+  */
 
   return (
     <div style={{ 
@@ -1630,15 +1608,15 @@ function ProfilePicture({ authorId, author, size = 32, dark }) {
   const [profileImage, setProfileImage] = useState(null);
 
   useEffect(() => {
-    if (authorId) {
-      const userRef = ref(database, `users/${authorId}`);
-      onValue(userRef, (snapshot) => {
-        const userData = snapshot.val();
-        if (userData?.profileImage) {
-          setProfileImage(userData.profileImage);
-        }
-      }, { onlyOnce: true });
-    }
+    if (!authorId) return;
+    
+    const userRef = ref(database, `users/${authorId}`);
+    onValue(userRef, (snapshot) => {
+      const userData = snapshot.val();
+      if (userData?.profileImage) {
+        setProfileImage(userData.profileImage);
+      }
+    }, { onlyOnce: true });
   }, [authorId]);
 
   if (profileImage) {
