@@ -121,6 +121,7 @@ export default function PinAnonBoard() {
   const [inviteModal, setInviteModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("pinanon_dark") === "1";
   });
@@ -841,7 +842,7 @@ export default function PinAnonBoard() {
             <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flexWrap: 'wrap' }}>
               {!user.isAdmin ? (
                 <button
-                  onClick={handleAdminLogin}
+                  onClick={() => setShowLoginModal(true)}
                   style={{
                     fontSize: '10px',
                     letterSpacing: '0.15em',
@@ -1284,6 +1285,14 @@ export default function PinAnonBoard() {
           user={user}
           onSave={saveProfile}
           onClose={() => setShowProfileEdit(false)}
+          dark={dark}
+        />
+      )}
+      {showLoginModal && (
+        <LoginModal
+          onClose={() => setShowLoginModal(false)}
+          onAdminLogin={handleAdminLogin}
+          onSyncFromToken={syncFromToken}
           dark={dark}
         />
       )}
@@ -3421,6 +3430,224 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
             SAVE PROFILE
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
+  const [mode, setMode] = useState("sync"); // "sync" or "admin"
+  const [input, setInput] = useState("");
+  const [error, setError] = useState("");
+
+  async function handleSubmit() {
+    if (!input.trim()) {
+      setError("PLEASE ENTER A CODE");
+      return;
+    }
+
+    if (mode === "sync") {
+      const success = await onSyncFromToken(input.trim());
+      if (success) {
+        onClose();
+      } else {
+        setError("INVALID OR EXPIRED SYNC TOKEN");
+        setInput("");
+      }
+    } else {
+      if (input === "EpicMan101") {
+        onAdminLogin();
+        onClose();
+      } else {
+        setError("INCORRECT ADMIN PASSWORD");
+        setInput("");
+      }
+    }
+  }
+
+  return (
+    <div style={{ 
+      position: 'fixed', 
+      inset: 0, 
+      zIndex: 60, 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.8)',
+      padding: '20px'
+    }}>
+      <div style={{
+        maxWidth: '450px',
+        width: '100%',
+        backgroundColor: dark ? '#0a0a0a' : '#fff',
+        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+        padding: '40px 30px',
+        fontFamily: 'Helvetica Neue, Arial, sans-serif'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+          <h3 style={{ 
+            fontSize: '12px', 
+            letterSpacing: '0.15em',
+            fontWeight: '300',
+            color: dark ? '#fff' : '#000'
+          }}>
+            LOGIN
+          </h3>
+          <button 
+            onClick={onClose}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            CLOSE
+          </button>
+        </div>
+
+        {/* Tab Switcher */}
+        <div style={{
+          display: 'flex',
+          marginBottom: '25px',
+          border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+          overflow: 'hidden'
+        }}>
+          <button
+            onClick={() => {
+              setMode("sync");
+              setInput("");
+              setError("");
+            }}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px',
+              backgroundColor: mode === "sync" ? (dark ? '#fff' : '#000') : 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: mode === "sync" ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
+              transition: 'all 0.2s',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+          >
+            SYNC ACCOUNT
+          </button>
+          <button
+            onClick={() => {
+              setMode("admin");
+              setInput("");
+              setError("");
+            }}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px',
+              backgroundColor: mode === "admin" ? (dark ? '#fff' : '#000') : 'transparent',
+              border: 'none',
+              borderLeft: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: mode === "admin" ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
+              transition: 'all 0.2s',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+          >
+            ADMIN
+          </button>
+        </div>
+
+        {/* Description */}
+        <div style={{
+          fontSize: '9px',
+          letterSpacing: '0.05em',
+          color: dark ? '#888' : '#777',
+          marginBottom: '20px',
+          lineHeight: '1.6',
+          padding: '12px',
+          backgroundColor: dark ? '#0f0f0f' : '#f9f9f9',
+          border: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`
+        }}>
+          {mode === "sync" ? (
+            <>
+              <strong style={{ display: 'block', marginBottom: '5px', color: dark ? '#fff' : '#000' }}>SYNC YOUR ACCOUNT:</strong>
+              Enter a sync token generated from Settings on another device to access your existing account on this device.
+            </>
+          ) : (
+            <>
+              <strong style={{ display: 'block', marginBottom: '5px', color: dark ? '#fff' : '#000' }}>ADMIN ACCESS:</strong>
+              Enter the admin password to gain administrative privileges.
+            </>
+          )}
+        </div>
+
+        {/* Input */}
+        <input
+          type={mode === "admin" ? "password" : "text"}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setError("");
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSubmit();
+          }}
+          placeholder={mode === "sync" ? "PASTE SYNC TOKEN HERE" : "ADMIN PASSWORD"}
+          style={{
+            width: '100%',
+            fontSize: '11px',
+            letterSpacing: '0.05em',
+            padding: '14px',
+            marginBottom: '15px',
+            background: 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            outline: 'none',
+            color: dark ? '#fff' : '#000',
+            fontFamily: 'Helvetica Neue, Arial, sans-serif',
+            boxSizing: 'border-box'
+          }}
+          autoFocus
+        />
+
+        {/* Error Message */}
+        {error && (
+          <div style={{
+            fontSize: '9px',
+            letterSpacing: '0.05em',
+            color: '#ff4444',
+            marginBottom: '15px',
+            textAlign: 'center'
+          }}>
+            {error}
+          </div>
+        )}
+
+        {/* Submit Button */}
+        <button
+          onClick={handleSubmit}
+          style={{
+            width: '100%',
+            fontSize: '11px',
+            letterSpacing: '0.15em',
+            padding: '15px',
+            backgroundColor: dark ? '#fff' : '#000',
+            border: 'none',
+            cursor: 'pointer',
+            color: dark ? '#000' : '#fff',
+            transition: 'opacity 0.2s',
+            fontFamily: 'Helvetica Neue, Arial, sans-serif'
+          }}
+          onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+          onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          {mode === "sync" ? "SYNC ACCOUNT" : "LOGIN AS ADMIN"}
+        </button>
       </div>
     </div>
   );
