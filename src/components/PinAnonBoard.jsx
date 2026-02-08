@@ -1017,7 +1017,22 @@ export default function PinAnonBoard() {
             userJoinedRooms={user.joinedRooms}
           />
         ) : (
-          <>
+          <div style={{ display: 'flex', gap: '0' }}>
+            {/* User List Sidebar */}
+            <UserListSidebar
+              posts={state.posts}
+              currentRoom={room}
+              dark={dark}
+              onProfileClick={enterProfile}
+            />
+            
+            {/* Main Content */}
+            <div style={{ 
+              flex: 1, 
+              minWidth: 0,
+              paddingLeft: window.innerWidth < 1024 ? '20px' : '0',
+              paddingRight: '20px'
+            }}>
             <div style={{ 
               marginBottom: '40px', 
               fontSize: '10px', 
@@ -1057,26 +1072,34 @@ export default function PinAnonBoard() {
                     padding: layout !== 'single' ? '15px' : '0'
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
-                      <div style={{ display: 'flex', gap: '15px', alignItems: 'baseline', flexWrap: 'wrap' }}>
-                        <button
-                          onClick={() => enterProfile(post.author)}
-                          style={{
-                            fontSize: '11px',
-                            letterSpacing: '0.05em',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: dark ? '#fff' : '#000',
-                            textDecoration: 'underline',
-                            padding: 0,
-                            wordBreak: 'break-all'
-                          }}
-                        >
-                          {post.author.toUpperCase()}
-                        </button>
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <ProfilePicture 
+                          authorId={post.authorId}
+                          author={post.author}
+                          size={32}
+                          dark={dark}
+                        />
+                        <div style={{ display: 'flex', gap: '15px', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                          <button
+                            onClick={() => enterProfile(post.author)}
+                            style={{
+                              fontSize: '11px',
+                              letterSpacing: '0.05em',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: dark ? '#fff' : '#000',
+                              textDecoration: 'underline',
+                              padding: 0,
+                              wordBreak: 'break-all'
+                            }}
+                          >
+                            {post.author.toUpperCase()}
+                          </button>
+                        </div>
                         {!whisper && (
                           <div style={{ 
-                            fontSize: '9px',
+                            fontSize: '10px',
                             letterSpacing: '0.1em',
                             color: dark ? '#666' : '#999'
                           }}>
@@ -1094,7 +1117,7 @@ export default function PinAnonBoard() {
                           <button
                             onClick={() => removePost(post.id)}
                             style={{
-                              fontSize: '9px',
+                              fontSize: '10px',
                               letterSpacing: '0.1em',
                               background: 'none',
                               border: 'none',
@@ -1233,7 +1256,8 @@ export default function PinAnonBoard() {
                 ))}
               </section>
             </main>
-          </>
+            </div>
+          </div>
         )}
       </div>
 
@@ -1381,7 +1405,7 @@ function InviteGate({ onRedeem, onSync, getColor }) {
           {mode === "invite" ? "ENTER YOUR INVITE CODE TO CONTINUE" : "SYNC YOUR EXISTING ACCOUNT"}
           {mode === "sync" && (
             <div style={{
-              fontSize: '9px',
+              fontSize: '10px',
               marginTop: '15px',
               padding: '12px',
               backgroundColor: getColor('bgAlt'),
@@ -1511,7 +1535,7 @@ function InviteGate({ onRedeem, onSync, getColor }) {
 
         {mode === "sync" && (
           <div style={{
-            fontSize: '9px',
+            fontSize: '10px',
             letterSpacing: '0.05em',
             color: getColor('textDim'),
             lineHeight: '1.5',
@@ -1529,7 +1553,7 @@ function InviteGate({ onRedeem, onSync, getColor }) {
             }
           }}
           style={{
-            fontSize: '8px',
+            fontSize: '9px',
             letterSpacing: '0.1em',
             color: getColor('borderDim'),
             cursor: 'default',
@@ -1538,6 +1562,144 @@ function InviteGate({ onRedeem, onSync, getColor }) {
         >
           •
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfilePicture({ authorId, author, size = 32, dark }) {
+  const [profileImage, setProfileImage] = useState(null);
+
+  useEffect(() => {
+    if (authorId) {
+      const userRef = ref(database, `users/${authorId}`);
+      onValue(userRef, (snapshot) => {
+        const userData = snapshot.val();
+        if (userData?.profileImage) {
+          setProfileImage(userData.profileImage);
+        }
+      }, { onlyOnce: true });
+    }
+  }, [authorId]);
+
+  if (profileImage) {
+    return (
+      <img
+        src={profileImage}
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: '50%',
+          objectFit: 'cover',
+          flexShrink: 0
+        }}
+        alt=""
+      />
+    );
+  }
+
+  return (
+    <div style={{
+      width: `${size}px`,
+      height: `${size}px`,
+      borderRadius: '50%',
+      backgroundColor: dark ? '#1a1a1a' : '#e5e5e5',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: `${Math.floor(size / 2.5)}px`,
+      color: dark ? '#666' : '#999',
+      flexShrink: 0,
+      fontWeight: '300'
+    }}>
+      {author ? author[0].toUpperCase() : '?'}
+    </div>
+  );
+}
+
+function UserListSidebar({ posts, currentRoom, dark, onProfileClick }) {
+  // Get unique users who have posted in this room
+  const roomUsers = useMemo(() => {
+    const usersInRoom = new Map();
+    
+    posts.forEach(post => {
+      if (post.room === currentRoom) {
+        if (!usersInRoom.has(post.author)) {
+          usersInRoom.set(post.author, {
+            id: post.author,
+            authorId: post.authorId,
+            postCount: 1
+          });
+        } else {
+          usersInRoom.get(post.author).postCount++;
+        }
+      }
+    });
+    
+    return Array.from(usersInRoom.values()).sort((a, b) => b.postCount - a.postCount);
+  }, [posts, currentRoom]);
+
+  return (
+    <div style={{
+      width: '200px',
+      borderRight: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+      padding: '20px',
+      position: 'sticky',
+      top: '0',
+      alignSelf: 'flex-start',
+      maxHeight: '100vh',
+      overflowY: 'auto',
+      display: window.innerWidth < 1024 ? 'none' : 'block'
+    }}>
+      <div style={{
+        fontSize: '10px',
+        letterSpacing: '0.1em',
+        color: dark ? '#666' : '#999',
+        marginBottom: '20px',
+        fontWeight: '300'
+      }}>
+        USERS ({roomUsers.length})
+      </div>
+      
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {roomUsers.map(user => (
+          <button
+            key={user.id}
+            onClick={() => onProfileClick(user.id)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '8px',
+              transition: 'background 0.2s',
+              backgroundColor: 'transparent',
+              borderRadius: '4px',
+              textAlign: 'left'
+            }}
+            onMouseEnter={(e) => e.target.style.backgroundColor = dark ? '#0f0f0f' : '#f9f9f9'}
+            onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+          >
+            <ProfilePicture 
+              authorId={user.authorId}
+              author={user.id}
+              size={24}
+              dark={dark}
+            />
+            <div style={{
+              fontSize: '10px',
+              letterSpacing: '0.05em',
+              color: dark ? '#fff' : '#000',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              {user.id.toUpperCase()}
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -1669,7 +1831,7 @@ function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, u
                 <button
                   onClick={() => onEnterRoom(room.id)}
                   style={{
-                    fontSize: '9px',
+                    fontSize: '10px',
                     letterSpacing: '0.1em',
                     padding: '6px 12px',
                     background: 'none',
@@ -1766,7 +1928,7 @@ function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, u
                       </div>
                       <div style={{
                         marginTop: '12px',
-                        fontSize: '9px',
+                        fontSize: '10px',
                         letterSpacing: '0.05em',
                         color: dark ? '#666' : '#999',
                         display: 'flex',
@@ -1820,7 +1982,7 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
         }}
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentRoomName.toUpperCase()}</span>
-        <span style={{ fontSize: '8px', flexShrink: 0 }}>▼</span>
+        <span style={{ fontSize: '9px', flexShrink: 0 }}>▼</span>
       </button>
 
       {open && (
@@ -2252,7 +2414,7 @@ function NewPostModal({ onClose, onPost, dark }) {
                     position: 'absolute',
                     top: '10px',
                     right: '10px',
-                    fontSize: '9px',
+                    fontSize: '10px',
                     letterSpacing: '0.1em',
                     padding: '6px 10px',
                     backgroundColor: dark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)',
@@ -2395,7 +2557,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, fi
         </button>
         {!whisper && !open && post.comments?.length === 0 && (
           <div style={{ 
-            fontSize: '9px',
+            fontSize: '10px',
             letterSpacing: '0.1em',
             color: dark ? '#666' : '#999'
           }}>
@@ -2463,7 +2625,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, fi
               }}
               disabled={!text.trim()}
               style={{
-                fontSize: '9px',
+                fontSize: '10px',
                 letterSpacing: '0.1em',
                 padding: '8px 15px',
                 backgroundColor: text.trim() ? (dark ? '#fff' : '#000') : 'transparent',
@@ -2507,7 +2669,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
           <button
             onClick={() => setCollapsed(!collapsed)}
             style={{
-              fontSize: '9px',
+              fontSize: '10px',
               width: '16px',
               height: '16px',
               display: 'flex',
@@ -2528,7 +2690,13 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
         <div style={{ flex: 1, minWidth: 0 }}>
           {!collapsed && (
             <>
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <ProfilePicture 
+                  authorId={comment.authorId}
+                  author={comment.author}
+                  size={20}
+                  dark={dark}
+                />
                 <button
                   onClick={() => enterProfile(comment.author)}
                   style={{
@@ -2547,14 +2715,14 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                   {comment.author.toUpperCase()}
                 </button>
                 <span style={{
-                  fontSize: '9px',
+                  fontSize: '10px',
                   letterSpacing: '0.05em',
                   color: dark ? '#666' : '#999'
                 }}>
                   •
                 </span>
                 <span style={{
-                  fontSize: '9px',
+                  fontSize: '10px',
                   letterSpacing: '0.05em',
                   color: dark ? '#666' : '#999'
                 }}>
@@ -2583,7 +2751,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                 <button
                   onClick={() => setShowReplyBox(!showReplyBox)}
                   style={{
-                    fontSize: '9px',
+                    fontSize: '10px',
                     letterSpacing: '0.1em',
                     padding: '4px 8px',
                     background: 'none',
@@ -2602,7 +2770,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                   <button
                     onClick={() => removeComment(postId, comment.id)}
                     style={{
-                      fontSize: '9px',
+                      fontSize: '10px',
                       letterSpacing: '0.1em',
                       padding: '4px 8px',
                       background: 'none',
@@ -2620,7 +2788,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                 )}
                 {comment.replies?.length > 0 && (
                   <span style={{
-                    fontSize: '9px',
+                    fontSize: '10px',
                     letterSpacing: '0.05em',
                     color: dark ? '#666' : '#999'
                   }}>
@@ -2663,7 +2831,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                     onClick={handleReply}
                     disabled={!replyText.trim()}
                     style={{
-                      fontSize: '9px',
+                      fontSize: '10px',
                       letterSpacing: '0.1em',
                       padding: '6px 12px',
                       backgroundColor: replyText.trim() ? (dark ? '#fff' : '#000') : 'transparent',
@@ -2685,7 +2853,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
 
           {collapsed && (
             <div style={{
-              fontSize: '9px',
+              fontSize: '10px',
               padding: '4px 0',
               letterSpacing: '0.05em',
               color: dark ? '#666' : '#999'
@@ -2990,7 +3158,7 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts, user, firebaseUs
                     position: 'absolute',
                     top: '10px',
                     right: '10px',
-                    fontSize: '9px',
+                    fontSize: '10px',
                     letterSpacing: '0.1em',
                     padding: '6px 10px',
                     backgroundColor: dark ? 'rgba(255,0,0,0.1)' : 'rgba(255,0,0,0.05)',
@@ -3031,7 +3199,7 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts, user, firebaseUs
                 {p.text}
               </div>
               <div style={{
-                fontSize: '9px',
+                fontSize: '10px',
                 letterSpacing: '0.05em',
                 color: dark ? '#666' : '#999',
                 display: 'flex',
@@ -3239,7 +3407,7 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
         </div>
 
         <div style={{
-          fontSize: '9px',
+          fontSize: '10px',
           letterSpacing: '0.05em',
           lineHeight: '1.5',
           color: dark ? '#666' : '#999',
@@ -3329,7 +3497,7 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
               EDIT PROFILE
             </h3>
             <div style={{
-              fontSize: '9px',
+              fontSize: '10px',
               letterSpacing: '0.1em',
               color: dark ? '#666' : '#999'
             }}>
@@ -3387,7 +3555,7 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
               }}
             />
             <div style={{
-              fontSize: '9px',
+              fontSize: '10px',
               letterSpacing: '0.05em',
               color: dark ? '#666' : '#999',
               marginTop: '5px',
@@ -3638,7 +3806,7 @@ function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
 
         {/* Description */}
         <div style={{
-          fontSize: '9px',
+          fontSize: '10px',
           letterSpacing: '0.05em',
           color: dark ? '#888' : '#777',
           marginBottom: '20px',
@@ -3691,7 +3859,7 @@ function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
         {/* Error Message */}
         {error && (
           <div style={{
-            fontSize: '9px',
+            fontSize: '10px',
             letterSpacing: '0.05em',
             color: '#ff4444',
             marginBottom: '15px',
@@ -3821,7 +3989,7 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
             <div style={{ marginBottom: '15px' }}>
               <span style={{ color: dark ? '#fff' : '#000', display: 'block', marginBottom: '10px' }}>ACCOUNT SYNC</span>
               <div style={{ 
-                fontSize: '9px', 
+                fontSize: '10px', 
                 letterSpacing: '0.05em',
                 color: dark ? '#666' : '#999',
                 marginBottom: '15px',
@@ -3830,7 +3998,7 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
                 Sync your account across multiple devices using a one-time token.
               </div>
               <div style={{ 
-                fontSize: '9px', 
+                fontSize: '10px', 
                 letterSpacing: '0.05em',
                 color: dark ? '#888' : '#777',
                 marginBottom: '15px',
@@ -3867,7 +4035,7 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
               {showSyncCopied ? 'COPIED!' : 'GENERATE SYNC TOKEN'}
             </button>
             <div style={{ 
-              fontSize: '8px', 
+              fontSize: '9px', 
               letterSpacing: '0.05em',
               color: dark ? '#666' : '#999',
               lineHeight: '1.4',
@@ -3876,7 +4044,7 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
               ⚠️ Tokens expire in 24 hours and can only be used once. Treat them like passwords.
             </div>
             <div style={{ 
-              fontSize: '8px', 
+              fontSize: '9px', 
               letterSpacing: '0.05em',
               color: dark ? '#888' : '#777',
               lineHeight: '1.4',
