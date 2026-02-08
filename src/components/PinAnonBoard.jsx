@@ -90,10 +90,8 @@ export default function PinAnonBoard() {
     }
     const newUser = { 
       id: genAnonId(7), 
-      display: null,
       bio: null,
       profileImage: null,
-      bannerColor: null,
       isAdmin: false,
       hasAccess: false, // Whether they've used an invite code
       inviteCodesRemaining: 0, // How many invites they can give out
@@ -377,8 +375,8 @@ export default function PinAnonBoard() {
     const post = state.posts[postIndex];
     const newComment = {
       id: uid("c"),
-      author: user.display || user.id,
-      authorId: user.id, // Track comment creator
+      author: user.id, // Always use user.id
+      authorId: firebaseUser ? firebaseUser.uid : user.id, // Firebase UID for profile lookup
       text,
       created: now(),
       parentId,
@@ -641,7 +639,8 @@ export default function PinAnonBoard() {
 
   function generateSyncToken() {
     if (!firebaseUser) {
-      alert("PLEASE WAIT, LOADING...");
+      alert("ACCOUNT NOT READY YET. PLEASE WAIT A MOMENT AND TRY AGAIN.");
+      console.log('generateSyncToken: firebaseUser not ready yet');
       return null;
     }
 
@@ -659,6 +658,7 @@ export default function PinAnonBoard() {
     updates[`appState/syncTokens/${token}`] = tokenData;
     update(ref(database), updates);
 
+    console.log('Generated sync token:', token, 'for UID:', firebaseUser.uid);
     return token;
   }
 
@@ -707,7 +707,7 @@ export default function PinAnonBoard() {
     const postId = crypto.randomUUID();
     const post = {
       id: postId,
-      author: user.display || user.id,
+      author: user.id, // Always use user.id
       authorId: firebaseUser ? firebaseUser.uid : user.id, // Store Firebase UID for profile lookup
       text,
       image,
@@ -2720,15 +2720,13 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts }) {
         setLoading(false);
       }, { onlyOnce: true });
     } else {
-      // Fallback: search all users
+      // Fallback: search all users by id
       const usersRef = ref(database, 'users');
       onValue(usersRef, (snapshot) => {
         const users = snapshot.val();
         console.log('ProfilePage - all users:', users);
         if (users) {
-          const userData = Object.values(users).find(u => 
-            u.id === authorId || u.display === authorId
-          );
+          const userData = Object.values(users).find(u => u.id === authorId);
           console.log('ProfilePage - found userData:', userData);
           setProfileData(userData);
         }
