@@ -792,6 +792,64 @@ export default function PinAnonBoard() {
     return <InviteGate onRedeem={redeemInviteCode} onSync={syncFromToken} getColor={getColor} />;
   }
 
+  // Add custom scrollbar styles
+  useEffect(() => {
+    const styleId = 'custom-scrollbar-styles';
+    if (!document.getElementById(styleId)) {
+      const styleElement = document.createElement('style');
+      styleElement.id = styleId;
+      styleElement.textContent = `
+        /* Custom minimal scrollbar */
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+          background: ${dark ? '#0a0a0a' : '#fafafa'};
+        }
+        
+        ::-webkit-scrollbar-thumb {
+          background: ${dark ? '#1a1a1a' : '#e5e5e5'};
+          border-radius: 0;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+          background: ${dark ? '#2a2a2a' : '#d5d5d5'};
+        }
+        
+        /* Firefox */
+        * {
+          scrollbar-width: thin;
+          scrollbar-color: ${dark ? '#1a1a1a #0a0a0a' : '#e5e5e5 #fafafa'};
+        }
+      `;
+      document.head.appendChild(styleElement);
+    } else {
+      const styleElement = document.getElementById(styleId);
+      styleElement.textContent = `
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+          background: ${dark ? '#0a0a0a' : '#fafafa'};
+        }
+        ::-webkit-scrollbar-thumb {
+          background: ${dark ? '#1a1a1a' : '#e5e5e5'};
+          border-radius: 0;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: ${dark ? '#2a2a2a' : '#d5d5d5'};
+        }
+        * {
+          scrollbar-width: thin;
+          scrollbar-color: ${dark ? '#1a1a1a #0a0a0a' : '#e5e5e5 #fafafa'};
+        }
+      `;
+    }
+  }, [dark]);
+
   return (
     <div style={{ 
       minHeight: '100vh',
@@ -1023,6 +1081,7 @@ export default function PinAnonBoard() {
               posts={state.posts}
               currentRoom={room}
               dark={dark}
+              windowWidth={windowWidth}
               onProfileClick={enterProfile}
             />
             
@@ -1030,19 +1089,19 @@ export default function PinAnonBoard() {
             <div style={{ 
               flex: 1, 
               minWidth: 0,
-              paddingLeft: window.innerWidth < 1024 ? '20px' : '0',
+              paddingLeft: windowWidth < 1024 ? '20px' : '0',
               paddingRight: '20px'
             }}>
-            <div style={{ 
-              marginBottom: '40px', 
-              fontSize: '10px', 
-              letterSpacing: '0.15em',
-              color: dark ? '#999' : '#666'
-            }}>
-              {visible.length} POST{visible.length !== 1 ? 'S' : ''} IN {currentRoomName.toUpperCase()}
-            </div>
+              <div style={{ 
+                marginBottom: '40px', 
+                fontSize: '10px', 
+                letterSpacing: '0.15em',
+                color: dark ? '#999' : '#666'
+              }}>
+                {visible.length} POST{visible.length !== 1 ? 'S' : ''} IN {currentRoomName.toUpperCase()}
+              </div>
 
-            <main>
+              <main>
               <section style={{ 
                 display: 'grid',
                 gridTemplateColumns: getGridColumns(),
@@ -1316,7 +1375,7 @@ export default function PinAnonBoard() {
           dark={dark}
         />
       )}
-    </div>
+      </div>
   );
 }
 
@@ -1617,7 +1676,9 @@ function ProfilePicture({ authorId, author, size = 32, dark }) {
   );
 }
 
-function UserListSidebar({ posts, currentRoom, dark, onProfileClick }) {
+function UserListSidebar({ posts, currentRoom, dark, onProfileClick, windowWidth }) {
+  const [collapsed, setCollapsed] = useState(false);
+  
   // Get unique users who have posted in this room
   const roomUsers = useMemo(() => {
     const usersInRoom = new Map();
@@ -1649,19 +1710,36 @@ function UserListSidebar({ posts, currentRoom, dark, onProfileClick }) {
       alignSelf: 'flex-start',
       maxHeight: '100vh',
       overflowY: 'auto',
-      display: window.innerWidth < 1024 ? 'none' : 'block'
+      display: windowWidth < 1024 ? 'none' : 'block'
     }}>
-      <div style={{
-        fontSize: '10px',
-        letterSpacing: '0.1em',
-        color: dark ? '#666' : '#999',
-        marginBottom: '20px',
-        fontWeight: '300'
-      }}>
-        USERS ({roomUsers.length})
-      </div>
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        style={{
+          fontSize: '10px',
+          letterSpacing: '0.1em',
+          color: dark ? '#666' : '#999',
+          marginBottom: collapsed ? '0' : '20px',
+          fontWeight: '300',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: '8px',
+          width: '100%',
+          textAlign: 'left',
+          transition: 'opacity 0.2s',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}
+        onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+        onMouseLeave={(e) => e.target.style.opacity = '1'}
+      >
+        <span>USERS ({roomUsers.length})</span>
+        <span style={{ fontSize: '12px' }}>{collapsed ? '+' : '−'}</span>
+      </button>
       
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {!collapsed && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {roomUsers.map(user => (
           <button
             key={user.id}
@@ -1700,7 +1778,8 @@ function UserListSidebar({ posts, currentRoom, dark, onProfileClick }) {
             </div>
           </button>
         ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
