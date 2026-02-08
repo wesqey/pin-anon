@@ -2743,35 +2743,30 @@ function ProfileModal({ authorId, posts, onClose, dark, allPosts }) {
         border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
         maxHeight: '80vh',
         overflow: 'auto',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
+        fontFamily: 'Helvetica Neue, Arial, sans-serif',
+        position: 'relative'
       }}>
-        {/* Banner */}
-        <div style={{
-          height: '120px',
-          backgroundColor: dark ? '#1a1a1a' : '#e5e5e5',
-          position: 'relative'
-        }}>
-          <button 
-            onClick={onClose}
-            style={{
-              position: 'absolute',
-              top: '15px',
-              right: '15px',
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'rgba(0,0,0,0.5)',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#fff',
-              padding: '8px 12px',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
-          </button>
-        </div>
+        <button 
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            top: '15px',
+            right: '15px',
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            background: 'rgba(0,0,0,0.5)',
+            border: 'none',
+            cursor: 'pointer',
+            color: '#fff',
+            padding: '8px 12px',
+            transition: 'opacity 0.2s',
+            zIndex: 10
+          }}
+          onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+          onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          CLOSE
+        </button>
 
         {/* Profile Section */}
         <div style={{ padding: '0 40px 40px 40px', marginTop: '-40px' }}>
