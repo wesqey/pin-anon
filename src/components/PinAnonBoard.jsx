@@ -3255,14 +3255,24 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px' }}>
-          <h3 style={{ 
-            fontSize: '12px', 
-            letterSpacing: '0.15em',
-            fontWeight: '300',
-            color: dark ? '#fff' : '#000'
-          }}>
-            EDIT PROFILE
-          </h3>
+          <div>
+            <h3 style={{ 
+              fontSize: '12px', 
+              letterSpacing: '0.15em',
+              fontWeight: '300',
+              color: dark ? '#fff' : '#000',
+              marginBottom: '5px'
+            }}>
+              EDIT PROFILE
+            </h3>
+            <div style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              color: dark ? '#666' : '#999'
+            }}>
+              USERNAME: {user.id.toUpperCase()}
+            </div>
+          </div>
           <button 
             onClick={onClose}
             style={{
@@ -3805,9 +3815,21 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
               fontSize: '8px', 
               letterSpacing: '0.05em',
               color: dark ? '#666' : '#999',
-              lineHeight: '1.4'
+              lineHeight: '1.4',
+              marginBottom: '10px'
             }}>
               ⚠️ Tokens expire in 24 hours and can only be used once. Treat them like passwords.
+            </div>
+            <div style={{ 
+              fontSize: '8px', 
+              letterSpacing: '0.05em',
+              color: dark ? '#888' : '#777',
+              lineHeight: '1.4',
+              padding: '8px',
+              backgroundColor: dark ? '#0f0f0f' : '#f9f9f9',
+              border: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`
+            }}>
+              ℹ️ Profile changes sync live across all devices. Refresh the page on other devices to see updates immediately.
             </div>
           </div>
 
