@@ -335,13 +335,33 @@ export default function PinAnonBoard() {
 
   // Logout user
   function logoutUser() {
+    // Clear all localStorage
     localStorage.removeItem(LS_USER);
     localStorage.removeItem("pinanon_layout");
     localStorage.removeItem("pinanon_view");
     localStorage.removeItem("pinanon_room");
     localStorage.removeItem("pinanon_dark");
     localStorage.removeItem("pinanon_theme");
-    window.location.reload();
+    
+    // Create a fresh user object without access (shows invite gate)
+    const newUser = { 
+      id: genAnonId(7),
+      displayName: null,
+      password: null,
+      bio: null,
+      profileImage: null,
+      isAdmin: false,
+      hasAccess: false, // This triggers the invite gate
+      inviteCodesRemaining: 0,
+      inviteCodesCreated: [],
+      createdRooms: [],
+      createdPosts: [],
+      joinedRooms: [DEFAULT_ROOM],
+      needsPasswordSetup: false
+    };
+    
+    setUser(newUser);
+    localStorage.setItem(LS_USER, JSON.stringify(newUser));
   }
 
   // Setup password for existing user (migration)
@@ -855,123 +875,11 @@ export default function PinAnonBoard() {
     return true;
   }
 
-  async function syncFromToken(token) {
-    try {
-      const upperToken = token.toUpperCase().trim();
-      const tokenRef = ref(database, `appState/syncTokens/${upperToken}`);
-      
-      return new Promise((resolve) => {
-        onValue(tokenRef, async (snapshot) => {
-          const tokenData = snapshot.val();
-          
-          if (!tokenData) {
-            alert("INVALID SYNC TOKEN");
-            resolve(false);
-            return;
-          }
-
-          if (tokenData.used) {
-            alert("SYNC TOKEN ALREADY USED");
-            resolve(false);
-            return;
-          }
-
-          if (tokenData.expiresAt < now()) {
-            alert("SYNC TOKEN EXPIRED");
-            resolve(false);
-            return;
-          }
-
-          
-          // Token is valid! Load user data from Firebase
-          const userRef = ref(database, `users/${tokenData.firebaseUID}`);
-          onValue(userRef, async (userSnapshot) => {
-            const syncedUserData = userSnapshot.val();
-            
-            if (syncedUserData) {
-              // Mark token as used
-              const updates = {};
-              updates[`appState/syncTokens/${upperToken}/used`] = true;
-              updates[`appState/syncTokens/${upperToken}/usedAt`] = now();
-              update(ref(database), updates);
-
-              // Sync the user data to localStorage
-              setUser(syncedUserData);
-              saveUser(syncedUserData);
-              
-              // IMPORTANT: Copy profile picture to current device's Firebase entry
-              if (firebaseUser && syncedUserData.profileImage) {
-                const currentDeviceRef = ref(database, `users/${firebaseUser.uid}`);
-                await set(currentDeviceRef, syncedUserData);
-                console.log('✅ Profile picture synced to current device');
-              }
-              
-              alert("ACCOUNT SYNCED SUCCESSFULLY!");
-              resolve(true);
-            } else {
-              alert("USER DATA NOT FOUND");
-              resolve(false);
-            }
-          }, { onlyOnce: true });
-        }, { onlyOnce: true });
-      });
-    } catch (error) {
-      console.error("❌ Sync error:", error);
-      alert("SYNC FAILED");
-      return false;
-    }
-  }
-
-  function generateSyncToken() {
-    if (!firebaseUser) {
-      alert("ACCOUNT NOT READY YET. PLEASE WAIT A MOMENT AND TRY AGAIN.");
-      return null;
-    }
-
-    const token = genAnonId(8).toUpperCase();
-    const expiresAt = now() + (24 * 60 * 60 * 1000); // 24 hours
-
-    const tokenData = {
-      firebaseUID: firebaseUser.uid,
-      used: false,
-      created: now(),
-      expiresAt: expiresAt
-    };
-
-    const updates = {};
-    updates[`appState/syncTokens/${token}`] = tokenData;
-    update(ref(database), updates);
-
-    return token;
-  }
-
   async function handleLogout() {
-    const confirmed = confirm(
-      "⚠️ WARNING: LOGGING OUT WILL SIGN YOU OUT OF YOUR ACCOUNT.\n\n" +
-      "You will need a SYNC TOKEN to log back in on this device.\n\n" +
-      "Make sure you have generated and saved a sync token before logging out!\n\n" +
-      "Continue with logout?"
-    );
-    
-    if (!confirmed) return;
-    
-    try {
-      // Sign out from Firebase
-      await signOut(auth);
-      
-      // Clear localStorage
-      localStorage.removeItem(LS_USER);
-      localStorage.removeItem("pinanon_view");
-      localStorage.removeItem("pinanon_room");
-      localStorage.removeItem("pinanon_layout");
-      
-      // Reload page to reset state
-      window.location.reload();
-    } catch (error) {
-      console.error("Logout error:", error);
-      alert("LOGOUT FAILED. PLEASE TRY AGAIN.");
-    }
+    // Just trigger the logout confirmation modal
+    setShowLogoutConfirm(true);
   }
+
 
   function handleAdminLogout() {
     setUser((prev) => {
@@ -1094,7 +1002,7 @@ export default function PinAnonBoard() {
 
   // Invite gate - show if user doesn't have access
   if (!user.hasAccess && !user.isAdmin) {
-    return <InviteGate onRedeem={redeemInviteCode} onSync={syncFromToken} getColor={getColor} />;
+    return <InviteGate onRedeem={redeemInviteCode} onLogin={loginUser} getColor={getColor} />;
   }
 
   // Add custom scrollbar styles once
@@ -1724,28 +1632,29 @@ export default function PinAnonBoard() {
 
 // ---------- UI Subcomponents ----------
 
-function InviteGate({ onRedeem, onSync, getColor }) {
-  const [code, setCode] = useState("");
+function InviteGate({ onRedeem, onLogin, getColor }) {
+  const [input, setInput] = useState("");
   const [error, setError] = useState("");
-  const [mode, setMode] = useState("invite"); // "invite" or "sync"
+  const [mode, setMode] = useState("invite"); // "invite" or "login"
 
-  const handleSubmit = () => {
-    if (!code.trim()) {
-      setError("PLEASE ENTER A CODE");
+  const handleSubmit = async () => {
+    if (!input.trim()) {
+      setError("PLEASE ENTER " + (mode === "invite" ? "A CODE" : "YOUR PASSWORD"));
       return;
     }
     
     if (mode === "invite") {
-      const success = onRedeem(code);
+      const success = onRedeem(input);
       if (!success) {
         setError("INVALID OR USED CODE");
-        setCode("");
+        setInput("");
       }
     } else {
-      const success = onSync(code);
+      // Login with password
+      const success = await onLogin(input);
       if (!success) {
-        setError("INVALID SYNC CODE");
-        setCode("");
+        setError("INCORRECT PASSWORD");
+        setInput("");
       }
     }
   };
@@ -1802,25 +1711,20 @@ function InviteGate({ onRedeem, onSync, getColor }) {
           marginBottom: '30px',
           lineHeight: '1.6'
         }}>
-          THIS IS AN INVITE-ONLY COMMUNITY
-          <br />
-          {mode === "invite" ? "ENTER YOUR INVITE CODE TO CONTINUE" : "SYNC YOUR EXISTING ACCOUNT"}
-          {mode === "sync" && (
-            <div style={{
-              fontSize: '10px',
-              marginTop: '15px',
-              padding: '12px',
-              backgroundColor: getColor('bgAlt'),
-              border: `1px solid ${getColor('borderDim')}`,
-              lineHeight: '1.5',
-              textAlign: 'left'
-            }}>
-              <strong style={{ display: 'block', marginBottom: '8px' }}>HOW TO GET A SYNC TOKEN:</strong>
-              1. Open PIN-ANON on your other device<br/>
-              2. Go to Settings (⚙️)<br/>
-              3. Under "Account Sync", click "Generate Sync Token"<br/>
-              4. Copy the token and paste it here
-            </div>
+          {mode === "invite" ? (
+            <>
+              THIS IS AN INVITE-ONLY COMMUNITY
+              <br />
+              ENTER YOUR INVITE CODE TO CONTINUE
+            </>
+          ) : (
+            <>
+              ENTER YOUR PASSWORD TO LOGIN
+              <br />
+              <span style={{ fontSize: '10px', marginTop: '10px', display: 'block' }}>
+                Your password is the only way to access your account
+              </span>
+            </>
           )}
         </div>
 
@@ -1834,7 +1738,7 @@ function InviteGate({ onRedeem, onSync, getColor }) {
           <button
             onClick={() => {
               setMode("invite");
-              setCode("");
+              setInput("");
               setError("");
             }}
             style={{
@@ -1854,8 +1758,8 @@ function InviteGate({ onRedeem, onSync, getColor }) {
           </button>
           <button
             onClick={() => {
-              setMode("sync");
-              setCode("");
+              setMode("login");
+              setInput("");
               setError("");
             }}
             style={{
@@ -1863,33 +1767,35 @@ function InviteGate({ onRedeem, onSync, getColor }) {
               fontSize: '10px',
               letterSpacing: '0.1em',
               padding: '12px',
-              backgroundColor: mode === "sync" ? getColor('text') : 'transparent',
+              backgroundColor: mode === "login" ? getColor('text') : 'transparent',
               border: 'none',
               borderLeft: `1px solid ${getColor('border')}`,
               cursor: 'pointer',
-              color: mode === "sync" ? getColor('bg') : getColor('textMuted'),
+              color: mode === "login" ? getColor('bg') : getColor('textMuted'),
               transition: 'all 0.2s',
               fontFamily: 'Helvetica Neue, Arial, sans-serif'
             }}
           >
-            SYNC ACCOUNT
+            LOGIN
           </button>
         </div>
 
         <input
-          value={code}
+          type={mode === "login" ? "password" : "text"}
+          value={input}
           onChange={(e) => {
-            setCode(mode === "invite" ? e.target.value.toUpperCase() : e.target.value);
+            setInput(mode === "invite" ? e.target.value.toUpperCase() : e.target.value);
             setError("");
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') handleSubmit();
           }}
-          placeholder={mode === "invite" ? "INVITE CODE" : "SYNC CODE"}
+          placeholder={mode === "invite" ? "INVITE CODE" : "PASSWORD"}
+          autoFocus
           style={{
             width: '100%',
-            fontSize: mode === "sync" ? '11px' : '14px',
-            letterSpacing: mode === "sync" ? '0.05em' : '0.2em',
+            fontSize: mode === "login" ? '16px' : '14px',
+            letterSpacing: mode === "login" ? '0.05em' : '0.2em',
             padding: '15px',
             marginBottom: '20px',
             background: 'none',
@@ -1932,20 +1838,8 @@ function InviteGate({ onRedeem, onSync, getColor }) {
           onMouseEnter={(e) => e.target.style.opacity = '0.8'}
           onMouseLeave={(e) => e.target.style.opacity = '1'}
         >
-          {mode === "invite" ? "ENTER" : "SYNC ACCOUNT"}
+          {mode === "invite" ? "ENTER" : "LOGIN"}
         </button>
-
-        {mode === "sync" && (
-          <div style={{
-            fontSize: '10px',
-            letterSpacing: '0.05em',
-            color: getColor('textDim'),
-            lineHeight: '1.5',
-            marginBottom: '20px'
-          }}>
-            Find your sync code in Settings → Account Sync
-          </div>
-        )}
 
         {/* Hidden admin login - triple click to reveal */}
         <div 
@@ -4579,6 +4473,7 @@ function LoginModal({ onClose, onAdminLogin, onSignUp, onLogin, dark }) {
     </div>
   );
 }
+
 
 function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onLogout }) {
   const [showCopied, setShowCopied] = useState(false);
