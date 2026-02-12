@@ -115,6 +115,7 @@ export default function PinAnonBoard() {
   });
   const [showNew, setShowNew] = useState(false);
   const [profileView, setProfileView] = useState(null);
+  const [previousView, setPreviousView] = useState("home"); // Track where user came from
   const [sort, setSort] = useState("newest");
   const [whisper, setWhisper] = useState(false);
   const [search, setSearch] = useState("");
@@ -456,6 +457,7 @@ export default function PinAnonBoard() {
   }
 
   function enterProfile(authorId) {
+    setPreviousView(view); // Save current view before switching
     setProfileView(authorId);
     setView("profile");
   }
@@ -946,7 +948,7 @@ export default function PinAnonBoard() {
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="SEARCH"
                 style={{
-                  fontSize: '10px',
+                  fontSize: '16px',
                   letterSpacing: '0.15em',
                   padding: '8px 0',
                   background: 'none',
@@ -1033,7 +1035,7 @@ export default function PinAnonBoard() {
             firebaseUser={firebaseUser}
             onBack={() => {
               setProfileView(null);
-              setView("home");
+              setView(previousView); // Return to previous view instead of always home
             }}
             onEditProfile={() => setShowProfileEdit(true)}
             onDeletePost={removePost}
@@ -2352,7 +2354,7 @@ function NewPostModal({ onClose, onPost, dark }) {
               height: '120px',
               padding: '15px',
               marginBottom: '20px',
-              fontSize: '12px',
+              fontSize: '16px',
               letterSpacing: '0.05em',
               fontWeight: '300',
               lineHeight: '1.6',
@@ -2663,7 +2665,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, fi
               style={{
                 flex: 1,
                 minWidth: '200px',
-                fontSize: '10px',
+                fontSize: '16px',
                 letterSpacing: '0.05em',
                 padding: '8px 0',
                 background: 'none',
@@ -2874,7 +2876,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                     style={{
                       flex: 1,
                       minWidth: '200px',
-                      fontSize: '10px',
+                      fontSize: '16px',
                       letterSpacing: '0.05em',
                       padding: '8px 0',
                       background: 'none',
@@ -3599,7 +3601,7 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
               style={{
                 width: '100%',
                 height: '80px',
-                fontSize: '11px',
+                fontSize: '16px',
                 letterSpacing: '0.05em',
                 padding: '12px',
                 background: 'none',
