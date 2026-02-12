@@ -12,7 +12,8 @@ import {
 import {
   getAuth,
   signInAnonymously,
-  onAuthStateChanged
+  onAuthStateChanged,
+  signOut
 } from "firebase/auth";
 
 // ---------- Firebase Config ----------
@@ -77,6 +78,7 @@ export default function PinAnonBoard() {
   const [loading, setLoading] = useState(true);
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [syncToken, setSyncToken] = useState(null);
+  const [legacyUserId, setLegacyUserId] = useState(null); // Store old localStorage ID for backwards compat
   const [user, setUser] = useState(() => {
     const existing = loadUser();
     if (existing?.id) {
@@ -89,7 +91,9 @@ export default function PinAnonBoard() {
       return existing;
     }
     const newUser = { 
-      id: genAnonId(7), 
+      id: genAnonId(7), // Will become Firebase UID after setting password
+      displayName: null, // Username shown to others (never changes)
+      password: null, // Hashed password (only way to access account)
       bio: null,
       profileImage: null,
       isAdmin: false,
@@ -98,7 +102,8 @@ export default function PinAnonBoard() {
       inviteCodesCreated: [], // Codes they've created
       createdRooms: [], // Track rooms this user created
       createdPosts: [], // Track posts this user created
-      joinedRooms: [DEFAULT_ROOM] // Track rooms user has joined
+      joinedRooms: [DEFAULT_ROOM], // Track rooms user has joined
+      needsPasswordSetup: false // For migrating existing users
     };
     localStorage.setItem(LS_USER, JSON.stringify(newUser));
     return newUser;
@@ -123,6 +128,10 @@ export default function PinAnonBoard() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showPasswordSetup, setShowPasswordSetup] = useState(false);
+  const [showPasswordBanner, setShowPasswordBanner] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("pinanon_dark") === "1";
   });
@@ -195,6 +204,225 @@ export default function PinAnonBoard() {
     return currentTheme[colorKey]?.[mode] || '#000';
   };
 
+  // Simple password hashing (using Web Crypto API)
+  async function hashPassword(password) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hash))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  // Create new account with password only (fully anonymous)
+  async function signUpUser(password, inviteCode) {
+    try {
+      const upperCode = inviteCode.toUpperCase().trim();
+      
+      // Hash password first
+      const hashedPassword = await hashPassword(password);
+      
+      // Check if this password is already in use
+      const passwordsRef = ref(database, 'passwordHashes');
+      const passwordsSnapshot = await new Promise((resolve) => {
+        onValue(passwordsRef, resolve, { onlyOnce: true });
+      });
+      
+      const existingPasswords = passwordsSnapshot.val() || {};
+      if (existingPasswords[hashedPassword]) {
+        alert("THIS PASSWORD IS ALREADY IN USE\nPlease choose a different password or login if this is your account.");
+        return false;
+      }
+      
+      // Verify invite code
+      const inviteRef = ref(database, `appState/inviteCodes/${upperCode}`);
+      const inviteSnapshot = await new Promise((resolve) => {
+        onValue(inviteRef, resolve, { onlyOnce: true });
+      });
+      
+      const inviteData = inviteSnapshot.val();
+      if (!inviteData || inviteData.used) {
+        alert("INVALID OR USED INVITE CODE");
+        return false;
+      }
+      
+      // Sign in anonymously to Firebase to get a UID
+      const userCredential = await signInAnonymously(auth);
+      const firebaseUID = userCredential.user.uid;
+      
+      // Create new user
+      const displayName = genAnonId(7).toUpperCase(); // Generate permanent display name
+      const newUser = {
+        id: firebaseUID,
+        displayName: displayName, // This never changes!
+        password: hashedPassword,
+        bio: null,
+        profileImage: null,
+        isAdmin: false,
+        hasAccess: true,
+        inviteCodesRemaining: 3,
+        inviteCodesCreated: [],
+        createdRooms: [],
+        createdPosts: [],
+        joinedRooms: [DEFAULT_ROOM],
+        createdAt: now()
+      };
+      
+      // Save to Firebase
+      const updates = {};
+      updates[`users/${firebaseUID}`] = newUser;
+      updates[`passwordHashes/${hashedPassword}`] = firebaseUID; // Map password hash to UID
+      updates[`appState/inviteCodes/${upperCode}/used`] = true;
+      updates[`appState/inviteCodes/${upperCode}/usedBy`] = firebaseUID;
+      updates[`appState/inviteCodes/${upperCode}/usedAt`] = now();
+      
+      await update(ref(database), updates);
+      
+      // Set local state
+      setUser(newUser);
+      saveUser(newUser);
+      
+      alert("ACCOUNT CREATED SUCCESSFULLY!\n\nREMEMBER YOUR PASSWORD - it's the only way to access your account on other devices.");
+      return true;
+    } catch (error) {
+      console.error("Signup error:", error);
+      alert("SIGNUP FAILED");
+      return false;
+    }
+  }
+
+  // Login with password only
+  async function loginUser(password) {
+    try {
+      const hashedPassword = await hashPassword(password);
+      
+      // Get Firebase UID from password hash
+      const passwordRef = ref(database, `passwordHashes/${hashedPassword}`);
+      const passwordSnapshot = await new Promise((resolve) => {
+        onValue(passwordRef, resolve, { onlyOnce: true });
+      });
+      
+      const firebaseUID = passwordSnapshot.val();
+      if (!firebaseUID) {
+        alert("INCORRECT PASSWORD");
+        return false;
+      }
+      
+      // Get user data
+      const userRef = ref(database, `users/${firebaseUID}`);
+      const userSnapshot = await new Promise((resolve) => {
+        onValue(userRef, resolve, { onlyOnce: true });
+      });
+      
+      const userData = userSnapshot.val();
+      if (!userData) {
+        alert("USER DATA NOT FOUND");
+        return false;
+      }
+      
+      // Set local state
+      setUser(userData);
+      saveUser(userData);
+      
+      alert("LOGGED IN SUCCESSFULLY!");
+      return true;
+    } catch (error) {
+      console.error("Login error:", error);
+      alert("LOGIN FAILED");
+      return false;
+    }
+  }
+
+  // Logout user
+  function logoutUser() {
+    localStorage.removeItem(LS_USER);
+    localStorage.removeItem("pinanon_layout");
+    localStorage.removeItem("pinanon_view");
+    localStorage.removeItem("pinanon_room");
+    localStorage.removeItem("pinanon_dark");
+    localStorage.removeItem("pinanon_theme");
+    window.location.reload();
+  }
+
+  // Setup password for existing user (migration)
+  async function setupPassword(password) {
+    try {
+      if (password.length < 6) {
+        alert("PASSWORD MUST BE AT LEAST 6 CHARACTERS");
+        return false;
+      }
+
+      const hashedPassword = await hashPassword(password);
+      
+      // Check if password is already in use
+      const passwordRef = ref(database, `passwordHashes/${hashedPassword}`);
+      const passwordSnapshot = await new Promise((resolve) => {
+        onValue(passwordRef, resolve, { onlyOnce: true });
+      });
+      
+      if (passwordSnapshot.val()) {
+        alert("THIS PASSWORD IS ALREADY IN USE\nPlease choose a different password.");
+        return false;
+      }
+
+      // CRITICAL: Save current ID as permanent displayName before changing ID
+      const displayName = user.displayName || user.id.toUpperCase();
+      
+      // Update user object
+      const updatedUser = {
+        ...user,
+        id: firebaseUser.uid,  // Change to Firebase UID
+        displayName: displayName,  // Preserve original display name!
+        password: hashedPassword
+      };
+      
+      // Save to localStorage
+      setUser(updatedUser);
+      saveUser(updatedUser);
+      
+      // Save to Firebase
+      const updates = {};
+      updates[`users/${firebaseUser.uid}`] = updatedUser;
+      updates[`passwordHashes/${hashedPassword}`] = firebaseUser.uid;
+      
+      await update(ref(database), updates);
+      
+      alert("PASSWORD SET SUCCESSFULLY!\n\nYou can now login from any device with this password.\n\nYour display name will always be: " + displayName);
+      return true;
+    } catch (error) {
+      console.error("Setup password error:", error);
+      alert("PASSWORD SETUP FAILED");
+      return false;
+    }
+  }
+
+  // Submit a report
+  async function submitReport(type, targetId, reason, details) {
+    try {
+      const reportId = genAnonId(12);
+      const reportData = {
+        id: reportId,
+        type, // "post", "comment", or "user"
+        targetId,
+        reason,
+        details,
+        reportedBy: user.id,
+        reportedAt: now(),
+        status: "pending" // "pending", "reviewed", "dismissed"
+      };
+      
+      const reportRef = ref(database, `appState/reports/${reportId}`);
+      await set(reportRef, reportData);
+      
+      alert("REPORT SUBMITTED");
+      return true;
+    } catch (error) {
+      console.error("Report error:", error);
+      alert("REPORT FAILED");
+      return false;
+    }
+  }
+
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
@@ -247,13 +475,32 @@ export default function PinAnonBoard() {
           
           if (firebaseData) {
             // User data exists in Firebase, use it
+            // Store legacy ID if it exists for backwards compatibility
+            if (firebaseData.legacyUserId) {
+              setLegacyUserId(firebaseData.legacyUserId);
+            }
             setUser(firebaseData);
             saveUser(firebaseData);
           } else {
-            // First time with this Firebase account, save current user data
+            // First time with this Firebase account, migrate localStorage user to Firebase
             const currentUser = loadUser();
             if (currentUser) {
-              set(userRef, currentUser);
+              // Save old localStorage ID for backwards compatibility
+              const oldId = currentUser.id;
+              setLegacyUserId(oldId);
+              
+              // Migrate to Firebase UID as primary ID
+              const migratedUser = {
+                ...currentUser,
+                id: firebaseUser.uid, // Firebase UID is now primary
+                legacyUserId: oldId   // Keep old ID for finding old posts
+              };
+              
+              setUser(migratedUser);
+              saveUser(migratedUser);
+              set(userRef, migratedUser);
+              
+              console.log(`✅ Migrated user from ${oldId} to ${firebaseUser.uid}`);
             }
           }
         }, { onlyOnce: true });
@@ -299,6 +546,16 @@ export default function PinAnonBoard() {
   useEffect(() => {
     localStorage.setItem("pinanon_room", room);
   }, [room]);
+
+  // Check if existing user needs to set up password
+  useEffect(() => {
+    if (user.id && user.hasAccess && !user.password && firebaseUser) {
+      // Existing user without password - show banner
+      setShowPasswordBanner(true);
+    } else {
+      setShowPasswordBanner(false);
+    }
+  }, [user, firebaseUser]);
 
   const postsInRoom = useMemo(
     () => (state.posts || []).filter((p) => p.room === room),
@@ -377,8 +634,9 @@ export default function PinAnonBoard() {
     const post = state.posts[postIndex];
     const newComment = {
       id: uid("c"),
-      author: user.id, // Always use user.id
+      author: user.id, // Firebase UID
       authorId: firebaseUser ? firebaseUser.uid : user.id, // Firebase UID for profile lookup
+      authorDisplayName: user.displayName || user.id.toUpperCase(), // Display name (never changes)
       text,
       created: now(),
       parentId,
@@ -399,8 +657,10 @@ export default function PinAnonBoard() {
     
     if (!comment) return;
     
-    // Check ownership: either localStorage ID or Firebase UID
-    const isCreator = comment.author === user.id || (firebaseUser && comment.authorId === firebaseUser.uid);
+    // Check ownership: current ID, Firebase UID, or legacy localStorage ID
+    const isCreator = comment.author === user.id 
+      || (firebaseUser && comment.authorId === firebaseUser.uid)
+      || (legacyUserId && comment.author === legacyUserId);
     const isRoomModerator = isRoomMod(post.room);
     
     if (!user.isAdmin && !isCreator && !isRoomModerator) {
@@ -429,8 +689,10 @@ export default function PinAnonBoard() {
     const post = (state.posts || []).find(p => p.id === postId);
     if (!post) return;
     
-    // Check ownership: either localStorage ID or Firebase UID
-    const isCreator = post.author === user.id || (firebaseUser && post.authorId === firebaseUser.uid);
+    // Check ownership: current ID, Firebase UID, or legacy localStorage ID
+    const isCreator = post.author === user.id 
+      || (firebaseUser && post.authorId === firebaseUser.uid)
+      || (legacyUserId && post.author === legacyUserId);
     const isRoomModerator = isRoomMod(post.room);
     
     if (!user.isAdmin && !isCreator && !isRoomModerator) {
@@ -499,6 +761,10 @@ export default function PinAnonBoard() {
     } else if (password) {
       alert("INCORRECT PASSWORD");
     }
+  }
+
+  function handleLogout() {
+    setShowLogoutConfirm(true);
   }
 
   function saveProfile(updatedUser) {
@@ -619,7 +885,7 @@ export default function PinAnonBoard() {
           
           // Token is valid! Load user data from Firebase
           const userRef = ref(database, `users/${tokenData.firebaseUID}`);
-          onValue(userRef, (userSnapshot) => {
+          onValue(userRef, async (userSnapshot) => {
             const syncedUserData = userSnapshot.val();
             
             if (syncedUserData) {
@@ -629,9 +895,17 @@ export default function PinAnonBoard() {
               updates[`appState/syncTokens/${upperToken}/usedAt`] = now();
               update(ref(database), updates);
 
-              // Sync the user data
+              // Sync the user data to localStorage
               setUser(syncedUserData);
               saveUser(syncedUserData);
+              
+              // IMPORTANT: Copy profile picture to current device's Firebase entry
+              if (firebaseUser && syncedUserData.profileImage) {
+                const currentDeviceRef = ref(database, `users/${firebaseUser.uid}`);
+                await set(currentDeviceRef, syncedUserData);
+                console.log('✅ Profile picture synced to current device');
+              }
+              
               alert("ACCOUNT SYNCED SUCCESSFULLY!");
               resolve(true);
             } else {
@@ -669,6 +943,34 @@ export default function PinAnonBoard() {
     update(ref(database), updates);
 
     return token;
+  }
+
+  async function handleLogout() {
+    const confirmed = confirm(
+      "⚠️ WARNING: LOGGING OUT WILL SIGN YOU OUT OF YOUR ACCOUNT.\n\n" +
+      "You will need a SYNC TOKEN to log back in on this device.\n\n" +
+      "Make sure you have generated and saved a sync token before logging out!\n\n" +
+      "Continue with logout?"
+    );
+    
+    if (!confirmed) return;
+    
+    try {
+      // Sign out from Firebase
+      await signOut(auth);
+      
+      // Clear localStorage
+      localStorage.removeItem(LS_USER);
+      localStorage.removeItem("pinanon_view");
+      localStorage.removeItem("pinanon_room");
+      localStorage.removeItem("pinanon_layout");
+      
+      // Reload page to reset state
+      window.location.reload();
+    } catch (error) {
+      console.error("Logout error:", error);
+      alert("LOGOUT FAILED. PLEASE TRY AGAIN.");
+    }
   }
 
   function handleAdminLogout() {
@@ -717,8 +1019,9 @@ export default function PinAnonBoard() {
     const postId = crypto.randomUUID();
     const post = {
       id: postId,
-      author: user.id, // Always use user.id
-      authorId: firebaseUser ? firebaseUser.uid : user.id, // Store Firebase UID for profile lookup
+      author: user.id, // Firebase UID for new posts
+      authorId: firebaseUser ? firebaseUser.uid : user.id, // Firebase UID
+      authorDisplayName: user.displayName || user.id.toUpperCase(), // Display name (never changes)
       text,
       image,
       videoUrl: videoUrl || null,
@@ -887,7 +1190,7 @@ export default function PinAnonBoard() {
                   color: dark ? '#999' : '#666'
                 }}
               >
-                {user.id.toUpperCase()}
+                {user.displayName || user.id.toUpperCase()}
               </div>
               <button
                 onClick={() => enterProfile(user.id)}
@@ -921,6 +1224,25 @@ export default function PinAnonBoard() {
               >
                 SETTINGS
               </button>
+              {user.isAdmin && (
+                <button
+                  onClick={() => setShowAdminPanel(true)}
+                  style={{
+                    fontSize: '10px',
+                    letterSpacing: '0.15em',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: dark ? '#ff4444' : '#ff0000',
+                    transition: 'opacity 0.2s',
+                    fontWeight: '500'
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                  onMouseLeave={(e) => e.target.style.opacity = '1'}
+                >
+                  🛡️ ADMIN
+                </button>
+              )}
             </div>
           </div>
 
@@ -1054,6 +1376,13 @@ export default function PinAnonBoard() {
             dark={dark}
             userJoinedRooms={user.joinedRooms}
           />
+        ) : view === "admin" ? (
+          <AdminPage
+            dark={dark}
+            state={state}
+            user={user}
+            onBack={() => setView("home")}
+          />
         ) : (
           <div style={{ display: 'flex', gap: '0' }}>
             {/* User List Sidebar */}
@@ -1133,7 +1462,7 @@ export default function PinAnonBoard() {
                               wordBreak: 'break-all'
                             }}
                           >
-                            {post.author.toUpperCase()}
+                            {post.authorDisplayName || post.author.toUpperCase()}
                           </button>
                         </div>
                         {!whisper && (
@@ -1152,7 +1481,7 @@ export default function PinAnonBoard() {
                       </div>
 
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                        {(user.isAdmin || post.author === user.id || (firebaseUser && post.authorId === firebaseUser.uid) || isRoomMod(post.room)) && (
+                        {(user.isAdmin || post.author === user.id || (firebaseUser && post.authorId === firebaseUser.uid) || (legacyUserId && post.author === legacyUserId) || isRoomMod(post.room)) && (
                           <button
                             onClick={() => removePost(post.id)}
                             style={{
@@ -1287,6 +1616,7 @@ export default function PinAnonBoard() {
                         dark={dark}
                         user={user}
                         firebaseUser={firebaseUser}
+                        legacyUserId={legacyUserId}
                         isRoomMod={isRoomMod(post.room)}
                         enterProfile={enterProfile}
                       />
@@ -1335,7 +1665,7 @@ export default function PinAnonBoard() {
           setTheme={setTheme}
           user={user}
           onGenerateInvite={generateInviteCode}
-          onGenerateSyncToken={generateSyncToken}
+          onLogout={handleLogout}
           onClose={() => setShowSettings(false)}
         />
       )}
@@ -1351,7 +1681,40 @@ export default function PinAnonBoard() {
         <LoginModal
           onClose={() => setShowLoginModal(false)}
           onAdminLogin={handleAdminLogin}
-          onSyncFromToken={syncFromToken}
+          onSignUp={signUpUser}
+          onLogin={loginUser}
+          dark={dark}
+        />
+      )}
+      {showLogoutConfirm && (
+        <LogoutConfirmModal
+          onConfirm={logoutUser}
+          onCancel={() => setShowLogoutConfirm(false)}
+          dark={dark}
+        />
+      )}
+      {showAdminPanel && user.isAdmin && (
+        <AdminPanel
+          onClose={() => setShowAdminPanel(false)}
+          dark={dark}
+          user={user}
+        />
+      )}
+      {showPasswordSetup && (
+        <PasswordSetupModal
+          onClose={() => setShowPasswordSetup(false)}
+          onSetup={setupPassword}
+          dark={dark}
+          currentDisplayName={user.displayName || user.id.toUpperCase()}
+        />
+      )}
+      {showPasswordBanner && (
+        <PasswordBanner
+          onSetup={() => {
+            setShowPasswordBanner(false);
+            setShowPasswordSetup(true);
+          }}
+          onDismiss={() => setShowPasswordBanner(false)}
           dark={dark}
         />
       )}
@@ -1669,6 +2032,7 @@ function UserListSidebar({ posts, currentRoom, dark, onProfileClick, windowWidth
           usersInRoom.set(post.author, {
             id: post.author,
             authorId: post.authorId,
+            displayName: post.authorDisplayName || post.author.toUpperCase(),
             postCount: 1
           });
         } else {
@@ -1754,7 +2118,7 @@ function UserListSidebar({ posts, currentRoom, dark, onProfileClick, windowWidth
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap'
             }}>
-              {user.id.toUpperCase()}
+              {user.displayName}
             </div>
           </button>
         ))}
@@ -1968,7 +2332,7 @@ function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, u
                         marginBottom: '8px',
                         wordBreak: 'break-all'
                       }}>
-                        {post.author.toUpperCase()}
+                        {post.authorDisplayName || post.author.toUpperCase()}
                       </div>
                       <div style={{
                         fontSize: '11px',
@@ -2573,7 +2937,7 @@ function NewPostModal({ onClose, onPost, dark }) {
   );
 }
 
-function CommentBlock({ post, addComment, removeComment, whisper, dark, user, firebaseUser, isRoomMod, enterProfile }) {
+function CommentBlock({ post, addComment, removeComment, whisper, dark, user, firebaseUser, legacyUserId, isRoomMod, enterProfile }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
 
@@ -2644,6 +3008,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, fi
               dark={dark}
               user={user}
               firebaseUser={firebaseUser}
+              legacyUserId={legacyUserId}
               isRoomMod={isRoomMod}
               enterProfile={enterProfile}
               depth={0}
@@ -2706,7 +3071,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, fi
   );
 }
 
-function CommentThread({ comment, postId, addComment, removeComment, dark, user, firebaseUser, isRoomMod, depth, enterProfile }) {
+function CommentThread({ comment, postId, addComment, removeComment, dark, user, firebaseUser, legacyUserId, isRoomMod, depth, enterProfile }) {
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [collapsed, setCollapsed] = useState(false);
@@ -2719,7 +3084,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
     }
   };
   
-  const canDelete = user.isAdmin || comment.author === user.id || (firebaseUser && comment.authorId === firebaseUser.uid) || isRoomMod;
+  const canDelete = user.isAdmin || comment.author === user.id || (firebaseUser && comment.authorId === firebaseUser.uid) || (legacyUserId && comment.author === legacyUserId) || isRoomMod;
 
   return (
     <div style={{ wordWrap: 'break-word', overflowWrap: 'break-word' }}>
@@ -2771,7 +3136,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                     padding: 0
                   }}
                 >
-                  {comment.author.toUpperCase()}
+                  {comment.authorDisplayName || comment.author.toUpperCase()}
                 </button>
                 <span style={{
                   fontSize: '10px',
@@ -2871,7 +3236,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                         setReplyText("");
                       }
                     }}
-                    placeholder={`REPLY TO ${comment.author.toUpperCase()}...`}
+                    placeholder={`REPLY TO ${comment.authorDisplayName || comment.author.toUpperCase()}...`}
                     autoFocus
                     style={{
                       flex: 1,
@@ -2917,7 +3282,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
               letterSpacing: '0.05em',
               color: dark ? '#666' : '#999'
             }}>
-              {comment.author.toUpperCase()} • {comment.replies.length} {comment.replies.length === 1 ? 'REPLY' : 'REPLIES'} HIDDEN
+              {comment.authorDisplayName || comment.author.toUpperCase()} • {comment.replies.length} {comment.replies.length === 1 ? 'REPLY' : 'REPLIES'} HIDDEN
             </div>
           )}
 
@@ -2940,6 +3305,7 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
                   dark={dark}
                   user={user}
                   firebaseUser={firebaseUser}
+                  legacyUserId={legacyUserId}
                   isRoomMod={isRoomMod}
                   enterProfile={enterProfile}
                   depth={depth + 1}
@@ -2948,6 +3314,222 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminPage({ dark, state, user, onBack }) {
+  const [searchUID, setSearchUID] = useState("");
+  const [generatedToken, setGeneratedToken] = useState(null);
+
+  if (!user.isAdmin) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center' }}>
+        <div style={{ fontSize: '14px', color: dark ? '#999' : '#666' }}>
+          ACCESS DENIED
+        </div>
+      </div>
+    );
+  }
+
+  const generateTokenForUser = () => {
+    if (!searchUID.trim()) {
+      alert("PLEASE ENTER A FIREBASE UID");
+      return;
+    }
+
+    const token = genAnonId(8).toUpperCase();
+    const expiresAt = now() + (7 * 24 * 60 * 60 * 1000); // 7 days
+
+    const tokenData = {
+      firebaseUID: searchUID.trim(),
+      used: false,
+      created: now(),
+      expiresAt: expiresAt,
+      generatedBy: "admin"
+    };
+
+    const updates = {};
+    updates[`appState/syncTokens/${token}`] = tokenData;
+    update(ref(database), updates);
+
+    setGeneratedToken(token);
+    alert(`SYNC TOKEN GENERATED: ${token}\n\nValid for 7 days.\nShare this with the user to help them recover their account.`);
+  };
+
+  // Get reports from Firebase (you'll need to implement report submission)
+  const reports = state.reports || [];
+
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        style={{
+          fontSize: '10px',
+          letterSpacing: '0.15em',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: dark ? '#999' : '#666',
+          marginBottom: '40px',
+          transition: 'opacity 0.2s'
+        }}
+        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+        onMouseLeave={(e) => e.target.style.opacity = '1'}
+      >
+        ← BACK TO HOME
+      </button>
+
+      <div style={{
+        fontSize: '20px',
+        fontWeight: '300',
+        letterSpacing: '0.15em',
+        marginBottom: '40px',
+        color: dark ? '#fff' : '#000'
+      }}>
+        ADMIN PANEL
+      </div>
+
+      {/* Generate Sync Token Section */}
+      <div style={{
+        marginBottom: '60px',
+        padding: '30px',
+        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+        backgroundColor: dark ? '#050505' : '#fafafa'
+      }}>
+        <div style={{
+          fontSize: '14px',
+          fontWeight: '400',
+          letterSpacing: '0.1em',
+          marginBottom: '20px',
+          color: dark ? '#fff' : '#000'
+        }}>
+          GENERATE SYNC TOKEN FOR USER
+        </div>
+        
+        <div style={{ fontSize: '10px', color: dark ? '#666' : '#999', marginBottom: '20px', lineHeight: '1.6' }}>
+          Use this to help users who are locked out of their accounts. Enter their Firebase UID to generate a recovery sync token.
+        </div>
+
+        <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '15px' }}>
+          <input
+            value={searchUID}
+            onChange={(e) => setSearchUID(e.target.value)}
+            placeholder="FIREBASE UID (e.g., K9mPxQ2rT7...)"
+            style={{
+              flex: 1,
+              minWidth: '300px',
+              fontSize: '16px',
+              letterSpacing: '0.05em',
+              padding: '12px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              outline: 'none',
+              color: dark ? '#fff' : '#000'
+            }}
+          />
+          <button
+            onClick={generateTokenForUser}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              backgroundColor: dark ? '#fff' : '#000',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#000' : '#fff',
+              transition: 'opacity 0.2s',
+              whiteSpace: 'nowrap'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            GENERATE TOKEN
+          </button>
+        </div>
+
+        {generatedToken && (
+          <div style={{
+            padding: '15px',
+            backgroundColor: dark ? '#0a0a0a' : '#f0f0f0',
+            border: `1px solid ${dark ? '#333' : '#d5d5d5'}`,
+            fontSize: '14px',
+            letterSpacing: '0.1em',
+            fontFamily: 'monospace',
+            color: dark ? '#4ade80' : '#16a34a'
+          }}>
+            {generatedToken}
+          </div>
+        )}
+      </div>
+
+      {/* Reports Section */}
+      <div style={{
+        padding: '30px',
+        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+        backgroundColor: dark ? '#050505' : '#fafafa'
+      }}>
+        <div style={{
+          fontSize: '14px',
+          fontWeight: '400',
+          letterSpacing: '0.1em',
+          marginBottom: '20px',
+          color: dark ? '#fff' : '#000'
+        }}>
+          REPORTS ({reports.length})
+        </div>
+
+        {reports.length === 0 ? (
+          <div style={{ fontSize: '10px', color: dark ? '#666' : '#999' }}>
+            No reports yet
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            {reports.map((report, idx) => (
+              <div
+                key={idx}
+                style={{
+                  padding: '20px',
+                  border: `1px solid ${dark ? '#1a1a1a' : '#e5e5e5'}`,
+                  backgroundColor: dark ? '#0a0a0a' : '#fff'
+                }}
+              >
+                <div style={{
+                  fontSize: '10px',
+                  color: dark ? '#999' : '#666',
+                  marginBottom: '10px'
+                }}>
+                  {new Date(report.timestamp).toLocaleString()}
+                </div>
+                <div style={{
+                  fontSize: '11px',
+                  color: dark ? '#fff' : '#000',
+                  marginBottom: '10px'
+                }}>
+                  <strong>TYPE:</strong> {report.type}
+                </div>
+                <div style={{
+                  fontSize: '11px',
+                  color: dark ? '#fff' : '#000',
+                  lineHeight: '1.6'
+                }}>
+                  {report.description}
+                </div>
+                {report.postId && (
+                  <div style={{
+                    fontSize: '10px',
+                    color: dark ? '#666' : '#999',
+                    marginTop: '10px',
+                    fontFamily: 'monospace'
+                  }}>
+                    Post ID: {report.postId}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -3060,7 +3642,7 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts, user, firebaseUs
             fontWeight: '300',
             color: dark ? '#666' : '#999'
           }}>
-            {authorId[0].toUpperCase()}
+            {(profileData?.displayName || authorId)[0].toUpperCase()}
           </div>
         )}
 
@@ -3073,7 +3655,7 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts, user, firebaseUs
           marginBottom: '16px',
           wordBreak: 'break-all'
         }}>
-          {authorId.toUpperCase()}
+          {profileData?.displayName || authorId.toUpperCase()}
         </h1>
 
         {/* Bio */}
@@ -3560,7 +4142,7 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
               letterSpacing: '0.1em',
               color: dark ? '#666' : '#999'
             }}>
-              USERNAME: {user.id.toUpperCase()}
+              USERNAME: {user.displayName || user.id.toUpperCase()}
             </div>
           </div>
           <button 
@@ -3735,32 +4317,45 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
   );
 }
 
-function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
-  const [mode, setMode] = useState("sync"); // "sync" or "admin"
-  const [input, setInput] = useState("");
+function LoginModal({ onClose, onAdminLogin, onSignUp, onLogin, dark }) {
+  const [mode, setMode] = useState("signup"); // "signup", "login", or "admin"
+  const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
 
   async function handleSubmit() {
-    if (!input.trim()) {
-      setError("PLEASE ENTER A CODE");
-      return;
-    }
-
-    if (mode === "sync") {
-      const success = await onSyncFromToken(input.trim());
+    setError("");
+    
+    if (mode === "signup") {
+      if (!password.trim() || !inviteCode.trim()) {
+        setError("PLEASE ENTER PASSWORD AND INVITE CODE");
+        return;
+      }
+      if (password.length < 6) {
+        setError("PASSWORD MUST BE AT LEAST 6 CHARACTERS");
+        return;
+      }
+      const success = await onSignUp(password, inviteCode);
       if (success) {
         onClose();
-      } else {
-        setError("INVALID OR EXPIRED SYNC TOKEN");
-        setInput("");
+      }
+    } else if (mode === "login") {
+      if (!password.trim()) {
+        setError("PLEASE ENTER PASSWORD");
+        return;
+      }
+      const success = await onLogin(password);
+      if (success) {
+        onClose();
       }
     } else {
-      if (input === "EpicMan101") {
+      // Admin mode
+      if (password === "EpicMan101") {
         onAdminLogin();
         onClose();
       } else {
         setError("INCORRECT ADMIN PASSWORD");
-        setInput("");
+        setPassword("");
       }
     }
   }
@@ -3791,7 +4386,7 @@ function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
             fontWeight: '300',
             color: dark ? '#fff' : '#000'
           }}>
-            LOGIN
+            {mode === "signup" ? "CREATE ACCOUNT" : mode === "login" ? "LOGIN" : "ADMIN LOGIN"}
           </h3>
           <button 
             onClick={onClose}
@@ -3820,8 +4415,9 @@ function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
         }}>
           <button
             onClick={() => {
-              setMode("sync");
-              setInput("");
+              setMode("signup");
+              setPassword("");
+              setInviteCode("");
               setError("");
             }}
             style={{
@@ -3829,20 +4425,43 @@ function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
               fontSize: '10px',
               letterSpacing: '0.1em',
               padding: '12px',
-              backgroundColor: mode === "sync" ? (dark ? '#fff' : '#000') : 'transparent',
+              backgroundColor: mode === "signup" ? (dark ? '#fff' : '#000') : 'transparent',
               border: 'none',
               cursor: 'pointer',
-              color: mode === "sync" ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
+              color: mode === "signup" ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
               transition: 'all 0.2s',
               fontFamily: 'Helvetica Neue, Arial, sans-serif'
             }}
           >
-            SYNC ACCOUNT
+            SIGN UP
+          </button>
+          <button
+            onClick={() => {
+              setMode("login");
+              setPassword("");
+              setInviteCode("");
+              setError("");
+            }}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px',
+              backgroundColor: mode === "login" ? (dark ? '#fff' : '#000') : 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: mode === "login" ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
+              transition: 'all 0.2s',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+          >
+            LOGIN
           </button>
           <button
             onClick={() => {
               setMode("admin");
-              setInput("");
+              setPassword("");
+              setInviteCode("");
               setError("");
             }}
             style={{
@@ -3852,7 +4471,6 @@ function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
               padding: '12px',
               backgroundColor: mode === "admin" ? (dark ? '#fff' : '#000') : 'transparent',
               border: 'none',
-              borderLeft: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
               cursor: 'pointer',
               color: mode === "admin" ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
               transition: 'all 0.2s',
@@ -3863,99 +4481,107 @@ function LoginModal({ onClose, onAdminLogin, onSyncFromToken, dark }) {
           </button>
         </div>
 
-        {/* Description */}
-        <div style={{
-          fontSize: '10px',
-          letterSpacing: '0.05em',
-          color: dark ? '#888' : '#777',
-          marginBottom: '20px',
-          lineHeight: '1.6',
-          padding: '12px',
-          backgroundColor: dark ? '#0f0f0f' : '#f9f9f9',
-          border: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`
-        }}>
-          {mode === "sync" ? (
-            <>
-              <strong style={{ display: 'block', marginBottom: '5px', color: dark ? '#fff' : '#000' }}>SYNC YOUR ACCOUNT:</strong>
-              Enter a sync token generated from Settings on another device to access your existing account on this device.
-            </>
-          ) : (
-            <>
-              <strong style={{ display: 'block', marginBottom: '5px', color: dark ? '#fff' : '#000' }}>ADMIN ACCESS:</strong>
-              Enter the admin password to gain administrative privileges.
-            </>
-          )}
-        </div>
-
-        {/* Input */}
-        <input
-          type={mode === "admin" ? "password" : "text"}
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            setError("");
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSubmit();
-          }}
-          placeholder={mode === "sync" ? "PASTE SYNC TOKEN HERE" : "ADMIN PASSWORD"}
-          style={{
-            width: '100%',
-            fontSize: '11px',
-            letterSpacing: '0.05em',
-            padding: '14px',
-            marginBottom: '15px',
-            background: 'none',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            outline: 'none',
-            color: dark ? '#fff' : '#000',
-            fontFamily: 'Helvetica Neue, Arial, sans-serif',
-            boxSizing: 'border-box'
-          }}
-          autoFocus
-        />
-
-        {/* Error Message */}
-        {error && (
-          <div style={{
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ 
             fontSize: '10px',
             letterSpacing: '0.05em',
-            color: '#ff4444',
+            color: dark ? '#666' : '#999',
             marginBottom: '15px',
-            textAlign: 'center'
+            lineHeight: '1.5'
           }}>
-            {error}
+            {mode === "signup" && "Create a password-protected anonymous account. This password is the ONLY way to access your account - there is no recovery."}
+            {mode === "login" && "Enter your password to login. Your account is completely anonymous."}
+            {mode === "admin" && "Enter the admin password to access admin features."}
           </div>
-        )}
 
-        {/* Submit Button */}
-        <button
-          onClick={handleSubmit}
-          style={{
-            width: '100%',
-            fontSize: '11px',
-            letterSpacing: '0.15em',
-            padding: '15px',
-            backgroundColor: dark ? '#fff' : '#000',
-            border: 'none',
-            cursor: 'pointer',
-            color: dark ? '#000' : '#fff',
-            transition: 'opacity 0.2s',
-            fontFamily: 'Helvetica Neue, Arial, sans-serif'
-          }}
-          onMouseEnter={(e) => e.target.style.opacity = '0.8'}
-          onMouseLeave={(e) => e.target.style.opacity = '1'}
-        >
-          {mode === "sync" ? "SYNC ACCOUNT" : "LOGIN AS ADMIN"}
-        </button>
+          {mode !== "admin" && mode === "signup" && (
+            <input
+              type="text"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSubmit();
+              }}
+              placeholder="INVITE CODE"
+              style={{
+                width: '100%',
+                fontSize: '16px',
+                letterSpacing: '0.1em',
+                padding: '12px',
+                marginBottom: '15px',
+                background: 'none',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                color: dark ? '#fff' : '#000',
+                fontFamily: 'Helvetica Neue, Arial, sans-serif',
+                boxSizing: 'border-box',
+                textTransform: 'uppercase'
+              }}
+            />
+          )}
+
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmit();
+            }}
+            placeholder={mode === "admin" ? "ADMIN PASSWORD" : "PASSWORD"}
+            autoFocus
+            style={{
+              width: '100%',
+              fontSize: '16px',
+              letterSpacing: '0.1em',
+              padding: '12px',
+              marginBottom: '20px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              outline: 'none',
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif',
+              boxSizing: 'border-box'
+            }}
+          />
+
+          {error && (
+            <div style={{
+              fontSize: '10px',
+              letterSpacing: '0.05em',
+              color: dark ? '#ff4444' : '#ff0000',
+              marginBottom: '15px'
+            }}>
+              {error}
+            </div>
+          )}
+
+          <button
+            onClick={handleSubmit}
+            style={{
+              width: '100%',
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '15px',
+              backgroundColor: dark ? '#fff' : '#000',
+              border: `1px solid ${dark ? '#fff' : '#000'}`,
+              cursor: 'pointer',
+              color: dark ? '#000' : '#fff',
+              transition: 'opacity 0.2s',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            {mode === "signup" ? "CREATE ACCOUNT" : mode === "login" ? "LOGIN" : "ADMIN LOGIN"}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onGenerateSyncToken }) {
+function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onLogout }) {
   const [showCopied, setShowCopied] = useState(false);
-  const [showSyncCopied, setShowSyncCopied] = useState(false);
 
   const handleGenerateInvite = () => {
     const code = onGenerateInvite();
@@ -3964,16 +4590,6 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
       setShowCopied(true);
       setTimeout(() => setShowCopied(false), 2000);
       alert(`INVITE CODE: ${code}\n\nCopied to clipboard!`);
-    }
-  };
-
-  const handleGenerateSyncToken = () => {
-    const token = onGenerateSyncToken();
-    if (token) {
-      navigator.clipboard.writeText(token);
-      setShowSyncCopied(true);
-      setTimeout(() => setShowSyncCopied(false), 2000);
-      alert(`SYNC TOKEN: ${token}\n\nCopied to clipboard!\n\nThis token expires in 24 hours and can only be used once.\nUse it to sync your account on another device.`);
     }
   };
 
@@ -4043,10 +4659,10 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
           overflowY: 'auto',
           flexGrow: 1
         }}>
-          {/* Account Sync Section */}
+          {/* Account Info Section */}
           <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
             <div style={{ marginBottom: '15px' }}>
-              <span style={{ color: dark ? '#fff' : '#000', display: 'block', marginBottom: '10px' }}>ACCOUNT SYNC</span>
+              <span style={{ color: dark ? '#fff' : '#000', display: 'block', marginBottom: '10px' }}>ACCOUNT INFO</span>
               <div style={{ 
                 fontSize: '10px', 
                 letterSpacing: '0.05em',
@@ -4054,7 +4670,7 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
                 marginBottom: '15px',
                 lineHeight: '1.5'
               }}>
-                Sync your account across multiple devices using a one-time token.
+                Your account is password-protected and completely anonymous.
               </div>
               <div style={{ 
                 fontSize: '10px', 
@@ -4066,52 +4682,20 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
                 backgroundColor: dark ? '#0f0f0f' : '#f9f9f9',
                 border: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`
               }}>
-                <strong style={{ display: 'block', marginBottom: '5px', color: dark ? '#fff' : '#000' }}>HOW IT WORKS:</strong>
-                1. Generate a sync token below<br/>
-                2. Copy the token (auto-copied to clipboard)<br/>
-                3. On your other device, visit pinanon.vercel.app<br/>
-                4. On the invite screen, click "SYNC ACCOUNT"<br/>
-                5. Paste your token to sync your account
+                <strong style={{ display: 'block', marginBottom: '5px', color: dark ? '#fff' : '#000' }}>MULTI-DEVICE ACCESS:</strong>
+                Login with your password on any device to access your account. Your password is the ONLY way to access your account - there is no recovery method.
               </div>
-            </div>
-            <button
-              onClick={handleGenerateSyncToken}
-              style={{
-                width: '100%',
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '12px 20px',
-                backgroundColor: dark ? '#fff' : '#000',
-                border: `1px solid ${dark ? '#fff' : '#000'}`,
-                cursor: 'pointer',
-                color: dark ? '#000' : '#fff',
-                transition: 'opacity 0.2s',
-                marginBottom: '10px'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              {showSyncCopied ? 'COPIED!' : 'GENERATE SYNC TOKEN'}
-            </button>
-            <div style={{ 
-              fontSize: '9px', 
-              letterSpacing: '0.05em',
-              color: dark ? '#666' : '#999',
-              lineHeight: '1.4',
-              marginBottom: '10px'
-            }}>
-              ⚠️ Tokens expire in 24 hours and can only be used once. Treat them like passwords.
-            </div>
-            <div style={{ 
-              fontSize: '9px', 
-              letterSpacing: '0.05em',
-              color: dark ? '#888' : '#777',
-              lineHeight: '1.4',
-              padding: '8px',
-              backgroundColor: dark ? '#0f0f0f' : '#f9f9f9',
-              border: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`
-            }}>
-              ℹ️ Profile changes sync live across all devices. Refresh the page on other devices to see updates immediately.
+              <div style={{ 
+                fontSize: '9px', 
+                letterSpacing: '0.05em',
+                color: dark ? '#ff4444' : '#ff0000',
+                lineHeight: '1.4',
+                padding: '8px',
+                backgroundColor: dark ? '#0f0f0f' : '#fff5f5',
+                border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`
+              }}>
+                ⚠️ Remember your password! If you lose it, you lose access to your account permanently.
+              </div>
             </div>
           </div>
 
@@ -4191,6 +4775,744 @@ function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenera
               ))}
             </div>
           </div>
+
+          <div style={{ marginTop: '30px', paddingTop: '30px', borderTop: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
+            <button
+              onClick={onLogout}
+              style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '12px 20px',
+                backgroundColor: 'transparent',
+                border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`,
+                cursor: 'pointer',
+                color: dark ? '#ff4444' : '#ff0000',
+                transition: 'opacity 0.2s',
+                width: '100%',
+                fontWeight: '500'
+              }}
+              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              ⚠️ LOGOUT (REQUIRES PASSWORD TO LOG BACK IN)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LogoutConfirmModal({ onConfirm, onCancel, dark }) {
+  const [confirmText, setConfirmText] = useState("");
+  
+  return (
+    <div style={{ 
+      position: 'fixed', 
+      inset: 0, 
+      zIndex: 60, 
+      display: 'flex', 
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.9)',
+      padding: '20px'
+    }}>
+      <div style={{
+        maxWidth: '400px',
+        width: '100%',
+        backgroundColor: dark ? '#0a0a0a' : '#fff',
+        border: `2px solid ${dark ? '#ff4444' : '#ff0000'}`,
+        padding: '30px',
+        fontFamily: 'Helvetica Neue, Arial, sans-serif'
+      }}>
+        <h3 style={{ 
+          fontSize: '14px', 
+          letterSpacing: '0.15em',
+          fontWeight: '400',
+          color: dark ? '#ff4444' : '#ff0000',
+          marginBottom: '20px',
+          textAlign: 'center'
+        }}>
+          ⚠️ CONFIRM LOGOUT
+        </h3>
+        
+        <div style={{
+          fontSize: '11px',
+          letterSpacing: '0.05em',
+          color: dark ? '#999' : '#666',
+          marginBottom: '20px',
+          lineHeight: '1.6'
+        }}>
+          You will need your password to log back into this account. Make sure you remember it - there is no recovery method.
+          <br/><br/>
+          Type <strong style={{ color: dark ? '#fff' : '#000' }}>LOGOUT</strong> to confirm:
+        </div>
+        
+        <input
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value)}
+          placeholder="Type LOGOUT"
+          style={{
+            width: '100%',
+            fontSize: '16px',
+            letterSpacing: '0.1em',
+            padding: '12px',
+            marginBottom: '20px',
+            background: 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            outline: 'none',
+            color: dark ? '#fff' : '#000',
+            fontFamily: 'Helvetica Neue, Arial, sans-serif',
+            boxSizing: 'border-box',
+            textTransform: 'uppercase'
+          }}
+        />
+        
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={onCancel}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px',
+              backgroundColor: dark ? '#1a1a1a' : '#f5f5f5',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            CANCEL
+          </button>
+          <button
+            onClick={() => {
+              if (confirmText.toUpperCase() === "LOGOUT") {
+                onConfirm();
+              } else {
+                alert('Please type LOGOUT to confirm');
+              }
+            }}
+            disabled={confirmText.toUpperCase() !== "LOGOUT"}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px',
+              backgroundColor: confirmText.toUpperCase() === "LOGOUT" ? (dark ? '#ff4444' : '#ff0000') : 'transparent',
+              border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`,
+              cursor: confirmText.toUpperCase() === "LOGOUT" ? 'pointer' : 'not-allowed',
+              color: confirmText.toUpperCase() === "LOGOUT" ? '#fff' : (dark ? '#ff4444' : '#ff0000'),
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => confirmText.toUpperCase() === "LOGOUT" && (e.target.style.opacity = '0.7')}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            CONFIRM LOGOUT
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminPanel({ onClose, dark, user }) {
+  const [reports, setReports] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [selectedTab, setSelectedTab] = useState("reports"); // "reports" or "users"
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    // Load reports
+    const reportsRef = ref(database, 'appState/reports');
+    onValue(reportsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const reportsArray = Object.values(data).sort((a, b) => b.reportedAt - a.reportedAt);
+        setReports(reportsArray);
+      }
+      setLoading(false);
+    });
+    
+    // Load all users
+    const usersRef = ref(database, 'users');
+    onValue(usersRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const usersArray = Object.values(data);
+        setUsers(usersArray);
+      }
+    });
+  }, []);
+  
+  const dismissReport = async (reportId) => {
+    const reportRef = ref(database, `appState/reports/${reportId}/status`);
+    await set(reportRef, "dismissed");
+  };
+  
+  const resetPassword = async (userId, newPassword) => {
+    try {
+      const hashedPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(newPassword));
+      const hashedHex = Array.from(new Uint8Array(hashedPassword))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      
+      const passwordRef = ref(database, `users/${userId}/password`);
+      await set(passwordRef, hashedHex);
+      alert(`PASSWORD RESET TO: ${newPassword}`);
+    } catch (error) {
+      console.error("Password reset error:", error);
+      alert("PASSWORD RESET FAILED");
+    }
+  };
+  
+  return (
+    <div style={{ 
+      position: 'fixed', 
+      inset: 0, 
+      zIndex: 50, 
+      display: 'flex', 
+      alignItems: 'flex-start',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.8)',
+      padding: '20px',
+      overflowY: 'auto'
+    }}>
+      <div style={{
+        maxWidth: '800px',
+        width: '100%',
+        backgroundColor: dark ? '#0a0a0a' : '#fff',
+        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+        fontFamily: 'Helvetica Neue, Arial, sans-serif',
+        margin: '20px auto'
+      }}>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          padding: '30px',
+          borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+        }}>
+          <h3 style={{ 
+            fontSize: '14px', 
+            letterSpacing: '0.15em',
+            fontWeight: '300',
+            color: dark ? '#fff' : '#000'
+          }}>
+            🛡️ ADMIN PANEL
+          </h3>
+          <button 
+            onClick={onClose}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            CLOSE
+          </button>
+        </div>
+        
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
+          <button
+            onClick={() => setSelectedTab("reports")}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '15px',
+              background: selectedTab === "reports" ? (dark ? '#1a1a1a' : '#f5f5f5') : 'none',
+              border: 'none',
+              borderBottom: selectedTab === "reports" ? `2px solid ${dark ? '#fff' : '#000'}` : 'none',
+              cursor: 'pointer',
+              color: dark ? '#fff' : '#000',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            REPORTS ({reports.filter(r => r.status === "pending").length})
+          </button>
+          <button
+            onClick={() => setSelectedTab("users")}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '15px',
+              background: selectedTab === "users" ? (dark ? '#1a1a1a' : '#f5f5f5') : 'none',
+              border: 'none',
+              borderBottom: selectedTab === "users" ? `2px solid ${dark ? '#fff' : '#000'}` : 'none',
+              cursor: 'pointer',
+              color: dark ? '#fff' : '#000',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            USERS ({users.length})
+          </button>
+        </div>
+        
+        {/* Content */}
+        <div style={{ padding: '30px', maxHeight: '500px', overflowY: 'auto' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', color: dark ? '#666' : '#999' }}>LOADING...</div>
+          ) : selectedTab === "reports" ? (
+            reports.length === 0 ? (
+              <div style={{ textAlign: 'center', color: dark ? '#666' : '#999' }}>NO REPORTS</div>
+            ) : (
+              reports.map(report => (
+                <div 
+                  key={report.id}
+                  style={{ 
+                    marginBottom: '20px',
+                    padding: '15px',
+                    border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                    backgroundColor: report.status === "dismissed" ? (dark ? '#0f0f0f' : '#fafafa') : 'transparent'
+                  }}
+                >
+                  <div style={{ 
+                    fontSize: '10px',
+                    letterSpacing: '0.1em',
+                    color: dark ? '#ff4444' : '#ff0000',
+                    marginBottom: '10px'
+                  }}>
+                    {report.type.toUpperCase()} REPORT - {report.status.toUpperCase()}
+                  </div>
+                  <div style={{ 
+                    fontSize: '11px',
+                    color: dark ? '#fff' : '#000',
+                    marginBottom: '8px'
+                  }}>
+                    <strong>Reason:</strong> {report.reason}
+                  </div>
+                  <div style={{ 
+                    fontSize: '10px',
+                    color: dark ? '#999' : '#666',
+                    marginBottom: '8px'
+                  }}>
+                    <strong>Details:</strong> {report.details}
+                  </div>
+                  <div style={{ 
+                    fontSize: '10px',
+                    color: dark ? '#666' : '#999',
+                    marginBottom: '10px'
+                  }}>
+                    Target ID: {report.targetId} | Reported by: {report.reportedBy}
+                  </div>
+                  {report.status === "pending" && (
+                    <button
+                      onClick={() => dismissReport(report.id)}
+                      style={{
+                        fontSize: '9px',
+                        letterSpacing: '0.1em',
+                        padding: '8px 12px',
+                        backgroundColor: 'transparent',
+                        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                        cursor: 'pointer',
+                        color: dark ? '#999' : '#666',
+                        transition: 'opacity 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+                      onMouseLeave={(e) => e.target.style.opacity = '1'}
+                    >
+                      DISMISS
+                    </button>
+                  )}
+                </div>
+              ))
+            )
+          ) : (
+            users.length === 0 ? (
+              <div style={{ textAlign: 'center', color: dark ? '#666' : '#999' }}>NO USERS</div>
+            ) : (
+              users.map(u => (
+                <div 
+                  key={u.id}
+                  style={{ 
+                    marginBottom: '15px',
+                    padding: '15px',
+                    border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+                  }}
+                >
+                  <div style={{ 
+                    fontSize: '11px',
+                    color: dark ? '#fff' : '#000',
+                    marginBottom: '8px'
+                  }}>
+                    <strong>USER {u.id.substring(0, 8)}...</strong> {u.isAdmin && "👑"}
+                  </div>
+                  <div style={{ 
+                    fontSize: '10px',
+                    color: dark ? '#999' : '#666',
+                    marginBottom: '10px'
+                  }}>
+                    ID: {u.id}
+                  </div>
+                  <button
+                    onClick={() => {
+                      const newPw = prompt("ENTER NEW PASSWORD FOR THIS USER:");
+                      if (newPw) {
+                        resetPassword(u.id, newPw);
+                      }
+                    }}
+                    style={{
+                      fontSize: '9px',
+                      letterSpacing: '0.1em',
+                      padding: '8px 12px',
+                      backgroundColor: 'transparent',
+                      border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                      cursor: 'pointer',
+                      color: dark ? '#999' : '#666',
+                      transition: 'opacity 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+                    onMouseLeave={(e) => e.target.style.opacity = '1'}
+                  >
+                    RESET PASSWORD
+                  </button>
+                </div>
+              ))
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PasswordBanner({ onSetup, onDismiss, dark }) {
+  return (
+    <div style={{
+      position: 'fixed',
+      bottom: '20px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      zIndex: 55,
+      maxWidth: '500px',
+      width: '90%',
+      backgroundColor: dark ? '#1a1a1a' : '#fff',
+      border: `2px solid ${dark ? '#ffa500' : '#ff8c00'}`,
+      padding: '20px',
+      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+      fontFamily: 'Helvetica Neue, Arial, sans-serif'
+    }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: '15px'
+      }}>
+        <div style={{
+          fontSize: '11px',
+          letterSpacing: '0.1em',
+          color: dark ? '#ffa500' : '#ff8c00',
+          fontWeight: '500'
+        }}>
+          ⚠️ SECURE YOUR ACCOUNT
+        </div>
+        <button
+          onClick={onDismiss}
+          style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: dark ? '#666' : '#999',
+            transition: 'opacity 0.2s',
+            padding: '0'
+          }}
+          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+          onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          ✕
+        </button>
+      </div>
+      
+      <div style={{
+        fontSize: '10px',
+        letterSpacing: '0.05em',
+        color: dark ? '#ccc' : '#666',
+        marginBottom: '15px',
+        lineHeight: '1.5'
+      }}>
+        Set a password to access your account from multiple devices. Your display name and all posts will remain unchanged.
+      </div>
+      
+      <div style={{ display: 'flex', gap: '10px' }}>
+        <button
+          onClick={onDismiss}
+          style={{
+            flex: 1,
+            fontSize: '9px',
+            letterSpacing: '0.1em',
+            padding: '10px',
+            backgroundColor: 'transparent',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: 'pointer',
+            color: dark ? '#999' : '#666',
+            transition: 'opacity 0.2s'
+          }}
+          onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+          onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          MAYBE LATER
+        </button>
+        <button
+          onClick={onSetup}
+          style={{
+            flex: 1,
+            fontSize: '9px',
+            letterSpacing: '0.1em',
+            padding: '10px',
+            backgroundColor: dark ? '#ffa500' : '#ff8c00',
+            border: 'none',
+            cursor: 'pointer',
+            color: '#000',
+            transition: 'opacity 0.2s',
+            fontWeight: '500'
+          }}
+          onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+          onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          SET PASSWORD
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PasswordSetupModal({ onClose, onSetup, dark, currentDisplayName }) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+
+  async function handleSubmit() {
+    setError("");
+    
+    if (!password || !confirmPassword) {
+      setError("PLEASE FILL IN BOTH FIELDS");
+      return;
+    }
+    
+    if (password.length < 6) {
+      setError("PASSWORD MUST BE AT LEAST 6 CHARACTERS");
+      return;
+    }
+    
+    if (password !== confirmPassword) {
+      setError("PASSWORDS DO NOT MATCH");
+      return;
+    }
+    
+    const success = await onSetup(password);
+    if (success) {
+      onClose();
+    }
+  }
+
+  return (
+    <div style={{ 
+      position: 'fixed', 
+      inset: 0, 
+      zIndex: 60, 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      backgroundColor: 'rgba(0,0,0,0.9)',
+      padding: '20px'
+    }}>
+      <div style={{
+        maxWidth: '450px',
+        width: '100%',
+        backgroundColor: dark ? '#0a0a0a' : '#fff',
+        border: `2px solid ${dark ? '#ffa500' : '#ff8c00'}`,
+        padding: '40px 30px',
+        fontFamily: 'Helvetica Neue, Arial, sans-serif'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+          <h3 style={{ 
+            fontSize: '12px', 
+            letterSpacing: '0.15em',
+            fontWeight: '400',
+            color: dark ? '#ffa500' : '#ff8c00'
+          }}>
+            🔐 SET PASSWORD
+          </h3>
+          <button 
+            onClick={onClose}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            CLOSE
+          </button>
+        </div>
+
+        <div style={{ 
+          fontSize: '10px',
+          letterSpacing: '0.05em',
+          color: dark ? '#666' : '#999',
+          marginBottom: '20px',
+          lineHeight: '1.6',
+          padding: '15px',
+          backgroundColor: dark ? '#0f0f0f' : '#f9f9f9',
+          border: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`
+        }}>
+          <strong style={{ display: 'block', marginBottom: '8px', color: dark ? '#ffa500' : '#ff8c00' }}>YOUR DISPLAY NAME:</strong>
+          <div style={{ fontSize: '14px', color: dark ? '#fff' : '#000', marginBottom: '10px' }}>
+            {currentDisplayName}
+          </div>
+          This will remain your permanent display name. Setting a password allows you to access your account from any device.
+        </div>
+
+        <div style={{ marginBottom: '15px' }}>
+          <div style={{ 
+            fontSize: '9px',
+            letterSpacing: '0.05em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px'
+          }}>
+            NEW PASSWORD (MIN 6 CHARACTERS)
+          </div>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmit();
+            }}
+            placeholder="Enter password"
+            autoFocus
+            style={{
+              width: '100%',
+              fontSize: '16px',
+              letterSpacing: '0.05em',
+              padding: '12px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              outline: 'none',
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ 
+            fontSize: '9px',
+            letterSpacing: '0.05em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px'
+          }}>
+            CONFIRM PASSWORD
+          </div>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmit();
+            }}
+            placeholder="Confirm password"
+            style={{
+              width: '100%',
+              fontSize: '16px',
+              letterSpacing: '0.05em',
+              padding: '12px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              outline: 'none',
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif',
+              boxSizing: 'border-box'
+            }}
+          />
+        </div>
+
+        {error && (
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.05em',
+            color: dark ? '#ff4444' : '#ff0000',
+            marginBottom: '15px',
+            textAlign: 'center'
+          }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{
+          fontSize: '9px',
+          letterSpacing: '0.05em',
+          color: dark ? '#ff4444' : '#ff0000',
+          marginBottom: '20px',
+          lineHeight: '1.5',
+          padding: '10px',
+          backgroundColor: dark ? '#1a0a0a' : '#fff5f5',
+          border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`
+        }}>
+          ⚠️ Remember this password! There is no recovery method. Without your password, you cannot access your account.
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px',
+              backgroundColor: 'transparent',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            CANCEL
+          </button>
+          <button
+            onClick={handleSubmit}
+            style={{
+              flex: 1,
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px',
+              backgroundColor: dark ? '#ffa500' : '#ff8c00',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#000',
+              transition: 'opacity 0.2s',
+              fontWeight: '500'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            SET PASSWORD
+          </button>
         </div>
       </div>
     </div>
