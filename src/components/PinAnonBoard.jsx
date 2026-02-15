@@ -1645,7 +1645,7 @@ export default function PinAnonBoard() {
           dark={dark}
         />
       )}
-      </div> 
+      </div>
   );
 }
 
@@ -2295,6 +2295,10 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
     (userJoinedRooms || []).includes(r.id)
   );
 
+  // Get current room object to check if private
+  const currentRoomObj = rooms.find(r => r.id === currentRoom);
+  const isCurrentRoomPrivate = currentRoomObj?.isPrivate;
+
   return (
     <div style={{ position: 'relative' }}>
       <button
@@ -2318,6 +2322,23 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
         }}
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentRoomName.toUpperCase()}</span>
+        {isCurrentRoomPrivate ? (
+          <span style={{ 
+            fontSize: '9px',
+            opacity: '0.6',
+            flexShrink: 0
+          }}>
+            🔒
+          </span>
+        ) : (
+          <span style={{ 
+            fontSize: '9px',
+            opacity: '0.4',
+            flexShrink: 0
+          }}>
+            🌐
+          </span>
+        )}
         <span style={{ fontSize: '9px', flexShrink: 0 }}>▼</span>
       </button>
 
@@ -2415,12 +2436,34 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
                         color: r.id === currentRoom ? (dark ? '#fff' : '#000') : (dark ? '#999' : '#666'),
                         transition: 'opacity 0.2s',
                         wordBreak: 'break-word',
-                        overflowWrap: 'break-word'
+                        overflowWrap: 'break-word',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
                       }}
                       onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                       onMouseLeave={(e) => e.target.style.opacity = '1'}
                     >
-                      {r.name.toUpperCase()}{isCreator ? ' ★' : ''}{r.isPrivate ? ' 🔒' : ''}
+                      <span style={{ flex: 1 }}>
+                        {r.name.toUpperCase()}{isCreator ? ' ★' : ''}
+                      </span>
+                      {r.isPrivate ? (
+                        <span style={{ 
+                          fontSize: '9px',
+                          opacity: '0.6',
+                          flexShrink: 0
+                        }}>
+                          🔒
+                        </span>
+                      ) : (
+                        <span style={{ 
+                          fontSize: '9px',
+                          opacity: '0.4',
+                          flexShrink: 0
+                        }}>
+                          🌐
+                        </span>
+                      )}
                     </button>
                     {(isAdmin || isCreator) && r.id !== DEFAULT_ROOM && (
                       <button
