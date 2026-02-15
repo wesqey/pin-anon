@@ -1151,31 +1151,6 @@ export default function PinAnonBoard() {
                   🛡️ ADMIN
                 </button>
               )}
-              <button
-                onClick={() => {
-                  // If not in a room, switch to main room before posting
-                  if (view !== "room") {
-                    setRoom(DEFAULT_ROOM);
-                  }
-                  setShowNew(true);
-                }}
-                style={{
-                  fontSize: '18px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: dark ? '#fff' : '#000',
-                  transition: 'opacity 0.2s',
-                  fontWeight: '300',
-                  padding: '0',
-                  lineHeight: '1'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-                title="New Post"
-              >
-                +
-              </button>
             </div>
           </div>
 
@@ -1262,6 +1237,53 @@ export default function PinAnonBoard() {
             </div>
           )}
         </header>
+
+        {/* New Post Button - positioned below header */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          marginBottom: '40px',
+          marginTop: '-30px' // Pull up slightly to reduce gap from header
+        }}>
+          <button
+            onClick={() => {
+              // If not in a room, switch to main room before posting
+              if (view !== "room") {
+                setRoom(DEFAULT_ROOM);
+              }
+              setShowNew(true);
+            }}
+            style={{
+              fontSize: '32px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              borderRadius: '50%',
+              width: '56px',
+              height: '56px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: dark ? '#fff' : '#000',
+              transition: 'all 0.2s',
+              fontWeight: '300',
+              padding: '0',
+              lineHeight: '1',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.opacity = '0.7';
+              e.target.style.transform = 'scale(1.05)';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.opacity = '1';
+              e.target.style.transform = 'scale(1)';
+            }}
+            title="New Post"
+          >
+            +
+          </button>
+        </div>
 
         {view === "profile" && profileView ? (
           <ProfilePage
@@ -4480,7 +4502,6 @@ function LoginModal({ onClose, onAdminLogin, onSignUp, onLogin, dark }) {
     </div>
   );
 }
-
 
 function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onLogout }) {
   const [showCopied, setShowCopied] = useState(false);
