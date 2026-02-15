@@ -1091,30 +1091,22 @@ export default function PinAnonBoard() {
             </button>
 
             <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <div
-                style={{
-                  fontSize: '10px',
-                  letterSpacing: '0.15em',
-                  color: dark ? '#999' : '#666'
-                }}
-              >
-                {user.displayName || user.id.toUpperCase()}
-              </div>
               <button
                 onClick={() => enterProfile(user.id)}
                 style={{
                   fontSize: '10px',
                   letterSpacing: '0.15em',
+                  color: dark ? '#999' : '#666',
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  color: dark ? '#fff' : '#000',
+                  padding: '0',
                   transition: 'opacity 0.2s'
                 }}
                 onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                 onMouseLeave={(e) => e.target.style.opacity = '1'}
               >
-                PROFILE
+                {user.displayName || user.id.toUpperCase()}
               </button>
               <button
                 onClick={() => setShowSettings(true)}
@@ -1256,8 +1248,7 @@ export default function PinAnonBoard() {
             style={{
               fontSize: '32px',
               background: 'none',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              borderRadius: '50%',
+              border: 'none',
               width: '56px',
               height: '56px',
               display: 'flex',
@@ -1268,8 +1259,7 @@ export default function PinAnonBoard() {
               transition: 'all 0.2s',
               fontWeight: '300',
               padding: '0',
-              lineHeight: '1',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+              lineHeight: '1'
             }}
             onMouseEnter={(e) => {
               e.target.style.opacity = '0.7';
@@ -1655,7 +1645,7 @@ export default function PinAnonBoard() {
           dark={dark}
         />
       )}
-      </div>
+      </div> 
   );
 }
 
