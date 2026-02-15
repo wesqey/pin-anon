@@ -4481,6 +4481,7 @@ function LoginModal({ onClose, onAdminLogin, onSignUp, onLogin, dark }) {
   );
 }
 
+
 function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onLogout }) {
   const [showCopied, setShowCopied] = useState(false);
 
