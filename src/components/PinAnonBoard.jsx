@@ -4924,6 +4924,29 @@ function AdminPanel({ onClose, dark, user }) {
     }
   };
   
+  const removeUser = async (userId, displayName) => {
+    const confirmed = confirm(`⚠️ REMOVE USER?\n\nThis will permanently delete:\n- User: ${displayName}\n- ID: ${userId}\n- All their data\n\nThis action CANNOT be undone!\n\nType "DELETE" to confirm.`);
+    
+    if (!confirmed) return;
+    
+    const confirmText = prompt('Type "DELETE" to confirm:');
+    if (confirmText !== "DELETE") {
+      alert("REMOVAL CANCELLED");
+      return;
+    }
+    
+    try {
+      // Remove user from Firebase
+      const userRef = ref(database, `users/${userId}`);
+      await remove(userRef);
+      
+      alert(`USER ${displayName} REMOVED SUCCESSFULLY`);
+    } catch (error) {
+      console.error("Remove user error:", error);
+      alert("USER REMOVAL FAILED");
+    }
+  };
+  
   return (
     <div style={{ 
       position: 'fixed', 
@@ -5115,28 +5138,51 @@ function AdminPanel({ onClose, dark, user }) {
                   }}>
                     ID: {u.id}
                   </div>
-                  <button
-                    onClick={() => {
-                      const newPw = prompt("ENTER NEW PASSWORD FOR THIS USER:");
-                      if (newPw) {
-                        resetPassword(u.id, newPw);
-                      }
-                    }}
-                    style={{
-                      fontSize: '9px',
-                      letterSpacing: '0.1em',
-                      padding: '8px 12px',
-                      backgroundColor: 'transparent',
-                      border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                      cursor: 'pointer',
-                      color: dark ? '#999' : '#666',
-                      transition: 'opacity 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-                    onMouseLeave={(e) => e.target.style.opacity = '1'}
-                  >
-                    RESET PASSWORD
-                  </button>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => {
+                        const newPw = prompt("ENTER NEW PASSWORD FOR THIS USER:");
+                        if (newPw) {
+                          resetPassword(u.id, newPw);
+                        }
+                      }}
+                      style={{
+                        fontSize: '9px',
+                        letterSpacing: '0.1em',
+                        padding: '8px 12px',
+                        backgroundColor: 'transparent',
+                        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                        cursor: 'pointer',
+                        color: dark ? '#999' : '#666',
+                        transition: 'opacity 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+                      onMouseLeave={(e) => e.target.style.opacity = '1'}
+                    >
+                      RESET PASSWORD
+                    </button>
+                    {u.id !== user.id && (
+                      <button
+                        onClick={() => {
+                          removeUser(u.id, u.displayName || u.id.substring(0, 8));
+                        }}
+                        style={{
+                          fontSize: '9px',
+                          letterSpacing: '0.1em',
+                          padding: '8px 12px',
+                          backgroundColor: 'transparent',
+                          border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`,
+                          cursor: 'pointer',
+                          color: dark ? '#ff4444' : '#ff0000',
+                          transition: 'opacity 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+                        onMouseLeave={(e) => e.target.style.opacity = '1'}
+                      >
+                        REMOVE USER
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))
             )
