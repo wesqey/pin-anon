@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { initializeApp } from "firebase/app";
 import { 
   getDatabase, 
@@ -30,6 +31,18 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 const auth = getAuth(app);
+// MinIO S3 Client
+const s3Client = new S3Client({
+  endpoint: 'https://api.pinanonarchive.com',
+  region: 'us-east-1',
+  credentials: {
+  accessKeyId: import.meta.env.VITE_MINIO_ACCESS_KEY,
+  secretAccessKey: import.meta.env.VITE_MINIO_SECRET_KEY
+},
+  forcePathStyle: true
+});
+
+const MINIO_BUCKET = 'uploads';
 
 // ---------- Config & utils ----------
 const LS_USER = "pinanon_v3_user";
@@ -2507,100 +2520,105 @@ function NewPostModal({ onClose, onPost, dark }) {
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
 
-  const CLOUDINARY_CLOUD_NAME = "dnulbfj48";
-  const CLOUDINARY_UPLOAD_PRESET = "pin-anon-uploads";
 
   async function handleFile(e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      alert("IMAGE TOO LARGE");
-      return;
-    }
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-        { method: "POST", body: formData }
-      );
-      const data = await response.json();
-      if (data.secure_url) {
-        setImg(data.secure_url);
-      } else {
-        throw new Error("Upload failed");
-      }
-      setUploading(false);
-    } catch (error) {
-      console.error("Upload error:", error);
-      alert("FAILED TO UPLOAD IMAGE");
-      setUploading(false);
-    }
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024) {
+    alert("IMAGE TOO LARGE");
+    return;
   }
+  setUploading(true);
+  try {
+    const filename = `${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
+    
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    
+    const command = new PutObjectCommand({
+      Bucket: MINIO_BUCKET,
+      Key: filename,
+      Body: buffer,
+      ContentType: file.type
+    });
+    
+    await s3Client.send(command);
+    
+    const publicUrl = `https://api.pinanonarchive.com/${MINIO_BUCKET}/${filename}`;
+    setImg(publicUrl);
+    setUploading(false);
+  } catch (error) {
+    console.error("Upload error:", error);
+    alert("FAILED TO UPLOAD IMAGE");
+    setUploading(false);
+  }
+}
 
   async function handleVideoFile(e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    if (file.size > 100 * 1024 * 1024) { // 100MB limit for video
-      alert("VIDEO TOO LARGE (MAX 100MB)");
-      return;
-    }
-    setUploadingVideo(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-      formData.append("resource_type", "video");
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`,
-        { method: "POST", body: formData }
-      );
-      const data = await response.json();
-      if (data.secure_url) {
-        setVideoUrl(data.secure_url);
-      } else {
-        throw new Error("Upload failed");
-      }
-      setUploadingVideo(false);
-    } catch (error) {
-      console.error("Upload error:", error);
-      alert("FAILED TO UPLOAD VIDEO");
-      setUploadingVideo(false);
-    }
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (file.size > 100 * 1024 * 1024) {
+    alert("VIDEO TOO LARGE (MAX 100MB)");
+    return;
   }
+  setUploadingVideo(true);
+  try {
+    const filename = `${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
+    
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    
+    const command = new PutObjectCommand({
+      Bucket: MINIO_BUCKET,
+      Key: filename,
+      Body: buffer,
+      ContentType: file.type
+    });
+    
+    await s3Client.send(command);
+    
+    const publicUrl = `https://api.pinanonarchive.com/${MINIO_BUCKET}/${filename}`;
+    setVideoUrl(publicUrl);
+    setUploadingVideo(false);
+  } catch (error) {
+    console.error("Upload error:", error);
+    alert("FAILED TO UPLOAD VIDEO");
+    setUploadingVideo(false);
+  }
+}
 
   async function handleAudioFile(e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    if (file.size > 50 * 1024 * 1024) { // 50MB limit for audio
-      alert("AUDIO TOO LARGE (MAX 50MB)");
-      return;
-    }
-    setUploadingAudio(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-      formData.append("resource_type", "video"); // Cloudinary uses 'video' for audio too
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`,
-        { method: "POST", body: formData }
-      );
-      const data = await response.json();
-      if (data.secure_url) {
-        setAudioUrl(data.secure_url);
-      } else {
-        throw new Error("Upload failed");
-      }
-      setUploadingAudio(false);
-    } catch (error) {
-      console.error("Upload error:", error);
-      alert("FAILED TO UPLOAD AUDIO");
-      setUploadingAudio(false);
-    }
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (file.size > 50 * 1024 * 1024) {
+    alert("AUDIO TOO LARGE (MAX 50MB)");
+    return;
   }
+  setUploadingAudio(true);
+  try {
+    const filename = `${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
+    
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    
+    const command = new PutObjectCommand({
+      Bucket: MINIO_BUCKET,
+      Key: filename,
+      Body: buffer,
+      ContentType: file.type
+    });
+    
+    await s3Client.send(command);
+    
+    const publicUrl = `https://api.pinanonarchive.com/${MINIO_BUCKET}/${filename}`;
+    setAudioUrl(publicUrl);
+    setUploadingAudio(false);
+  } catch (error) {
+    console.error("Upload error:", error);
+    alert("FAILED TO UPLOAD AUDIO");
+    setUploadingAudio(false);
+  }
+}
 
   function submit() {
     if (!text.trim() && !img && !videoUrl && !audioUrl) return;
