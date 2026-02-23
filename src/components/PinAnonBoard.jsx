@@ -4040,36 +4040,39 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
   const [profileImage, setProfileImage] = useState(user.profileImage || "");
   const [uploading, setUploading] = useState(false);
 
-  const CLOUDINARY_CLOUD_NAME = "dnulbfj48";
-  const CLOUDINARY_UPLOAD_PRESET = "pin-anon-uploads";
 
   async function handleProfileImageUpload(e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      alert("IMAGE TOO LARGE (MAX 5MB)");
-      return;
-    }
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-        { method: "POST", body: formData }
-      );
-      const data = await response.json();
-      if (data.secure_url) {
-        setProfileImage(data.secure_url);
-      }
-      setUploading(false);
-    } catch (error) {
-      console.error("Upload error:", error);
-      alert("FAILED TO UPLOAD IMAGE");
-      setUploading(false);
-    }
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    alert("IMAGE TOO LARGE (MAX 5MB)");
+    return;
   }
+  setUploading(true);
+  try {
+    const filename = `profile_${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
+    
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    
+    const command = new PutObjectCommand({
+      Bucket: MINIO_BUCKET,
+      Key: filename,
+      Body: buffer,
+      ContentType: file.type
+    });
+    
+    await s3Client.send(command);
+    
+    const publicUrl = `https://api.pinanonarchive.com/${MINIO_BUCKET}/${filename}`;
+    setProfileImageUrl(publicUrl);
+    setUploading(false);
+  } catch (error) {
+    console.error("Upload error:", error);
+    alert("FAILED TO UPLOAD PROFILE IMAGE");
+    setUploading(false);
+  }
+}
 
   function handleSave() {
     onSave({
