@@ -44,7 +44,7 @@ const s3Client = new S3Client({
 
 const MINIO_BUCKET = 'uploads';
 // Public URL for serving uploaded files — change this to your Cloudflare CDN domain if different from the S3 endpoint
-const MINIO_PUBLIC_URL = 'https://media.pinanonarchive.com';
+const MINIO_PUBLIC_URL = 'https://media.pinanonarchive.com/browser';
 
 // ---------- Config & utils ----------
 const LS_USER = "pinanon_v3_user";
