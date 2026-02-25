@@ -127,14 +127,26 @@ export default function PinAnonBoard() {
   const [layout, setLayout] = useState(() => {
     return localStorage.getItem("pinanon_layout") || "single";
   }); // "single", "double", or "triple"
+
+  // Parse initial view/room/profile from URL hash e.g. #room/lounge or #profile/userId
   const [view, setView] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (hash.startsWith('profile/')) return 'profile';
+    if (hash.startsWith('room/')) return 'room';
+    if (hash === 'home') return 'home';
     return localStorage.getItem("pinanon_view") || "home";
-  }); // "home", "room", or "profile"
+  });
   const [room, setRoom] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (hash.startsWith('room/')) return hash.split('/')[1] || DEFAULT_ROOM;
     return localStorage.getItem("pinanon_room") || DEFAULT_ROOM;
   });
   const [showNew, setShowNew] = useState(false);
-  const [profileView, setProfileView] = useState(null);
+  const [profileView, setProfileView] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (hash.startsWith('profile/')) return hash.split('/')[1] || null;
+    return null;
+  });
   const [previousView, setPreviousView] = useState("home"); // Track where user came from
   const [sort, setSort] = useState("newest");
   const [whisper, setWhisper] = useState(false);
@@ -603,6 +615,37 @@ export default function PinAnonBoard() {
   useEffect(() => {
     localStorage.setItem("pinanon_layout", layout);
   }, [layout]);
+
+  // Sync view/room/profile → URL hash so reload and back button work
+  useEffect(() => {
+    if (!user.hasAccess) return; // Don't mess with hash on gate screen
+    let hash = 'home';
+    if (view === 'room') hash = `room/${room}`;
+    else if (view === 'profile' && profileView) hash = `profile/${profileView}`;
+    if (window.location.hash !== `#${hash}`) {
+      window.history.pushState(null, '', `#${hash}`);
+    }
+    localStorage.setItem("pinanon_view", view);
+    localStorage.setItem("pinanon_room", room);
+  }, [view, room, profileView, user.hasAccess]);
+
+  // Handle browser back/forward button
+  useEffect(() => {
+    const handlePop = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (hash.startsWith('profile/')) {
+        const id = hash.split('/')[1];
+        if (id) { setProfileView(id); setView('profile'); }
+      } else if (hash.startsWith('room/')) {
+        const r = hash.split('/')[1];
+        if (r) { setRoom(r); setView('room'); }
+      } else {
+        setView('home');
+      }
+    };
+    window.addEventListener('popstate', handlePop);
+    return () => window.removeEventListener('popstate', handlePop);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("pinanon_view", view);
@@ -1816,7 +1859,7 @@ function InviteGate({ onRedeem, onLogin, getColor }) {
           autoFocus
           style={{
             width: '100%',
-            fontSize: mode === "login" ? '16px' : '14px',
+            fontSize: '16px',
             letterSpacing: mode === "login" ? '0.05em' : '0.2em',
             padding: '15px',
             marginBottom: '20px',
