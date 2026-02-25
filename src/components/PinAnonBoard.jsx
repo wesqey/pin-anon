@@ -83,7 +83,6 @@ const EMPTY = {
   posts: [],
   settings: { whisper: false },
   inviteCodes: {}, // { code: { used: false, createdBy: userId, usedBy: null, created: timestamp } }
-  syncTokens: {}, // { token: { firebaseUID: uid, used: false, created: timestamp, expiresAt: timestamp } }
   users: {} // Track which users have access
 };
 
@@ -92,7 +91,6 @@ export default function PinAnonBoard() {
   const [state, setState] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [firebaseUser, setFirebaseUser] = useState(null);
-  const [syncToken, setSyncToken] = useState(null);
   const [legacyUserId, setLegacyUserId] = useState(null); // Store old localStorage ID for backwards compat
   const [user, setUser] = useState(() => {
     const existing = loadUser();
@@ -529,7 +527,6 @@ export default function PinAnonBoard() {
           posts: Array.isArray(data.posts) ? data.posts : (data.posts ? Object.values(data.posts) : []),
           rooms: Array.isArray(data.rooms) ? data.rooms : (data.rooms ? Object.values(data.rooms) : EMPTY.rooms),
           inviteCodes: data.inviteCodes || {},
-          syncTokens: data.syncTokens || {},
         });
         setWhisper(data.settings?.whisper || false);
       } else {
@@ -547,8 +544,6 @@ export default function PinAnonBoard() {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setFirebaseUser(firebaseUser);
-        const token = await firebaseUser.getIdToken();
-        setSyncToken(token);
 
         // Load user data from Firebase using user.id (not firebaseUser.uid).
         // This is only done once on mount to hydrate from Firebase if localStorage is stale.
@@ -880,15 +875,12 @@ export default function PinAnonBoard() {
     setUser(updatedUser);
     saveUser(updatedUser);
     
-    // Explicitly save to Firebase
-    if (firebaseUser) {
-      const userRef = ref(database, `users/${firebaseUser.uid}`);
-      set(userRef, updatedUser).then(() => {
-      }).catch((error) => {
+    // Save to Firebase under the user's permanent ID (not firebaseUser.uid which is session-only)
+    if (updatedUser.id) {
+      const userRef = ref(database, `users/${updatedUser.id}`);
+      set(userRef, updatedUser).catch((error) => {
         console.error('❌ Failed to save profile to Firebase:', error);
       });
-    } else {
-      console.error('❌ Cannot save profile: firebaseUser is null');
     }
   }
 
@@ -3327,8 +3319,6 @@ function CommentThread({ comment, postId, addComment, removeComment, dark, user,
 }
 
 function AdminPage({ dark, state, user, onBack }) {
-  const [searchUID, setSearchUID] = useState("");
-  const [generatedToken, setGeneratedToken] = useState(null);
 
   if (!user.isAdmin) {
     return (
@@ -3340,30 +3330,7 @@ function AdminPage({ dark, state, user, onBack }) {
     );
   }
 
-  const generateTokenForUser = () => {
-    if (!searchUID.trim()) {
-      alert("PLEASE ENTER A FIREBASE UID");
-      return;
-    }
 
-    const token = genAnonId(8).toUpperCase();
-    const expiresAt = now() + (7 * 24 * 60 * 60 * 1000); // 7 days
-
-    const tokenData = {
-      firebaseUID: searchUID.trim(),
-      used: false,
-      created: now(),
-      expiresAt: expiresAt,
-      generatedBy: "admin"
-    };
-
-    const updates = {};
-    updates[`appState/syncTokens/${token}`] = tokenData;
-    update(ref(database), updates);
-
-    setGeneratedToken(token);
-    alert(`SYNC TOKEN GENERATED: ${token}\n\nValid for 7 days.\nShare this with the user to help them recover their account.`);
-  };
 
   // Get reports from Firebase (you'll need to implement report submission)
   const reports = state.reports || [];
@@ -3405,70 +3372,6 @@ function AdminPage({ dark, state, user, onBack }) {
         border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
         backgroundColor: dark ? '#050505' : '#fafafa'
       }}>
-        <div style={{
-          fontSize: '14px',
-          fontWeight: '400',
-          letterSpacing: '0.1em',
-          marginBottom: '20px',
-          color: dark ? '#fff' : '#000'
-        }}>
-          GENERATE SYNC TOKEN FOR USER
-        </div>
-        
-        <div style={{ fontSize: '10px', color: dark ? '#666' : '#999', marginBottom: '20px', lineHeight: '1.6' }}>
-          Use this to help users who are locked out of their accounts. Enter their Firebase UID to generate a recovery sync token.
-        </div>
-
-        <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '15px' }}>
-          <input
-            value={searchUID}
-            onChange={(e) => setSearchUID(e.target.value)}
-            placeholder="FIREBASE UID (e.g., K9mPxQ2rT7...)"
-            style={{
-              flex: 1,
-              minWidth: '300px',
-              fontSize: '16px',
-              letterSpacing: '0.05em',
-              padding: '12px',
-              background: 'none',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              outline: 'none',
-              color: dark ? '#fff' : '#000'
-            }}
-          />
-          <button
-            onClick={generateTokenForUser}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px 24px',
-              backgroundColor: dark ? '#fff' : '#000',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#000' : '#fff',
-              transition: 'opacity 0.2s',
-              whiteSpace: 'nowrap'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            GENERATE TOKEN
-          </button>
-        </div>
-
-        {generatedToken && (
-          <div style={{
-            padding: '15px',
-            backgroundColor: dark ? '#0a0a0a' : '#f0f0f0',
-            border: `1px solid ${dark ? '#333' : '#d5d5d5'}`,
-            fontSize: '14px',
-            letterSpacing: '0.1em',
-            fontFamily: 'monospace',
-            color: dark ? '#4ade80' : '#16a34a'
-          }}>
-            {generatedToken}
-          </div>
-        )}
       </div>
 
       {/* Reports Section */}
