@@ -1545,7 +1545,7 @@ export default function PinAnonBoard() {
                               controls
                               style={{ width: '100%', maxHeight: layout === 'single' ? '600px' : '300px' }}
                             >
-                              <source src={post.videoUrl} />
+                              <source src={post.videoUrl} type={post.videoUrl.endsWith('.webm') ? 'video/webm' : post.videoUrl.endsWith('.ogg') ? 'video/ogg' : 'video/mp4'} />
                               Your browser does not support video.
                             </video>
                           )}
@@ -2901,18 +2901,18 @@ function NewPostModal({ onClose, onPost, dark }) {
             </button>
             <button
               onClick={submit}
-              disabled={uploading || (!text.trim() && !img)}
+              disabled={uploading || (!text.trim() && !img && !videoUrl && !audioUrl)}
               style={{
                 fontSize: '10px',
                 letterSpacing: '0.1em',
                 padding: '10px 20px',
-                backgroundColor: (uploading || (!text.trim() && !img)) ? 'transparent' : (dark ? '#fff' : '#000'),
-                border: `1px solid ${(uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#e5e5e5') : (dark ? '#fff' : '#000')}`,
-                cursor: (uploading || (!text.trim() && !img)) ? 'not-allowed' : 'pointer',
-                color: (uploading || (!text.trim() && !img)) ? (dark ? '#333' : '#ccc') : (dark ? '#000' : '#fff'),
+                backgroundColor: (uploading || (!text.trim() && !img && !videoUrl && !audioUrl)) ? 'transparent' : (dark ? '#fff' : '#000'),
+                border: `1px solid ${(uploading || (!text.trim() && !img && !videoUrl && !audioUrl)) ? (dark ? '#333' : '#e5e5e5') : (dark ? '#fff' : '#000')}`,
+                cursor: (uploading || (!text.trim() && !img && !videoUrl && !audioUrl)) ? 'not-allowed' : 'pointer',
+                color: (uploading || (!text.trim() && !img && !videoUrl && !audioUrl)) ? (dark ? '#333' : '#ccc') : (dark ? '#000' : '#fff'),
                 transition: 'opacity 0.2s'
               }}
-              onMouseEnter={(e) => !(uploading || (!text.trim() && !img)) && (e.target.style.opacity = '0.7')}
+              onMouseEnter={(e) => !(uploading || (!text.trim() && !img && !videoUrl && !audioUrl)) && (e.target.style.opacity = '0.7')}
               onMouseLeave={(e) => e.target.style.opacity = '1'}
             >
               {uploading ? "UPLOADING..." : "POST"}
