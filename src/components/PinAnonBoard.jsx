@@ -341,6 +341,13 @@ export default function PinAnonBoard() {
         hasAccess: true  // Always grant access on successful login
       };
       
+      // If there was a ghost user sitting in localStorage before login, delete it from Firebase
+      const previousUser = loadUser();
+      if (previousUser?.id && previousUser.id !== firebaseUID) {
+        const ghostRef = ref(database, `users/${previousUser.id}`);
+        remove(ghostRef).catch(() => {});
+      }
+
       // Set local state
       setUser(correctedUserData);
       saveUser(correctedUserData);
@@ -569,11 +576,13 @@ export default function PinAnonBoard() {
     return () => unsubscribe();
   }, []);
 
-  // Sync user data to Firebase whenever it changes
-  // IMPORTANT: Write to users/${user.id} (the real account UID from password login),
-  // NOT users/${firebaseUser.uid} which is just the anonymous session UID on new devices.
+  // Sync user data to Firebase whenever it changes.
+  // Only sync if the user has a password set — this means they're a verified established account.
+  // Admin bypass users and invite-only users without passwords are NOT synced here;
+  // they get written to Firebase explicitly in setupPassword / useInviteCode instead.
+  // This prevents ghost accounts being created before login completes.
   useEffect(() => {
-    if (firebaseUser && user.id && user.hasAccess) {
+    if (firebaseUser && user.id && user.hasAccess && user.password) {
       const userRef = ref(database, `users/${user.id}`);
       set(userRef, user);
     }
