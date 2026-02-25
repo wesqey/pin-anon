@@ -47,7 +47,7 @@ const MINIO_BUCKET = 'uploads';
 const MINIO_PUBLIC_URL = 'https://api.pinanonarchive.com';
 
 // ---------- Config & utils ----------
-const LS_USER = "pinanon_v3_user";
+const LS_USER = "pinanon_v4_user";
 const DEFAULT_ROOM = "main";
 const ADMIN_PASSWORD = "EpicMan101";
 
