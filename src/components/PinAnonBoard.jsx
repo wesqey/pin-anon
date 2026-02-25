@@ -43,6 +43,8 @@ const s3Client = new S3Client({
 });
 
 const MINIO_BUCKET = 'uploads';
+// Public URL for serving uploaded files — change this to your Cloudflare CDN domain if different from the S3 endpoint
+const MINIO_PUBLIC_URL = 'https://media.pinanonarchive.com';
 
 // ---------- Config & utils ----------
 const LS_USER = "pinanon_v3_user";
@@ -529,26 +531,26 @@ export default function PinAnonBoard() {
           const firebaseData = snapshot.val();
           
           if (firebaseData) {
-            // User data exists in Firebase, use it
-            // Store legacy ID if it exists for backwards compatibility
+            // User data exists in Firebase for this session UID, use it
             if (firebaseData.legacyUserId) {
               setLegacyUserId(firebaseData.legacyUserId);
             }
             setUser(firebaseData);
             saveUser(firebaseData);
           } else {
-            // First time with this Firebase account, migrate localStorage user to Firebase
+            // No data at this anonymous UID.
+            // Only migrate if the localStorage user does NOT have a password set.
+            // If they have a password, they'll log in manually — don't create a ghost account.
             const currentUser = loadUser();
-            if (currentUser) {
-              // Save old localStorage ID for backwards compatibility
+            if (currentUser && !currentUser.password) {
+              // Safe to migrate: this is a fresh anonymous user, not an established account
               const oldId = currentUser.id;
               setLegacyUserId(oldId);
               
-              // Migrate to Firebase UID as primary ID
               const migratedUser = {
                 ...currentUser,
-                id: firebaseUser.uid, // Firebase UID is now primary
-                legacyUserId: oldId   // Keep old ID for finding old posts
+                id: firebaseUser.uid,
+                legacyUserId: oldId
               };
               
               setUser(migratedUser);
@@ -556,6 +558,10 @@ export default function PinAnonBoard() {
               set(userRef, migratedUser);
               
               console.log(`✅ Migrated user from ${oldId} to ${firebaseUser.uid}`);
+            } else if (currentUser && currentUser.password) {
+              // User has an established account — they need to log in.
+              // Don't overwrite with the anonymous UID. Just keep local state as-is.
+              console.log('🔒 Established account detected, skipping anonymous migration');
             }
           }
         }, { onlyOnce: true });
@@ -571,9 +577,11 @@ export default function PinAnonBoard() {
   }, []);
 
   // Sync user data to Firebase whenever it changes
+  // IMPORTANT: Write to users/${user.id} (the real account UID from password login),
+  // NOT users/${firebaseUser.uid} which is just the anonymous session UID on new devices.
   useEffect(() => {
-    if (firebaseUser && user.id) {
-      const userRef = ref(database, `users/${firebaseUser.uid}`);
+    if (firebaseUser && user.id && user.hasAccess) {
+      const userRef = ref(database, `users/${user.id}`);
       set(userRef, user);
     }
   }, [user, firebaseUser]);
@@ -2524,7 +2532,7 @@ function NewPostModal({ onClose, onPost, dark }) {
     
     await s3Client.send(command);
     
-    const publicUrl = `https://api.pinanonarchive.com/${MINIO_BUCKET}/${filename}`;
+    const publicUrl = `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
     setImg(publicUrl);
     setUploading(false);
   } catch (error) {
@@ -2557,7 +2565,7 @@ function NewPostModal({ onClose, onPost, dark }) {
     
     await s3Client.send(command);
     
-    const publicUrl = `https://api.pinanonarchive.com/${MINIO_BUCKET}/${filename}`;
+    const publicUrl = `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
     setVideoUrl(publicUrl);
     setUploadingVideo(false);
   } catch (error) {
@@ -2590,7 +2598,7 @@ function NewPostModal({ onClose, onPost, dark }) {
     
     await s3Client.send(command);
     
-    const publicUrl = `https://api.pinanonarchive.com/${MINIO_BUCKET}/${filename}`;
+    const publicUrl = `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
     setAudioUrl(publicUrl);
     setUploadingAudio(false);
   } catch (error) {
@@ -4043,7 +4051,7 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
     
     await s3Client.send(command);
     
-    const publicUrl = `https://api.pinanonarchive.com/${MINIO_BUCKET}/${filename}`;
+    const publicUrl = `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
     setProfileImage(publicUrl);
     setUploading(false);
   } catch (error) {
