@@ -504,7 +504,15 @@ export default function PinAnonBoard() {
     const unsubscribe = onValue(stateRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setState(data);
+        // Firebase drops empty arrays on write, so normalize back to arrays
+        setState({
+          ...EMPTY,
+          ...data,
+          posts: Array.isArray(data.posts) ? data.posts : (data.posts ? Object.values(data.posts) : []),
+          rooms: Array.isArray(data.rooms) ? data.rooms : (data.rooms ? Object.values(data.rooms) : EMPTY.rooms),
+          inviteCodes: data.inviteCodes || {},
+          syncTokens: data.syncTokens || {},
+        });
         setWhisper(data.settings?.whisper || false);
       } else {
         set(stateRef, EMPTY);
@@ -635,7 +643,7 @@ export default function PinAnonBoard() {
       isPrivate: isPrivate, // Now controlled by user choice
       creatorOnly: creatorOnly // Only creator can post
     };
-    const newRooms = [r, ...state.rooms];
+    const newRooms = [r, ...(state.rooms || [])];
     const updates = {};
     updates['appState/rooms'] = newRooms;
     update(ref(database), updates);
@@ -655,7 +663,7 @@ export default function PinAnonBoard() {
   }
 
   function joinRoom(code) {
-    const found = state.rooms.find((r) => r.id === code || r.invite === code);
+    const found = (state.rooms || []).find((r) => r.id === code || r.invite === code);
     if (found) {
       setRoom(found.id);
       setView("room");
@@ -772,7 +780,7 @@ export default function PinAnonBoard() {
   }
   
   function isRoomMod(roomId) {
-    const room = state.rooms.find(r => r.id === roomId);
+    const room = (state.rooms || []).find(r => r.id === roomId);
     return room?.creator === user.id;
   }
 
@@ -788,7 +796,7 @@ export default function PinAnonBoard() {
   }
 
   function removeRoom(roomId) {
-    const roomToDelete = state.rooms.find(r => r.id === roomId);
+    const roomToDelete = (state.rooms || []).find(r => r.id === roomId);
     if (!roomToDelete) return;
     
     const isCreator = roomToDelete.creator === user.id;
@@ -952,7 +960,7 @@ export default function PinAnonBoard() {
     });
 
   function postNew({ text, image, videoUrl, audioUrl }) {
-    const currentRoom = state.rooms.find(r => r.id === room);
+    const currentRoom = (state.rooms || []).find(r => r.id === room);
     
     // Check if room is creator-only and user is not the creator
     if (currentRoom?.creatorOnly && currentRoom.creator !== user.id && !user.isAdmin) {
@@ -996,7 +1004,7 @@ export default function PinAnonBoard() {
   }
 
   const currentRoomName = useMemo(() => {
-    const r = state.rooms.find(r => r.id === room);
+    const r = (state.rooms || []).find(r => r.id === room);
     return r?.name || "MAIN ROOM";
   }, [room, state.rooms]);
 
@@ -1193,7 +1201,7 @@ export default function PinAnonBoard() {
               />
               
               <RoomsDropdown 
-                rooms={state.rooms}
+                rooms={state.rooms || []}
                 currentRoom={room}
                 currentRoomName={currentRoomName}
                 onSelectRoom={enterRoom}
@@ -1279,8 +1287,8 @@ export default function PinAnonBoard() {
         {view === "profile" && profileView ? (
           <ProfilePage
             authorId={profileView}
-            posts={state.posts.filter((p) => p.author === profileView)}
-            allPosts={state.posts}
+            posts={(state.posts || []).filter((p) => p.author === profileView)}
+            allPosts={state.posts || []}
             user={user}
             firebaseUser={firebaseUser}
             onBack={() => {
@@ -1293,8 +1301,8 @@ export default function PinAnonBoard() {
           />
         ) : view === "home" ? (
           <HomePage
-            rooms={state.rooms}
-            posts={state.posts}
+            rooms={state.rooms || []}
+            posts={state.posts || []}
             onEnterRoom={enterRoom}
             onCreateRoom={() => setInviteModal(true)}
             onJoinRoom={() => {
@@ -1315,7 +1323,7 @@ export default function PinAnonBoard() {
           <div style={{ display: 'flex', gap: '0' }}>
             {/* User List Sidebar */}
             <UserListSidebar
-              posts={state.posts}
+              posts={state.posts || []}
               currentRoom={room}
               dark={dark}
               windowWidth={windowWidth}
