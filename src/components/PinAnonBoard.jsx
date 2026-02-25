@@ -389,7 +389,7 @@ export default function PinAnonBoard() {
     localStorage.setItem(LS_USER, JSON.stringify(newUser));
   }
 
-  // Setup password for existing user (migration)
+  // Setup password for existing user
   async function setupPassword(password) {
     try {
       if (password.length < 6) {
@@ -410,25 +410,24 @@ export default function PinAnonBoard() {
         return false;
       }
 
-      // CRITICAL: Save current ID as permanent displayName before changing ID
+      // Keep the user's current ID as their permanent identity.
+      // We do NOT change it to firebaseUser.uid — Firebase auth is just a session,
+      // and each device gets a different anonymous UID which would break login.
       const displayName = user.displayName || user.id.toUpperCase();
       
-      // Update user object
       const updatedUser = {
         ...user,
-        id: firebaseUser.uid,  // Change to Firebase UID
-        displayName: displayName,  // Preserve original display name!
+        displayName: displayName,
         password: hashedPassword
       };
       
-      // Save to localStorage
       setUser(updatedUser);
       saveUser(updatedUser);
       
-      // Save to Firebase
+      // passwordHashes maps hash → user.id (permanent, device-independent)
       const updates = {};
-      updates[`users/${firebaseUser.uid}`] = updatedUser;
-      updates[`passwordHashes/${hashedPassword}`] = firebaseUser.uid;
+      updates[`users/${user.id}`] = updatedUser;
+      updates[`passwordHashes/${hashedPassword}`] = user.id;
       
       await update(ref(database), updates);
       
@@ -522,59 +521,45 @@ export default function PinAnonBoard() {
     return () => unsubscribe();
   }, []);
 
-  // Firebase Auth - Sign in anonymously and sync user data
+  // Firebase Auth - Sign in anonymously for DB access only.
+  // The Firebase anonymous UID is just a session token — it is NOT the user's identity.
+  // User identity is always user.id (their permanent random ID stored in localStorage + Firebase).
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // User is signed in
         setFirebaseUser(firebaseUser);
-        
-        // Generate sync token for QR code
         const token = await firebaseUser.getIdToken();
         setSyncToken(token);
-        
-        // Try to load user data from Firebase
-        const userRef = ref(database, `users/${firebaseUser.uid}`);
-        onValue(userRef, (snapshot) => {
-          const firebaseData = snapshot.val();
-          
-          if (firebaseData) {
-            // User data exists in Firebase for this session UID, use it
-            if (firebaseData.legacyUserId) {
-              setLegacyUserId(firebaseData.legacyUserId);
+
+        // Load user data from Firebase using user.id (not firebaseUser.uid).
+        // This is only done once on mount to hydrate from Firebase if localStorage is stale.
+        const currentUser = loadUser();
+        if (currentUser?.id && currentUser?.password) {
+          // Password-protected account: load fresh data from Firebase by their real ID
+          const userRef = ref(database, `users/${currentUser.id}`);
+          onValue(userRef, (snapshot) => {
+            const firebaseData = snapshot.val();
+            if (firebaseData) {
+              setUser(firebaseData);
+              saveUser(firebaseData);
             }
-            setUser(firebaseData);
-            saveUser(firebaseData);
-          } else {
-            // No data at this anonymous UID.
-            // Only migrate if the localStorage user does NOT have a password set.
-            // If they have a password, they'll log in manually — don't create a ghost account.
-            const currentUser = loadUser();
-            if (currentUser && !currentUser.password) {
-              // Safe to migrate: this is a fresh anonymous user, not an established account
-              const oldId = currentUser.id;
-              setLegacyUserId(oldId);
-              
-              const migratedUser = {
-                ...currentUser,
-                id: firebaseUser.uid,
-                legacyUserId: oldId
-              };
-              
-              setUser(migratedUser);
-              saveUser(migratedUser);
-              set(userRef, migratedUser);
-              
-              console.log(`✅ Migrated user from ${oldId} to ${firebaseUser.uid}`);
-            } else if (currentUser && currentUser.password) {
-              // User has an established account — they need to log in.
-              // Don't overwrite with the anonymous UID. Just keep local state as-is.
-              console.log('🔒 Established account detected, skipping anonymous migration');
+            // If no Firebase data, keep localStorage version (they may need to re-login)
+          }, { onlyOnce: true });
+        } else if (currentUser?.id && !currentUser?.password && currentUser?.hasAccess) {
+          // Non-password user: sync their data to Firebase under their real ID
+          const userRef = ref(database, `users/${currentUser.id}`);
+          onValue(userRef, (snapshot) => {
+            const firebaseData = snapshot.val();
+            if (firebaseData) {
+              setUser(firebaseData);
+              saveUser(firebaseData);
+            } else {
+              // First time — push local user to Firebase
+              set(userRef, currentUser);
             }
-          }
-        }, { onlyOnce: true });
+          }, { onlyOnce: true });
+        }
       } else {
-        // No user signed in, sign in anonymously
         signInAnonymously(auth).catch((error) => {
           console.error("Error signing in anonymously:", error);
         });
@@ -705,7 +690,7 @@ export default function PinAnonBoard() {
     const post = state.posts[postIndex];
     const newComment = {
       id: uid("c"),
-      author: user.id, // Firebase UID
+      author: user.id, // Permanent user ID
       authorId: firebaseUser ? firebaseUser.uid : user.id, // Firebase UID for profile lookup
       authorDisplayName: user.displayName || user.id.toUpperCase(), // Display name (never changes)
       text,
@@ -972,8 +957,8 @@ export default function PinAnonBoard() {
     const postId = crypto.randomUUID();
     const post = {
       id: postId,
-      author: user.id, // Firebase UID for new posts
-      authorId: firebaseUser ? firebaseUser.uid : user.id, // Firebase UID
+      author: user.id, // Permanent user ID (device-independent)
+      authorId: user.id, // Same as author — kept for backwards compatibility
       authorDisplayName: user.displayName || user.id.toUpperCase(), // Display name (never changes)
       text,
       image,
