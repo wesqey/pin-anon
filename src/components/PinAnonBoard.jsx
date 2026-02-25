@@ -2549,10 +2549,6 @@ function NewPostModal({ onClose, onPost, dark }) {
   async function handleFile(e) {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  if (file.size > 10 * 1024 * 1024) {
-    alert("IMAGE TOO LARGE");
-    return;
-  }
   setUploading(true);
   try {
     const filename = `${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
@@ -2582,10 +2578,6 @@ function NewPostModal({ onClose, onPost, dark }) {
   async function handleVideoFile(e) {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  if (file.size > 100 * 1024 * 1024) {
-    alert("VIDEO TOO LARGE (MAX 100MB)");
-    return;
-  }
   setUploadingVideo(true);
   try {
     const filename = `${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
@@ -2615,10 +2607,6 @@ function NewPostModal({ onClose, onPost, dark }) {
   async function handleAudioFile(e) {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  if (file.size > 50 * 1024 * 1024) {
-    alert("AUDIO TOO LARGE (MAX 50MB)");
-    return;
-  }
   setUploadingAudio(true);
   try {
     const filename = `${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
@@ -3979,10 +3967,6 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
   async function handleProfileImageUpload(e) {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  if (file.size > 5 * 1024 * 1024) {
-    alert("IMAGE TOO LARGE (MAX 5MB)");
-    return;
-  }
   setUploading(true);
   try {
     const filename = `profile_${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
