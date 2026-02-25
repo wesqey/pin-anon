@@ -2789,7 +2789,7 @@ function NewPostModal({ onClose, onPost, dark }) {
             </div>
             
             <input
-              value={img}
+              value={img.startsWith('https://api.pinanonarchive') ? '' : img}
               onChange={(e) => setImg(e.target.value)}
               placeholder="OR PASTE IMAGE URL"
               disabled={uploading}
@@ -2841,43 +2841,58 @@ function NewPostModal({ onClose, onPost, dark }) {
               </div>
             )}
             
-            <input
-              value={videoUrl}
-              onChange={(e) => setVideoUrl(e.target.value)}
-              placeholder="VIDEO URL (YOUTUBE OR DIRECT LINK)"
-              style={{
-                width: '100%',
+            {videoUrl ? (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
                 padding: '10px 0',
+                marginTop: '15px',
+                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
                 fontSize: '10px',
                 letterSpacing: '0.1em',
-                background: 'none',
-                border: 'none',
-                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                color: dark ? '#fff' : '#000',
-                boxSizing: 'border-box',
-                marginTop: '15px'
-              }}
-            />
+                color: dark ? '#4ade80' : '#16a34a'
+              }}>
+                ✓ VIDEO READY
+                <button onClick={() => setVideoUrl('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', letterSpacing: '0.1em', color: dark ? '#666' : '#999' }}>REMOVE</button>
+              </div>
+            ) : (
+              <input
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                placeholder="PASTE YOUTUBE URL"
+                style={{
+                  width: '100%',
+                  padding: '10px 0',
+                  fontSize: '16px',
+                  letterSpacing: '0.1em',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  outline: 'none',
+                  color: dark ? '#fff' : '#000',
+                  boxSizing: 'border-box',
+                  marginTop: '15px'
+                }}
+              />
+            )}
             
-            <input
-              value={audioUrl}
-              onChange={(e) => setAudioUrl(e.target.value)}
-              placeholder="AUDIO URL"
-              style={{
-                width: '100%',
+            {audioUrl ? (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
                 padding: '10px 0',
+                marginTop: '15px',
+                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
                 fontSize: '10px',
                 letterSpacing: '0.1em',
-                background: 'none',
-                border: 'none',
-                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                color: dark ? '#fff' : '#000',
-                boxSizing: 'border-box',
-                marginTop: '15px'
-              }}
-            />
+                color: dark ? '#4ade80' : '#16a34a'
+              }}>
+                ✓ AUDIO READY
+                <button onClick={() => setAudioUrl('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', letterSpacing: '0.1em', color: dark ? '#666' : '#999' }}>REMOVE</button>
+              </div>
+            ) : null}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '15px', flexWrap: 'wrap' }}>
