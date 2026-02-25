@@ -304,7 +304,7 @@ export default function PinAnonBoard() {
     }
   }
 
-  // Login with password only
+  // CHANGE 2: Fixed loginUser to always set hasAccess: true on successful login
   async function loginUser(password) {
     try {
       const hashedPassword = await hashPassword(password);
@@ -333,9 +333,19 @@ export default function PinAnonBoard() {
         return false;
       }
       
+      // Ensure hasAccess is set (fix for accounts created before this field existed)
+      const correctedUserData = {
+        ...userData,
+        hasAccess: true  // Always grant access on successful login
+      };
+      
       // Set local state
-      setUser(userData);
-      saveUser(userData);
+      setUser(correctedUserData);
+      saveUser(correctedUserData);
+      
+      // Update Firebase to ensure hasAccess is saved
+      const userUpdateRef = ref(database, `users/${firebaseUID}`);
+      await update(userUpdateRef, { hasAccess: true });
       
       alert("LOGGED IN SUCCESSFULLY!");
       return true;
@@ -455,6 +465,18 @@ export default function PinAnonBoard() {
       return false;
     }
   }
+
+  // CHANGE 1: Clean up any old service workers on mount
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => {
+          registration.unregister();
+          console.log('Unregistered old service worker');
+        });
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -888,12 +910,6 @@ export default function PinAnonBoard() {
     return true;
   }
 
-  async function handleLogout() {
-    // Just trigger the logout confirmation modal
-    setShowLogoutConfirm(true);
-  }
-
-
   function handleAdminLogout() {
     setUser((prev) => {
       const u = { ...prev, isAdmin: false };
@@ -1017,42 +1033,6 @@ export default function PinAnonBoard() {
   if (!user.hasAccess && !user.isAdmin) {
     return <InviteGate onRedeem={redeemInviteCode} onLogin={loginUser} getColor={getColor} />;
   }
-
-  // Add custom scrollbar styles once
-  // Temporarily disabled for debugging
-  /*
-  useEffect(() => {
-    const styleId = 'custom-scrollbar-styles';
-    let styleElement = document.getElementById(styleId);
-    
-    if (!styleElement) {
-      styleElement = document.createElement('style');
-      styleElement.id = styleId;
-      document.head.appendChild(styleElement);
-    }
-    
-    styleElement.textContent = `
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: ${dark ? '#0a0a0a' : '#fafafa'};
-      }
-      ::-webkit-scrollbar-thumb {
-        background: ${dark ? '#1a1a1a' : '#e5e5e5'};
-        border-radius: 0;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: ${dark ? '#2a2a2a' : '#d5d5d5'};
-      }
-      * {
-        scrollbar-width: thin;
-        scrollbar-color: ${dark ? '#1a1a1a #0a0a0a' : '#e5e5e5 #fafafa'};
-      }
-    `;
-  }, [dark]);
-  */
 
   return (
     <div style={{ 
@@ -3751,7 +3731,6 @@ function ProfilePage({ authorId, posts, onBack, dark, allPosts, user, firebaseUs
               {/* Delete button (only show if it's user's own post) */}
               {(() => {
                 const canDelete = p.author === user.id || (firebaseUser && p.authorId === firebaseUser.uid) || user.isAdmin;
-                // Debug logging for troubleshooting
                 if (!canDelete && p.author === authorId) {
                   console.warn('Post delete mismatch:', {
                     postAuthor: p.author,
@@ -4065,7 +4044,7 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
     await s3Client.send(command);
     
     const publicUrl = `https://api.pinanonarchive.com/${MINIO_BUCKET}/${filename}`;
-    setProfileImageUrl(publicUrl);
+    setProfileImage(publicUrl);
     setUploading(false);
   } catch (error) {
     console.error("Upload error:", error);
@@ -4944,6 +4923,30 @@ function AdminPanel({ onClose, dark, user }) {
       alert("PASSWORD RESET FAILED");
     }
   };
+
+  // CHANGE 3: Add removeUser function to AdminPanel
+  const removeUser = async (userId, displayName) => {
+    const confirmed = confirm(`⚠️ REMOVE USER?\n\nThis will permanently delete:\n- User: ${displayName}\n- ID: ${userId}\n- All their data\n\nThis action CANNOT be undone!\n\nType "DELETE" to confirm.`);
+    
+    if (!confirmed) return;
+    
+    const confirmText = prompt('Type "DELETE" to confirm:');
+    if (confirmText !== "DELETE") {
+      alert("REMOVAL CANCELLED");
+      return;
+    }
+    
+    try {
+      // Remove user from Firebase
+      const userRef = ref(database, `users/${userId}`);
+      await remove(userRef);
+      
+      alert(`USER ${displayName} REMOVED SUCCESSFULLY`);
+    } catch (error) {
+      console.error("Remove user error:", error);
+      alert("USER REMOVAL FAILED");
+    }
+  };
   
   return (
     <div style={{ 
@@ -5136,28 +5139,52 @@ function AdminPanel({ onClose, dark, user }) {
                   }}>
                     ID: {u.id}
                   </div>
-                  <button
-                    onClick={() => {
-                      const newPw = prompt("ENTER NEW PASSWORD FOR THIS USER:");
-                      if (newPw) {
-                        resetPassword(u.id, newPw);
-                      }
-                    }}
-                    style={{
-                      fontSize: '9px',
-                      letterSpacing: '0.1em',
-                      padding: '8px 12px',
-                      backgroundColor: 'transparent',
-                      border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                      cursor: 'pointer',
-                      color: dark ? '#999' : '#666',
-                      transition: 'opacity 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-                    onMouseLeave={(e) => e.target.style.opacity = '1'}
-                  >
-                    RESET PASSWORD
-                  </button>
+                  {/* CHANGE 4: Replace single button with flex container holding RESET PASSWORD + REMOVE USER */}
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => {
+                        const newPw = prompt("ENTER NEW PASSWORD FOR THIS USER:");
+                        if (newPw) {
+                          resetPassword(u.id, newPw);
+                        }
+                      }}
+                      style={{
+                        fontSize: '9px',
+                        letterSpacing: '0.1em',
+                        padding: '8px 12px',
+                        backgroundColor: 'transparent',
+                        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                        cursor: 'pointer',
+                        color: dark ? '#999' : '#666',
+                        transition: 'opacity 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+                      onMouseLeave={(e) => e.target.style.opacity = '1'}
+                    >
+                      RESET PASSWORD
+                    </button>
+                    {u.id !== user.id && (
+                      <button
+                        onClick={() => {
+                          removeUser(u.id, u.displayName || u.id.substring(0, 8));
+                        }}
+                        style={{
+                          fontSize: '9px',
+                          letterSpacing: '0.1em',
+                          padding: '8px 12px',
+                          backgroundColor: 'transparent',
+                          border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`,
+                          cursor: 'pointer',
+                          color: dark ? '#ff4444' : '#ff0000',
+                          transition: 'opacity 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.target.style.opacity = '0.7'}
+                        onMouseLeave={(e) => e.target.style.opacity = '1'}
+                      >
+                        REMOVE USER
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))
             )
