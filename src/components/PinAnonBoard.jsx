@@ -8,7 +8,8 @@ import {
   onValue, 
   push,
   update,
-  remove
+  remove,
+  get
 } from "firebase/database";
 import {
   getAuth,
@@ -31,38 +32,57 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 const auth = getAuth(app);
+
 // MinIO S3 Client
 const s3Client = new S3Client({
   endpoint: 'https://api.pinanonarchive.com',
   region: 'us-east-1',
   credentials: {
-  accessKeyId: import.meta.env.VITE_MINIO_ACCESS_KEY,
-  secretAccessKey: import.meta.env.VITE_MINIO_SECRET_KEY
-},
+    accessKeyId: import.meta.env.VITE_MINIO_ACCESS_KEY,
+    secretAccessKey: import.meta.env.VITE_MINIO_SECRET_KEY
+  },
   forcePathStyle: true
 });
 
 const MINIO_BUCKET = 'uploads';
-// Public URL for serving uploaded files — change this to your Cloudflare CDN domain if different from the S3 endpoint
 const MINIO_PUBLIC_URL = 'https://api.pinanonarchive.com';
 
 // ---------- Config & utils ----------
-const LS_USER = "pinanon_v4_user";
+const LS_USER = "carlisle_user";
 const DEFAULT_ROOM = "main";
 const ADMIN_PASSWORD = "EpicMan101";
 
-function genAnonId(length = 7) {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+// Xbox 360-style username generator
+const adjectives = [
+  "Big", "Small", "Fast", "Slow", "Dead", "Sad", "Happy", "Angry",
+  "Quiet", "Loud", "Cold", "Hot", "Wet", "Dry", "Old", "New",
+  "Half", "Full", "Empty", "Broken", "Fixed", "Lost", "Found", "Hidden",
+  "Dizzy", "Sleepy", "Grumpy", "Fancy", "Plain", "Shiny", "Dull", "Tiny",
+  "Giant", "Mini", "Mega", "Ultra", "Super", "Hyper", "Turbo", "Extreme",
+  "Fuzzy", "Smooth", "Rough", "Sharp", "Blunt", "Thick", "Thin", "Wide"
+];
+
+const nouns = [
+  "Dog", "Cat", "Fish", "Bird", "Mouse", "Frog", "Bear", "Wolf",
+  "Fox", "Deer", "Duck", "Goose", "Cow", "Pig", "Sheep", "Goat",
+  "Turtle", "Snail", "Crab", "Shrimp", "Clam", "Squid", "Whale", "Shark",
+  "Tree", "Rock", "Cloud", "Moon", "Star", "Sun", "Wind", "Rain",
+  "Box", "Cup", "Lamp", "Chair", "Table", "Door", "Window", "Wall",
+  "Car", "Truck", "Bike", "Boat", "Plane", "Train", "Bus", "Van",
+  "Pizza", "Taco", "Bread", "Cheese", "Apple", "Grape", "Melon", "Berry"
+];
+
+function generateUsername() {
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const noun = nouns[Math.floor(Math.random() * nouns.length)];
+  const num = Math.floor(Math.random() * 100);
+  return `${adj}${noun}${num}`;
 }
 
 function uid(prefix = "id") {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 }
+
 function now() {
   return Date.now();
 }
@@ -70,6 +90,7 @@ function now() {
 function saveUser(u) {
   localStorage.setItem(LS_USER, JSON.stringify(u));
 }
+
 function loadUser() {
   try {
     return JSON.parse(localStorage.getItem(LS_USER)) || null;
@@ -82,86 +103,78 @@ const EMPTY = {
   rooms: [{ id: DEFAULT_ROOM, name: "main room", invite: DEFAULT_ROOM }],
   posts: [],
   settings: { whisper: false },
-  inviteCodes: {}, // { code: { used: false, createdBy: userId, usedBy: null, created: timestamp } }
-  users: {} // Track which users have access
+  inviteCodes: {},
+  users: {},
+  usernames: {}
 };
 
 // ---------- Main Component ----------
-export default function PinAnonBoard() {
+export default function Carlisle() {
   const [state, setState] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
   const [firebaseUser, setFirebaseUser] = useState(null);
-  const [legacyUserId, setLegacyUserId] = useState(null); // Store old localStorage ID for backwards compat
+  const [legacyUserId, setLegacyUserId] = useState(null);
   const [user, setUser] = useState(() => {
     const existing = loadUser();
-    if (existing?.id) {
-      // Grandfather in existing users - if they don't have hasAccess field yet, give them access
-      if (existing.hasAccess === undefined) {
-        existing.hasAccess = true;
-        existing.inviteCodesRemaining = 3;
-        localStorage.setItem(LS_USER, JSON.stringify(existing));
-      }
+    if (existing?.id && existing?.username) {
       return existing;
     }
     const newUser = { 
-      id: genAnonId(7), // Will become Firebase UID after setting password
-      displayName: null, // Username shown to others (never changes)
-      password: null, // Hashed password (only way to access account)
+      id: null,
+      username: null,
+      password: null,
       bio: null,
       profileImage: null,
       isAdmin: false,
-      hasAccess: false, // Whether they've used an invite code
-      inviteCodesRemaining: 0, // How many invites they can give out
-      inviteCodesCreated: [], // Codes they've created
-      createdRooms: [], // Track rooms this user created
-      createdPosts: [], // Track posts this user created
-      joinedRooms: [DEFAULT_ROOM], // Track rooms user has joined
-      needsPasswordSetup: false // For migrating existing users
+      hasAccess: false,
+      inviteCodesRemaining: 0,
+      inviteCodesCreated: [],
+      createdRooms: [],
+      createdPosts: [],
+      joinedRooms: [DEFAULT_ROOM]
     };
     localStorage.setItem(LS_USER, JSON.stringify(newUser));
     return newUser;
   });
 
   const [layout, setLayout] = useState(() => {
-    return localStorage.getItem("pinanon_layout") || "single";
-  }); // "single", "double", or "triple"
+    return localStorage.getItem("carlisle_layout") || "single";
+  });
 
-  // Parse initial view/room/profile from URL hash e.g. #room/lounge or #profile/userId
   const [view, setView] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash.startsWith('profile/')) return 'profile';
     if (hash.startsWith('room/')) return 'room';
     if (hash === 'home') return 'home';
-    return localStorage.getItem("pinanon_view") || "home";
+    return localStorage.getItem("carlisle_view") || "home";
   });
+
   const [room, setRoom] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash.startsWith('room/')) return hash.split('/')[1] || DEFAULT_ROOM;
-    return localStorage.getItem("pinanon_room") || DEFAULT_ROOM;
+    return localStorage.getItem("carlisle_room") || DEFAULT_ROOM;
   });
+
   const [showNew, setShowNew] = useState(false);
   const [profileView, setProfileView] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash.startsWith('profile/')) return hash.split('/')[1] || null;
     return null;
   });
-  const [previousView, setPreviousView] = useState("home"); // Track where user came from
+  const [previousView, setPreviousView] = useState("home");
   const [sort, setSort] = useState("newest");
   const [whisper, setWhisper] = useState(false);
   const [search, setSearch] = useState("");
   const [inviteModal, setInviteModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
-  const [showPasswordSetup, setShowPasswordSetup] = useState(false);
-  const [showPasswordBanner, setShowPasswordBanner] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [dark, setDark] = useState(() => {
-    return localStorage.getItem("pinanon_dark") === "1";
+    return localStorage.getItem("carlisle_dark") === "1";
   });
   const [theme, setTheme] = useState(() => {
-    return localStorage.getItem("pinanon_theme") || "default";
+    return localStorage.getItem("carlisle_theme") || "default";
   });
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
 
@@ -229,7 +242,7 @@ export default function PinAnonBoard() {
     return currentTheme[colorKey]?.[mode] || '#000';
   };
 
-  // Simple password hashing (using Web Crypto API)
+  // Simple password hashing
   async function hashPassword(password) {
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
@@ -239,31 +252,50 @@ export default function PinAnonBoard() {
       .join('');
   }
 
-  // Create new account with password only (fully anonymous)
-  async function signUpUser(password, inviteCode) {
+  // Validate username format
+  function validateUsername(username) {
+    if (!username || username.length < 3 || username.length > 30) {
+      return "USERNAME MUST BE 3-30 CHARACTERS";
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+      return "USERNAME CAN ONLY CONTAIN LETTERS, NUMBERS, HYPHENS, AND UNDERSCORES";
+    }
+    return null;
+  }
+
+  // Create new account with username + password
+  async function signUpUser(username, password, inviteCode) {
     try {
       const upperCode = inviteCode.toUpperCase().trim();
       
-      // Hash password first
-      const hashedPassword = await hashPassword(password);
-      
-      // Check if this password is already in use
-      const passwordsRef = ref(database, 'passwordHashes');
-      const passwordsSnapshot = await new Promise((resolve) => {
-        onValue(passwordsRef, resolve, { onlyOnce: true });
-      });
-      
-      const existingPasswords = passwordsSnapshot.val() || {};
-      if (existingPasswords[hashedPassword]) {
-        alert("THIS PASSWORD IS ALREADY IN USE\nPlease choose a different password or login if this is your account.");
+      // Validate username
+      const usernameError = validateUsername(username);
+      if (usernameError) {
+        alert(usernameError);
+        return false;
+      }
+
+      if (password.length < 6) {
+        alert("PASSWORD MUST BE AT LEAST 6 CHARACTERS");
         return false;
       }
       
+      // Check username availability (case-insensitive)
+      const usernameLower = username.toLowerCase();
+      const usernamesRef = ref(database, `appState/usernames/${usernameLower}`);
+      const usernameSnapshot = await get(usernamesRef);
+      
+      if (usernameSnapshot.exists()) {
+        alert("USERNAME ALREADY TAKEN");
+        return false;
+      }
+      
+      // Hash password
+      const hashedPassword = await hashPassword(password);
+      
       // Verify invite code
       const inviteRef = ref(database, `appState/inviteCodes/${upperCode}`);
-      const inviteSnapshot = await new Promise((resolve) => {
-        onValue(inviteRef, resolve, { onlyOnce: true });
-      });
+      const inviteSnapshot = await get(inviteRef);
       
       const inviteData = inviteSnapshot.val();
       if (!inviteData || inviteData.used) {
@@ -276,10 +308,9 @@ export default function PinAnonBoard() {
       const firebaseUID = userCredential.user.uid;
       
       // Create new user
-      const displayName = genAnonId(7).toUpperCase(); // Generate permanent display name
       const newUser = {
         id: firebaseUID,
-        displayName: displayName, // This never changes!
+        username: username,
         password: hashedPassword,
         bio: null,
         profileImage: null,
@@ -296,7 +327,7 @@ export default function PinAnonBoard() {
       // Save to Firebase
       const updates = {};
       updates[`users/${firebaseUID}`] = newUser;
-      updates[`passwordHashes/${hashedPassword}`] = firebaseUID; // Map password hash to UID
+      updates[`appState/usernames/${usernameLower}`] = firebaseUID;
       updates[`appState/inviteCodes/${upperCode}/used`] = true;
       updates[`appState/inviteCodes/${upperCode}/usedBy`] = firebaseUID;
       updates[`appState/inviteCodes/${upperCode}/usedAt`] = now();
@@ -307,7 +338,7 @@ export default function PinAnonBoard() {
       setUser(newUser);
       saveUser(newUser);
       
-      alert("ACCOUNT CREATED SUCCESSFULLY!\n\nREMEMBER YOUR PASSWORD - it's the only way to access your account on other devices.");
+      alert(`ACCOUNT CREATED!\n\nUSERNAME: ${username}\n\nREMEMBER YOUR PASSWORD - it's the only way to access your account.`);
       return true;
     } catch (error) {
       console.error("Signup error:", error);
@@ -316,55 +347,49 @@ export default function PinAnonBoard() {
     }
   }
 
-  // CHANGE 2: Fixed loginUser to always set hasAccess: true on successful login
-  async function loginUser(password) {
+  // Login with username + password
+  async function loginUser(username, password) {
     try {
-      const hashedPassword = await hashPassword(password);
+      // Get Firebase UID from username (case-insensitive)
+      const usernameLower = username.toLowerCase();
+      const usernameRef = ref(database, `appState/usernames/${usernameLower}`);
+      const usernameSnapshot = await get(usernameRef);
       
-      // Get Firebase UID from password hash
-      const passwordRef = ref(database, `passwordHashes/${hashedPassword}`);
-      const passwordSnapshot = await new Promise((resolve) => {
-        onValue(passwordRef, resolve, { onlyOnce: true });
-      });
-      
-      const firebaseUID = passwordSnapshot.val();
+      const firebaseUID = usernameSnapshot.val();
       if (!firebaseUID) {
-        alert("INCORRECT PASSWORD");
+        alert("USERNAME NOT FOUND");
         return false;
       }
-      
+
       // Get user data
       const userRef = ref(database, `users/${firebaseUID}`);
-      const userSnapshot = await new Promise((resolve) => {
-        onValue(userRef, resolve, { onlyOnce: true });
-      });
+      const userSnapshot = await get(userRef);
       
       const userData = userSnapshot.val();
       if (!userData) {
         alert("USER DATA NOT FOUND");
         return false;
       }
+
+      // Verify password
+      const hashedPassword = await hashPassword(password);
+      if (userData.password !== hashedPassword) {
+        alert("INCORRECT PASSWORD");
+        return false;
+      }
       
-      // Ensure hasAccess is set (fix for accounts created before this field existed)
+      // Ensure hasAccess is set
       const correctedUserData = {
         ...userData,
-        hasAccess: true  // Always grant access on successful login
+        hasAccess: true
       };
-      
-      // If there was a ghost user sitting in localStorage before login, delete it from Firebase
-      const previousUser = loadUser();
-      if (previousUser?.id && previousUser.id !== firebaseUID) {
-        const ghostRef = ref(database, `users/${previousUser.id}`);
-        remove(ghostRef).catch(() => {});
-      }
 
       // Set local state
       setUser(correctedUserData);
       saveUser(correctedUserData);
       
       // Update Firebase to ensure hasAccess is saved
-      const userUpdateRef = ref(database, `users/${firebaseUID}`);
-      await update(userUpdateRef, { hasAccess: true });
+      await update(ref(database, `users/${firebaseUID}`), { hasAccess: true });
       
       alert("LOGGED IN SUCCESSFULLY!");
       return true;
@@ -377,99 +402,45 @@ export default function PinAnonBoard() {
 
   // Logout user
   function logoutUser() {
-    // Clear all localStorage
     localStorage.removeItem(LS_USER);
-    localStorage.removeItem("pinanon_layout");
-    localStorage.removeItem("pinanon_view");
-    localStorage.removeItem("pinanon_room");
-    localStorage.removeItem("pinanon_dark");
-    localStorage.removeItem("pinanon_theme");
+    localStorage.removeItem("carlisle_layout");
+    localStorage.removeItem("carlisle_view");
+    localStorage.removeItem("carlisle_room");
+    localStorage.removeItem("carlisle_dark");
+    localStorage.removeItem("carlisle_theme");
     
-    // Create a fresh user object without access (shows invite gate)
     const newUser = { 
-      id: genAnonId(7),
-      displayName: null,
+      id: null,
+      username: null,
       password: null,
       bio: null,
       profileImage: null,
       isAdmin: false,
-      hasAccess: false, // This triggers the invite gate
+      hasAccess: false,
       inviteCodesRemaining: 0,
       inviteCodesCreated: [],
       createdRooms: [],
       createdPosts: [],
-      joinedRooms: [DEFAULT_ROOM],
-      needsPasswordSetup: false
+      joinedRooms: [DEFAULT_ROOM]
     };
     
     setUser(newUser);
     localStorage.setItem(LS_USER, JSON.stringify(newUser));
   }
 
-  // Setup password for existing user
-  async function setupPassword(password) {
-    try {
-      if (password.length < 6) {
-        alert("PASSWORD MUST BE AT LEAST 6 CHARACTERS");
-        return false;
-      }
-
-      const hashedPassword = await hashPassword(password);
-      
-      // Check if password is already in use
-      const passwordRef = ref(database, `passwordHashes/${hashedPassword}`);
-      const passwordSnapshot = await new Promise((resolve) => {
-        onValue(passwordRef, resolve, { onlyOnce: true });
-      });
-      
-      if (passwordSnapshot.val()) {
-        alert("THIS PASSWORD IS ALREADY IN USE\nPlease choose a different password.");
-        return false;
-      }
-
-      // Keep the user's current ID as their permanent identity.
-      // We do NOT change it to firebaseUser.uid — Firebase auth is just a session,
-      // and each device gets a different anonymous UID which would break login.
-      const displayName = user.displayName || user.id.toUpperCase();
-      
-      const updatedUser = {
-        ...user,
-        displayName: displayName,
-        password: hashedPassword
-      };
-      
-      setUser(updatedUser);
-      saveUser(updatedUser);
-      
-      // passwordHashes maps hash → user.id (permanent, device-independent)
-      const updates = {};
-      updates[`users/${user.id}`] = updatedUser;
-      updates[`passwordHashes/${hashedPassword}`] = user.id;
-      
-      await update(ref(database), updates);
-      
-      alert("PASSWORD SET SUCCESSFULLY!\n\nYou can now login from any device with this password.\n\nYour display name will always be: " + displayName);
-      return true;
-    } catch (error) {
-      console.error("Setup password error:", error);
-      alert("PASSWORD SETUP FAILED");
-      return false;
-    }
-  }
-
   // Submit a report
   async function submitReport(type, targetId, reason, details) {
     try {
-      const reportId = genAnonId(12);
+      const reportId = uid('report').slice(7);
       const reportData = {
         id: reportId,
-        type, // "post", "comment", or "user"
+        type,
         targetId,
         reason,
         details,
         reportedBy: user.id,
         reportedAt: now(),
-        status: "pending" // "pending", "reviewed", "dismissed"
+        status: "pending"
       };
       
       const reportRef = ref(database, `appState/reports/${reportId}`);
@@ -484,7 +455,7 @@ export default function PinAnonBoard() {
     }
   }
 
-  // CHANGE 1: Clean up any old service workers on mount
+  // Clean up old service workers
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then((registrations) => {
@@ -520,13 +491,13 @@ export default function PinAnonBoard() {
     const unsubscribe = onValue(stateRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        // Firebase drops empty arrays on write, so normalize back to arrays
         setState({
           ...EMPTY,
           ...data,
           posts: Array.isArray(data.posts) ? data.posts : (data.posts ? Object.values(data.posts) : []),
           rooms: Array.isArray(data.rooms) ? data.rooms : (data.rooms ? Object.values(data.rooms) : EMPTY.rooms),
           inviteCodes: data.inviteCodes || {},
+          usernames: data.usernames || {}
         });
         setWhisper(data.settings?.whisper || false);
       } else {
@@ -537,19 +508,14 @@ export default function PinAnonBoard() {
     return () => unsubscribe();
   }, []);
 
-  // Firebase Auth - Sign in anonymously for DB access only.
-  // The Firebase anonymous UID is just a session token — it is NOT the user's identity.
-  // User identity is always user.id (their permanent random ID stored in localStorage + Firebase).
+  // Firebase Auth
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setFirebaseUser(firebaseUser);
 
-        // Load user data from Firebase using user.id (not firebaseUser.uid).
-        // This is only done once on mount to hydrate from Firebase if localStorage is stale.
         const currentUser = loadUser();
         if (currentUser?.id && currentUser?.password) {
-          // Password-protected account: load fresh data from Firebase by their real ID
           const userRef = ref(database, `users/${currentUser.id}`);
           onValue(userRef, (snapshot) => {
             const firebaseData = snapshot.val();
@@ -557,10 +523,8 @@ export default function PinAnonBoard() {
               setUser(firebaseData);
               saveUser(firebaseData);
             }
-            // If no Firebase data, keep localStorage version (they may need to re-login)
           }, { onlyOnce: true });
         } else if (currentUser?.id && !currentUser?.password && currentUser?.hasAccess) {
-          // Non-password user: sync their data to Firebase under their real ID
           const userRef = ref(database, `users/${currentUser.id}`);
           onValue(userRef, (snapshot) => {
             const firebaseData = snapshot.val();
@@ -568,7 +532,6 @@ export default function PinAnonBoard() {
               setUser(firebaseData);
               saveUser(firebaseData);
             } else {
-              // First time — push local user to Firebase
               set(userRef, currentUser);
             }
           }, { onlyOnce: true });
@@ -583,11 +546,7 @@ export default function PinAnonBoard() {
     return () => unsubscribe();
   }, []);
 
-  // Sync user data to Firebase whenever it changes.
-  // Only sync if the user has a password set — this means they're a verified established account.
-  // Admin bypass users and invite-only users without passwords are NOT synced here;
-  // they get written to Firebase explicitly in setupPassword / useInviteCode instead.
-  // This prevents ghost accounts being created before login completes.
+  // Sync user data to Firebase
   useEffect(() => {
     if (firebaseUser && user.id && user.hasAccess && user.password) {
       const userRef = ref(database, `users/${user.id}`);
@@ -600,28 +559,28 @@ export default function PinAnonBoard() {
   }, [user]);
 
   useEffect(() => {
-    localStorage.setItem("pinanon_dark", dark ? "1" : "0");
+    localStorage.setItem("carlisle_dark", dark ? "1" : "0");
   }, [dark]);
 
   useEffect(() => {
-    localStorage.setItem("pinanon_theme", theme);
+    localStorage.setItem("carlisle_theme", theme);
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem("pinanon_layout", layout);
+    localStorage.setItem("carlisle_layout", layout);
   }, [layout]);
 
-  // Sync view/room/profile → URL hash so reload and back button work
+  // Sync view/room/profile → URL hash
   useEffect(() => {
-    if (!user.hasAccess) return; // Don't mess with hash on gate screen
+    if (!user.hasAccess) return;
     let hash = 'home';
     if (view === 'room') hash = `room/${room}`;
     else if (view === 'profile' && profileView) hash = `profile/${profileView}`;
     if (window.location.hash !== `#${hash}`) {
       window.history.pushState(null, '', `#${hash}`);
     }
-    localStorage.setItem("pinanon_view", view);
-    localStorage.setItem("pinanon_room", room);
+    localStorage.setItem("carlisle_view", view);
+    localStorage.setItem("carlisle_room", room);
   }, [view, room, profileView, user.hasAccess]);
 
   // Handle browser back/forward button
@@ -643,22 +602,12 @@ export default function PinAnonBoard() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("pinanon_view", view);
+    localStorage.setItem("carlisle_view", view);
   }, [view]);
 
   useEffect(() => {
-    localStorage.setItem("pinanon_room", room);
+    localStorage.setItem("carlisle_room", room);
   }, [room]);
-
-  // Check if existing user needs to set up password
-  useEffect(() => {
-    if (user.id && user.hasAccess && !user.password && firebaseUser) {
-      // Existing user without password - show banner
-      setShowPasswordBanner(true);
-    } else {
-      setShowPasswordBanner(false);
-    }
-  }, [user, firebaseUser]);
 
   const postsInRoom = useMemo(
     () => (state.posts || []).filter((p) => p.room === room),
@@ -666,21 +615,20 @@ export default function PinAnonBoard() {
   );
 
   function createRoom(name = "room", isPrivate = true, creatorOnly = false) {
-    const invite = genAnonId(6);
+    const invite = uid('room').slice(5, 11);
     const r = { 
       id: invite, 
       name: name || `room-${invite}`, 
       invite,
       creator: user.id,
-      isPrivate: isPrivate, // Now controlled by user choice
-      creatorOnly: creatorOnly // Only creator can post
+      isPrivate: isPrivate,
+      creatorOnly: creatorOnly
     };
     const newRooms = [r, ...(state.rooms || [])];
     const updates = {};
     updates['appState/rooms'] = newRooms;
     update(ref(database), updates);
     
-    // Add room to user's created and joined rooms
     setUser((prev) => {
       const u = { 
         ...prev, 
@@ -700,7 +648,6 @@ export default function PinAnonBoard() {
       setRoom(found.id);
       setView("room");
       
-      // Add to user's joined rooms
       setUser((prev) => {
         const u = { 
           ...prev, 
@@ -737,9 +684,9 @@ export default function PinAnonBoard() {
     const post = state.posts[postIndex];
     const newComment = {
       id: uid("c"),
-      author: user.id, // Permanent user ID
-      authorId: firebaseUser ? firebaseUser.uid : user.id, // Firebase UID for profile lookup
-      authorDisplayName: user.displayName || user.id.toUpperCase(), // Display name (never changes)
+      author: user.id,
+      authorId: user.id,
+      authorDisplayName: user.username,
       text,
       created: now(),
       parentId,
@@ -760,7 +707,6 @@ export default function PinAnonBoard() {
     
     if (!comment) return;
     
-    // Check ownership: current ID, Firebase UID, or legacy localStorage ID
     const isCreator = comment.author === user.id 
       || (firebaseUser && comment.authorId === firebaseUser.uid)
       || (legacyUserId && comment.author === legacyUserId);
@@ -773,7 +719,6 @@ export default function PinAnonBoard() {
     
     if (!confirm("DELETE THIS COMMENT?")) return;
     
-    // Remove comment and all its replies
     const removeCommentAndReplies = (comments, idToRemove) => {
       return comments.filter(c => {
         if (c.id === idToRemove) return false;
@@ -792,7 +737,6 @@ export default function PinAnonBoard() {
     const post = (state.posts || []).find(p => p.id === postId);
     if (!post) return;
     
-    // Check ownership: current ID, Firebase UID, or legacy localStorage ID
     const isCreator = post.author === user.id 
       || (firebaseUser && post.authorId === firebaseUser.uid)
       || (legacyUserId && post.author === legacyUserId);
@@ -822,7 +766,7 @@ export default function PinAnonBoard() {
   }
 
   function enterProfile(authorId) {
-    setPreviousView(view); // Save current view before switching
+    setPreviousView(view);
     setProfileView(authorId);
     setView("profile");
   }
@@ -871,11 +815,9 @@ export default function PinAnonBoard() {
   }
 
   function saveProfile(updatedUser) {
-    
     setUser(updatedUser);
     saveUser(updatedUser);
     
-    // Save to Firebase under the user's permanent ID (not firebaseUser.uid which is session-only)
     if (updatedUser.id) {
       const userRef = ref(database, `users/${updatedUser.id}`);
       set(userRef, updatedUser).catch((error) => {
@@ -890,7 +832,7 @@ export default function PinAnonBoard() {
       return null;
     }
 
-    const code = genAnonId(8).toUpperCase();
+    const code = uid('invite').slice(7).toUpperCase();
     const inviteData = {
       used: false,
       createdBy: user.id,
@@ -902,7 +844,6 @@ export default function PinAnonBoard() {
     updates[`appState/inviteCodes/${code}`] = inviteData;
     update(ref(database), updates);
 
-    // Update user's remaining codes and created list
     setUser((prev) => {
       const u = {
         ...prev,
@@ -914,53 +855,6 @@ export default function PinAnonBoard() {
     });
 
     return code;
-  }
-
-  function redeemInviteCode(code) {
-    const upperCode = code.toUpperCase().trim();
-    const inviteData = state.inviteCodes?.[upperCode];
-
-    if (!inviteData) {
-      alert("INVALID INVITE CODE");
-      return false;
-    }
-
-    if (inviteData.used) {
-      alert("INVITE CODE ALREADY USED");
-      return false;
-    }
-
-    // Mark code as used
-    const updates = {};
-    updates[`appState/inviteCodes/${upperCode}/used`] = true;
-    updates[`appState/inviteCodes/${upperCode}/usedBy`] = user.id;
-    updates[`appState/users/${user.id}`] = {
-      id: user.id,
-      invitedBy: inviteData.createdBy,
-      joinedAt: now()
-    };
-    update(ref(database), updates);
-
-    // Grant access to user and give them invite codes
-    setUser((prev) => {
-      const u = {
-        ...prev,
-        hasAccess: true,
-        inviteCodesRemaining: 3 // Each new user gets 3 invites
-      };
-      saveUser(u);
-      return u;
-    });
-
-    return true;
-  }
-
-  function handleAdminLogout() {
-    setUser((prev) => {
-      const u = { ...prev, isAdmin: false };
-      saveUser(u);
-      return u;
-    });
   }
 
   const visible = (postsInRoom || [])
@@ -991,19 +885,17 @@ export default function PinAnonBoard() {
   function postNew({ text, image, videoUrl, audioUrl }) {
     const currentRoom = (state.rooms || []).find(r => r.id === room);
     
-    // Check if room is creator-only and user is not the creator
     if (currentRoom?.creatorOnly && currentRoom.creator !== user.id && !user.isAdmin) {
       alert("ONLY THE ROOM CREATOR CAN POST IN THIS ROOM");
       return;
     }
     
-    
     const postId = crypto.randomUUID();
     const post = {
       id: postId,
-      author: user.id, // Permanent user ID (device-independent)
-      authorId: user.id, // Same as author — kept for backwards compatibility
-      authorDisplayName: user.displayName || user.id.toUpperCase(), // Display name (never changes)
+      author: user.id,
+      authorId: user.id,
+      authorDisplayName: user.username,
       text,
       image,
       videoUrl: videoUrl || null,
@@ -1015,13 +907,11 @@ export default function PinAnonBoard() {
       comments: [],
     };
     
-    
     const newPosts = [post, ...(state.posts || [])];
     const updates = {};
     updates['appState/posts'] = newPosts;
     update(ref(database), updates);
     
-    // Track this post as created by user
     setUser((prev) => {
       const u = { 
         ...prev, 
@@ -1051,7 +941,6 @@ export default function PinAnonBoard() {
   };
 
   const getGridColumns = () => {
-    // Always respect the user's layout choice on all screen sizes
     if (layout === 'single') return '1fr';
     if (layout === 'double') return 'repeat(2, 1fr)';
     return 'repeat(3, 1fr)';
@@ -1065,7 +954,7 @@ export default function PinAnonBoard() {
         fontFamily: 'Helvetica Neue, Arial, sans-serif'
       }}>
         <div className="text-center">
-          <div className="text-xl font-light tracking-widest">PIN-ANON</div>
+          <div className="text-xl font-light tracking-widest">CARLISLE</div>
           <div className="text-xs tracking-widest mt-2" style={{ color: getColor('textMuted') }}>
             LOADING...
           </div>
@@ -1074,9 +963,8 @@ export default function PinAnonBoard() {
     );
   }
 
-  // Invite gate - show if user doesn't have access
   if (!user.hasAccess && !user.isAdmin) {
-    return <InviteGate onRedeem={redeemInviteCode} onLogin={loginUser} getColor={getColor} />;
+    return <InviteGate onSignUp={signUpUser} onLogin={loginUser} getColor={getColor} />;
   }
 
   return (
@@ -1117,7 +1005,7 @@ export default function PinAnonBoard() {
               onMouseEnter={(e) => e.target.style.opacity = '0.5'}
               onMouseLeave={(e) => e.target.style.opacity = '1'}
               >
-                PIN-ANON
+                CARLISLE
               </div>
               <div style={{ 
                 fontSize: '10px', 
@@ -1144,7 +1032,7 @@ export default function PinAnonBoard() {
                 onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                 onMouseLeave={(e) => e.target.style.opacity = '1'}
               >
-                {user.displayName || user.id.toUpperCase()}
+                {user.username}
               </button>
               <button
                 onClick={() => setShowSettings(true)}
@@ -1268,16 +1156,15 @@ export default function PinAnonBoard() {
           )}
         </header>
 
-        {/* New Post Button - positioned below header */}
+        {/* New Post Button */}
         <div style={{
           display: 'flex',
           justifyContent: 'center',
           marginBottom: '40px',
-          marginTop: '-30px' // Pull up slightly to reduce gap from header
+          marginTop: '-30px'
         }}>
           <button
             onClick={() => {
-              // If not in a room, switch to main room before posting
               if (view !== "room") {
                 setRoom(DEFAULT_ROOM);
               }
@@ -1322,7 +1209,7 @@ export default function PinAnonBoard() {
             firebaseUser={firebaseUser}
             onBack={() => {
               setProfileView(null);
-              setView(previousView); // Return to previous view instead of always home
+              setView(previousView);
             }}
             onEditProfile={() => setShowProfileEdit(true)}
             onDeletePost={removePost}
@@ -1340,13 +1227,6 @@ export default function PinAnonBoard() {
             }}
             dark={dark}
             userJoinedRooms={user.joinedRooms}
-          />
-        ) : view === "admin" ? (
-          <AdminPage
-            dark={dark}
-            state={state}
-            user={user}
-            onBack={() => setView("home")}
           />
         ) : (
           <div style={{ display: 'flex', gap: '0' }}>
@@ -1642,15 +1522,6 @@ export default function PinAnonBoard() {
           dark={dark}
         />
       )}
-      {showLoginModal && (
-        <LoginModal
-          onClose={() => setShowLoginModal(false)}
-          onAdminLogin={handleAdminLogin}
-          onSignUp={signUpUser}
-          onLogin={loginUser}
-          dark={dark}
-        />
-      )}
       {showLogoutConfirm && (
         <LogoutConfirmModal
           onConfirm={logoutUser}
@@ -1665,53 +1536,2166 @@ export default function PinAnonBoard() {
           user={user}
         />
       )}
-      {showPasswordSetup && (
-        <PasswordSetupModal
-          onClose={() => setShowPasswordSetup(false)}
-          onSetup={setupPassword}
-          dark={dark}
-          currentDisplayName={user.displayName || user.id.toUpperCase()}
-        />
-      )}
-      {showPasswordBanner && (
-        <PasswordBanner
-          onSetup={() => {
-            setShowPasswordBanner(false);
-            setShowPasswordSetup(true);
-          }}
-          onDismiss={() => setShowPasswordBanner(false)}
-          dark={dark}
-        />
-      )}
-      </div>
+    </div>
   );
 }
 
-// ---------- UI Subcomponents ----------
+// ========== HELPER COMPONENTS ==========
 
-function InviteGate({ onRedeem, onLogin, getColor }) {
-  const [input, setInput] = useState("");
-  const [error, setError] = useState("");
-  const [mode, setMode] = useState("invite"); // "invite" or "login"
+function ProfilePicture({ authorId, author, size = 32, dark }) {
+  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B739', '#52B788'];
+  const id = authorId || author;
+  const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const color = colors[hash % colors.length];
+  
+  return (
+    <div style={{
+      width: `${size}px`,
+      height: `${size}px`,
+      borderRadius: '50%',
+      backgroundColor: color,
+      flexShrink: 0
+    }} />
+  );
+}
+
+function UserListSidebar({ posts, currentRoom, dark, windowWidth, onProfileClick }) {
+  if (windowWidth < 1024) return null;
+
+  const postsInRoom = posts.filter(p => p.room === currentRoom);
+  const userCounts = {};
+  
+  postsInRoom.forEach(post => {
+    const id = post.author;
+    if (!userCounts[id]) {
+      userCounts[id] = { 
+        count: 0, 
+        username: post.authorDisplayName || post.author,
+        authorId: post.authorId || post.author
+      };
+    }
+    userCounts[id].count++;
+    
+    (post.comments || []).forEach(comment => {
+      const commentAuthor = comment.author;
+      if (!userCounts[commentAuthor]) {
+        userCounts[commentAuthor] = { 
+          count: 0, 
+          username: comment.authorDisplayName || comment.author,
+          authorId: comment.authorId || comment.author
+        };
+      }
+    });
+  });
+
+  const sortedUsers = Object.entries(userCounts)
+    .sort(([, a], [, b]) => b.count - a.count)
+    .slice(0, 10);
+
+  if (sortedUsers.length === 0) return null;
+
+  return (
+    <div style={{
+      width: '200px',
+      paddingRight: '30px',
+      borderRight: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+      flexShrink: 0
+    }}>
+      <div style={{
+        fontSize: '10px',
+        letterSpacing: '0.15em',
+        color: dark ? '#666' : '#999',
+        marginBottom: '20px'
+      }}>
+        ACTIVE USERS
+      </div>
+      
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {sortedUsers.map(([userId, data]) => (
+          <button
+            key={userId}
+            onClick={() => onProfileClick(userId)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '0',
+              textAlign: 'left',
+              width: '100%'
+            }}
+          >
+            <ProfilePicture authorId={data.authorId} author={userId} size={24} dark={dark} />
+            <div style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: '11px',
+              letterSpacing: '0.05em',
+              color: dark ? '#fff' : '#000',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              {data.username}
+            </div>
+            <div style={{
+              fontSize: '9px',
+              color: dark ? '#666' : '#999'
+            }}>
+              {data.count}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, userJoinedRooms = [] }) {
+  const joinedRooms = rooms.filter(r => userJoinedRooms.includes(r.id));
+  const otherRooms = rooms.filter(r => !userJoinedRooms.includes(r.id) && !r.isPrivate);
+
+  return (
+    <div>
+      <div style={{ 
+        marginBottom: '60px',
+        display: 'flex',
+        gap: '20px',
+        flexWrap: 'wrap'
+      }}>
+        <button
+          onClick={onCreateRoom}
+          style={{
+            fontSize: '11px',
+            letterSpacing: '0.1em',
+            padding: '12px 24px',
+            background: 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: 'pointer',
+            color: dark ? '#fff' : '#000',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.borderColor = dark ? '#666' : '#999';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.borderColor = dark ? '#333' : '#e5e5e5';
+          }}
+        >
+          CREATE ROOM
+        </button>
+        <button
+          onClick={onJoinRoom}
+          style={{
+            fontSize: '11px',
+            letterSpacing: '0.1em',
+            padding: '12px 24px',
+            background: 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: 'pointer',
+            color: dark ? '#fff' : '#000',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.borderColor = dark ? '#666' : '#999';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.borderColor = dark ? '#333' : '#e5e5e5';
+          }}
+        >
+          JOIN ROOM
+        </button>
+      </div>
+
+      {joinedRooms.length > 0 && (
+        <div style={{ marginBottom: '60px' }}>
+          <div style={{ 
+            fontSize: '10px', 
+            letterSpacing: '0.15em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '20px'
+          }}>
+            YOUR ROOMS
+          </div>
+          <div style={{ 
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: '20px'
+          }}>
+            {joinedRooms.map((r) => {
+              const roomPosts = posts.filter(p => p.room === r.id);
+              return (
+                <button
+                  key={r.id}
+                  onClick={() => onEnterRoom(r.id)}
+                  style={{
+                    padding: '24px',
+                    background: 'none',
+                    border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.borderColor = dark ? '#333' : '#e5e5e5';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.borderColor = dark ? '#1a1a1a' : '#f5f5f5';
+                  }}
+                >
+                  <div style={{
+                    fontSize: '14px',
+                    letterSpacing: '0.1em',
+                    color: dark ? '#fff' : '#000',
+                    marginBottom: '12px',
+                    fontWeight: '300'
+                  }}>
+                    {r.name.toUpperCase()}
+                  </div>
+                  <div style={{
+                    fontSize: '10px',
+                    letterSpacing: '0.05em',
+                    color: dark ? '#666' : '#999'
+                  }}>
+                    {roomPosts.length} POST{roomPosts.length !== 1 ? 'S' : ''}
+                    {r.isPrivate && ' • PRIVATE'}
+                    {r.creatorOnly && ' • CREATOR ONLY'}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {otherRooms.length > 0 && (
+        <div>
+          <div style={{ 
+            fontSize: '10px', 
+            letterSpacing: '0.15em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '20px'
+          }}>
+            PUBLIC ROOMS
+          </div>
+          <div style={{ 
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: '20px'
+          }}>
+            {otherRooms.map((r) => {
+              const roomPosts = posts.filter(p => p.room === r.id);
+              return (
+                <button
+                  key={r.id}
+                  onClick={() => onEnterRoom(r.id)}
+                  style={{
+                    padding: '24px',
+                    background: 'none',
+                    border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.borderColor = dark ? '#333' : '#e5e5e5';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.borderColor = dark ? '#1a1a1a' : '#f5f5f5';
+                  }}
+                >
+                  <div style={{
+                    fontSize: '14px',
+                    letterSpacing: '0.1em',
+                    color: dark ? '#fff' : '#000',
+                    marginBottom: '12px',
+                    fontWeight: '300'
+                  }}>
+                    {r.name.toUpperCase()}
+                  </div>
+                  <div style={{
+                    fontSize: '10px',
+                    letterSpacing: '0.05em',
+                    color: dark ? '#666' : '#999'
+                  }}>
+                    {roomPosts.length} POST{roomPosts.length !== 1 ? 'S' : ''}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin, userJoinedRooms = [], userCreatedRooms = [] }) {
+  const [open, setOpen] = useState(false);
+
+  const joinedRooms = rooms.filter(r => userJoinedRooms.includes(r.id));
+  const otherPublicRooms = rooms.filter(r => !userJoinedRooms.includes(r.id) && !r.isPrivate);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          fontSize: '16px',
+          letterSpacing: '0.15em',
+          padding: '8px 0',
+          background: 'none',
+          border: 'none',
+          borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+          cursor: 'pointer',
+          color: dark ? '#fff' : '#000',
+          transition: 'border-color 0.2s',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}
+        onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+        onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+      >
+        {currentRoomName.toUpperCase()}
+        <span style={{ fontSize: '10px' }}>▼</span>
+      </button>
+
+      {open && (
+        <>
+          <div
+            onClick={() => setOpen(false)}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 999
+            }}
+          />
+          <div style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            marginTop: '8px',
+            backgroundColor: dark ? '#000' : '#fff',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            minWidth: '250px',
+            maxHeight: '400px',
+            overflowY: 'auto',
+            zIndex: 1000,
+            boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+          }}>
+            {joinedRooms.length > 0 && (
+              <div>
+                <div style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.1em',
+                  color: dark ? '#666' : '#999',
+                  padding: '12px 16px 8px',
+                  borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+                }}>
+                  YOUR ROOMS
+                </div>
+                {joinedRooms.map(r => (
+                  <div
+                    key={r.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px 16px',
+                      borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                      cursor: 'pointer',
+                      backgroundColor: r.id === currentRoom ? (dark ? '#0a0a0a' : '#fafafa') : 'transparent',
+                      transition: 'background-color 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (r.id !== currentRoom) {
+                        e.currentTarget.style.backgroundColor = dark ? '#0a0a0a' : '#fafafa';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (r.id !== currentRoom) {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }
+                    }}
+                  >
+                    <button
+                      onClick={() => {
+                        onSelectRoom(r.id);
+                        setOpen(false);
+                      }}
+                      style={{
+                        flex: 1,
+                        fontSize: '11px',
+                        letterSpacing: '0.05em',
+                        color: dark ? '#fff' : '#000',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        padding: 0
+                      }}
+                    >
+                      {r.name}
+                      {r.isPrivate && <span style={{ color: dark ? '#666' : '#999', marginLeft: '8px' }}>🔒</span>}
+                      {r.creatorOnly && <span style={{ color: dark ? '#666' : '#999', marginLeft: '8px' }}>👤</span>}
+                    </button>
+                    {(isAdmin || userCreatedRooms.includes(r.id)) && r.id !== 'main' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteRoom(r.id);
+                          setOpen(false);
+                        }}
+                        style={{
+                          fontSize: '9px',
+                          color: dark ? '#666' : '#999',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px 8px',
+                          transition: 'opacity 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                        onMouseLeave={(e) => e.target.style.opacity = '1'}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {otherPublicRooms.length > 0 && (
+              <div>
+                <div style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.1em',
+                  color: dark ? '#666' : '#999',
+                  padding: '12px 16px 8px',
+                  borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+                }}>
+                  PUBLIC ROOMS
+                </div>
+                {otherPublicRooms.map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => {
+                      onSelectRoom(r.id);
+                      setOpen(false);
+                    }}
+                    style={{
+                      width: '100%',
+                      fontSize: '11px',
+                      letterSpacing: '0.05em',
+                      color: dark ? '#fff' : '#000',
+                      background: 'none',
+                      border: 'none',
+                      borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      padding: '12px 16px',
+                      transition: 'background-color 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = dark ? '#0a0a0a' : '#fafafa'}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                  >
+                    {r.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div style={{
+              padding: '12px 16px',
+              display: 'flex',
+              gap: '8px',
+              borderTop: `1px solid ${dark ? '#333' : '#e5e5e5'}`
+            }}>
+              <button
+                onClick={() => {
+                  onCreateRoom();
+                  setOpen(false);
+                }}
+                style={{
+                  flex: 1,
+                  fontSize: '9px',
+                  letterSpacing: '0.1em',
+                  padding: '8px',
+                  background: 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: dark ? '#fff' : '#000',
+                  transition: 'border-color 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+                onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+              >
+                CREATE
+              </button>
+              <button
+                onClick={() => {
+                  onJoinRoom();
+                  setOpen(false);
+                }}
+                style={{
+                  flex: 1,
+                  fontSize: '9px',
+                  letterSpacing: '0.1em',
+                  padding: '8px',
+                  background: 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: dark ? '#fff' : '#000',
+                  transition: 'border-color 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+                onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+              >
+                JOIN
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, onEditProfile, onDeletePost, dark }) {
+  const profileUser = allPosts.find(p => p.author === authorId);
+  const userData = profileUser ? {
+    username: profileUser.authorDisplayName || profileUser.author,
+    bio: null,
+    profileImage: null
+  } : { username: authorId, bio: null, profileImage: null };
+
+  const isOwnProfile = authorId === user.id || (firebaseUser && authorId === firebaseUser.uid);
+
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        style={{
+          fontSize: '10px',
+          letterSpacing: '0.15em',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: dark ? '#999' : '#666',
+          marginBottom: '40px',
+          transition: 'opacity 0.2s'
+        }}
+        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+        onMouseLeave={(e) => e.target.style.opacity = '1'}
+      >
+        ← BACK
+      </button>
+
+      <div style={{ marginBottom: '60px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '20px', marginBottom: '30px' }}>
+          <ProfilePicture authorId={authorId} author={authorId} size={80} dark={dark} />
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontSize: '24px',
+              letterSpacing: '0.1em',
+              fontWeight: '300',
+              marginBottom: '12px',
+              color: dark ? '#fff' : '#000'
+            }}>
+              {userData.username}
+            </div>
+            {userData.bio && (
+              <div style={{
+                fontSize: '12px',
+                letterSpacing: '0.02em',
+                lineHeight: '1.6',
+                color: dark ? '#999' : '#666',
+                marginBottom: '20px'
+              }}>
+                {userData.bio}
+              </div>
+            )}
+            <div style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              color: dark ? '#666' : '#999'
+            }}>
+              {posts.length} POST{posts.length !== 1 ? 'S' : ''}
+            </div>
+          </div>
+          {isOwnProfile && (
+            <button
+              onClick={onEditProfile}
+              style={{
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                padding: '8px 16px',
+                background: 'none',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                cursor: 'pointer',
+                color: dark ? '#fff' : '#000',
+                transition: 'border-color 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+              onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+            >
+              EDIT
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div>
+        {posts.length === 0 ? (
+          <div style={{
+            padding: '60px 0',
+            textAlign: 'center',
+            fontSize: '11px',
+            letterSpacing: '0.1em',
+            color: dark ? '#666' : '#999'
+          }}>
+            NO POSTS YET
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: '20px'
+          }}>
+            {posts.sort((a, b) => b.created - a.created).map(post => (
+              <div
+                key={post.id}
+                style={{
+                  padding: '20px',
+                  border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                  wordWrap: 'break-word',
+                  overflowWrap: 'break-word'
+                }}
+              >
+                {post.image && (
+                  <img
+                    src={post.image}
+                    style={{
+                      width: '100%',
+                      maxHeight: '200px',
+                      objectFit: 'cover',
+                      marginBottom: '12px'
+                    }}
+                    alt="post"
+                  />
+                )}
+                <div style={{
+                  fontSize: '12px',
+                  lineHeight: '1.6',
+                  letterSpacing: '0.02em',
+                  color: dark ? '#fff' : '#000',
+                  marginBottom: '12px'
+                }}>
+                  {post.text.length > 150 ? `${post.text.slice(0, 150)}...` : post.text}
+                </div>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: '10px',
+                  color: dark ? '#666' : '#999'
+                }}>
+                  <span>{new Date(post.created).toLocaleDateString()}</span>
+                  {isOwnProfile && (
+                    <button
+                      onClick={() => onDeletePost(post.id)}
+                      style={{
+                        fontSize: '10px',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: dark ? '#666' : '#999',
+                        transition: 'opacity 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                      onMouseLeave={(e) => e.target.style.opacity = '1'}
+                    >
+                      DELETE
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CommentBlock({ post, addComment, removeComment, whisper, dark, user, firebaseUser, legacyUserId, isRoomMod, enterProfile }) {
+  const [commentText, setCommentText] = useState("");
+  const [showComments, setShowComments] = useState(false);
+
+  const topLevelComments = (post.comments || []).filter(c => !c.parentId);
+
+  return (
+    <div>
+      <div style={{ marginBottom: '15px' }}>
+        <textarea
+          value={commentText}
+          onChange={(e) => setCommentText(e.target.value)}
+          placeholder="ADD A COMMENT..."
+          style={{
+            width: '100%',
+            minHeight: '60px',
+            fontSize: '12px',
+            letterSpacing: '0.02em',
+            padding: '12px',
+            background: 'none',
+            border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            outline: 'none',
+            resize: 'vertical',
+            color: dark ? '#fff' : '#000',
+            fontFamily: 'Helvetica Neue, Arial, sans-serif'
+          }}
+        />
+        <button
+          onClick={() => {
+            if (commentText.trim()) {
+              addComment(post.id, commentText.trim());
+              setCommentText("");
+              setShowComments(true);
+            }
+          }}
+          style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            padding: '8px 16px',
+            marginTop: '8px',
+            background: 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: 'pointer',
+            color: dark ? '#fff' : '#000',
+            transition: 'border-color 0.2s'
+          }}
+          onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+          onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+        >
+          POST
+        </button>
+      </div>
+
+      {topLevelComments.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowComments(!showComments)}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              marginBottom: '15px',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            {showComments ? '▼' : '▶'} {topLevelComments.length} COMMENT{topLevelComments.length !== 1 ? 'S' : ''}
+          </button>
+
+          {showComments && (
+            <div style={{ 
+              borderLeft: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+              paddingLeft: '20px',
+              marginTop: '15px'
+            }}>
+              {topLevelComments.map(comment => (
+                <CommentThread
+                  key={comment.id}
+                  comment={comment}
+                  allComments={post.comments || []}
+                  postId={post.id}
+                  addComment={addComment}
+                  removeComment={removeComment}
+                  whisper={whisper}
+                  dark={dark}
+                  user={user}
+                  firebaseUser={firebaseUser}
+                  legacyUserId={legacyUserId}
+                  isRoomMod={isRoomMod}
+                  enterProfile={enterProfile}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CommentThread({ comment, allComments, postId, addComment, removeComment, whisper, dark, user, firebaseUser, legacyUserId, isRoomMod, enterProfile, depth = 0 }) {
+  const [replyText, setReplyText] = useState("");
+  const [showReply, setShowReply] = useState(false);
+  const [showReplies, setShowReplies] = useState(true);
+
+  const replies = allComments.filter(c => c.parentId === comment.id);
+  
+  const isCreator = comment.author === user.id 
+    || (firebaseUser && comment.authorId === firebaseUser.uid)
+    || (legacyUserId && comment.author === legacyUserId);
+
+  return (
+    <div style={{ marginBottom: '20px' }}>
+      <div style={{ marginBottom: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '8px' }}>
+          <ProfilePicture authorId={comment.authorId} author={comment.author} size={24} dark={dark} />
+          <button
+            onClick={() => enterProfile(comment.author)}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.05em',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#fff' : '#000',
+              textDecoration: 'underline',
+              padding: 0
+            }}
+          >
+            {comment.authorDisplayName || comment.author.toUpperCase()}
+          </button>
+          {!whisper && (
+            <span style={{
+              fontSize: '9px',
+              color: dark ? '#666' : '#999'
+            }}>
+              {new Date(comment.created).toLocaleDateString('en-US', {
+                month: '2-digit',
+                day: '2-digit',
+                year: 'numeric'
+              })}
+            </span>
+          )}
+        </div>
+        <div style={{
+          fontSize: '12px',
+          lineHeight: '1.6',
+          letterSpacing: '0.02em',
+          color: dark ? '#fff' : '#000',
+          wordWrap: 'break-word',
+          overflowWrap: 'break-word'
+        }}>
+          {comment.text}
+        </div>
+        <div style={{ display: 'flex', gap: '15px', marginTop: '8px' }}>
+          <button
+            onClick={() => setShowReply(!showReply)}
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#666' : '#999',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            REPLY
+          </button>
+          {(user.isAdmin || isCreator || isRoomMod) && (
+            <button
+              onClick={() => removeComment(postId, comment.id)}
+              style={{
+                fontSize: '9px',
+                letterSpacing: '0.1em',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: dark ? '#666' : '#999',
+                transition: 'opacity 0.2s'
+              }}
+              onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+              onMouseLeave={(e) => e.target.style.opacity = '1'}
+            >
+              DELETE
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showReply && (
+        <div style={{ marginLeft: '34px', marginTop: '10px', marginBottom: '15px' }}>
+          <textarea
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            placeholder="WRITE A REPLY..."
+            style={{
+              width: '100%',
+              minHeight: '50px',
+              fontSize: '11px',
+              letterSpacing: '0.02em',
+              padding: '10px',
+              background: 'none',
+              border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+              outline: 'none',
+              resize: 'vertical',
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+          />
+          <button
+            onClick={() => {
+              if (replyText.trim()) {
+                addComment(postId, replyText.trim(), comment.id);
+                setReplyText("");
+                setShowReply(false);
+                setShowReplies(true);
+              }
+            }}
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              padding: '6px 12px',
+              marginTop: '6px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: dark ? '#fff' : '#000',
+              transition: 'border-color 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+            onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+          >
+            POST
+          </button>
+        </div>
+      )}
+
+      {replies.length > 0 && (
+        <div style={{ marginLeft: '34px', marginTop: '15px' }}>
+          <button
+            onClick={() => setShowReplies(!showReplies)}
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#666' : '#999',
+              marginBottom: '10px',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            {showReplies ? '▼' : '▶'} {replies.length} REPL{replies.length !== 1 ? 'IES' : 'Y'}
+          </button>
+          {showReplies && (
+            <div style={{
+              borderLeft: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+              paddingLeft: '15px'
+            }}>
+              {replies.map(reply => (
+                <CommentThread
+                  key={reply.id}
+                  comment={reply}
+                  allComments={allComments}
+                  postId={postId}
+                  addComment={addComment}
+                  removeComment={removeComment}
+                  whisper={whisper}
+                  dark={dark}
+                  user={user}
+                  firebaseUser={firebaseUser}
+                  legacyUserId={legacyUserId}
+                  isRoomMod={isRoomMod}
+                  enterProfile={enterProfile}
+                  depth={depth + 1}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ========== MODAL COMPONENTS ==========
+
+function NewPostModal({ onClose, onPost, dark }) {
+  const [text, setText] = useState("");
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [videoUrl, setVideoUrl] = useState("");
+  const [audioUrl, setAudioUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadImageToMinIO = async (file) => {
+    try {
+      const filename = `${Date.now()}_${file.name}`;
+      const command = new PutObjectCommand({
+        Bucket: MINIO_BUCKET,
+        Key: filename,
+        Body: file,
+        ContentType: file.type
+      });
+      
+      await s3Client.send(command);
+      return `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
+    } catch (error) {
+      console.error('MinIO upload error:', error);
+      throw error;
+    }
+  };
 
   const handleSubmit = async () => {
-    if (!input.trim()) {
-      setError("PLEASE ENTER " + (mode === "invite" ? "A CODE" : "YOUR PASSWORD"));
+    if (!text.trim() && !imageFile && !videoUrl && !audioUrl) {
+      alert("PLEASE ADD SOME CONTENT");
       return;
     }
+
+    setUploading(true);
+    try {
+      let imageUrl = null;
+      if (imageFile) {
+        imageUrl = await uploadImageToMinIO(imageFile);
+      }
+
+      onPost({
+        text: text.trim(),
+        image: imageUrl,
+        videoUrl: videoUrl.trim() || null,
+        audioUrl: audioUrl.trim() || null
+      });
+
+      onClose();
+    } catch (error) {
+      alert("UPLOAD FAILED");
+      console.error(error);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '20px'
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: dark ? '#000' : '#fff',
+          border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+          maxWidth: '600px',
+          width: '100%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          padding: '40px'
+        }}
+      >
+        <div style={{
+          fontSize: '16px',
+          letterSpacing: '0.15em',
+          marginBottom: '30px',
+          color: dark ? '#fff' : '#000'
+        }}>
+          NEW POST
+        </div>
+
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="WHAT'S ON YOUR MIND?"
+          disabled={uploading}
+          style={{
+            width: '100%',
+            minHeight: '120px',
+            fontSize: '13px',
+            letterSpacing: '0.02em',
+            padding: '16px',
+            marginBottom: '20px',
+            background: 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            outline: 'none',
+            resize: 'vertical',
+            color: dark ? '#fff' : '#000',
+            fontFamily: 'Helvetica Neue, Arial, sans-serif'
+          }}
+        />
+
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            display: 'block',
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px'
+          }}>
+            IMAGE
+          </label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleImageChange}
+            disabled={uploading}
+            style={{
+              fontSize: '11px',
+              color: dark ? '#fff' : '#000'
+            }}
+          />
+          {imagePreview && (
+            <img
+              src={imagePreview}
+              style={{
+                width: '100%',
+                maxHeight: '300px',
+                objectFit: 'contain',
+                marginTop: '12px'
+              }}
+              alt="preview"
+            />
+          )}
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            display: 'block',
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px'
+          }}>
+            VIDEO URL (YOUTUBE OR DIRECT LINK)
+          </label>
+          <input
+            type="text"
+            value={videoUrl}
+            onChange={(e) => setVideoUrl(e.target.value)}
+            placeholder="https://..."
+            disabled={uploading}
+            style={{
+              width: '100%',
+              fontSize: '12px',
+              padding: '12px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              outline: 'none',
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: '30px' }}>
+          <label style={{
+            display: 'block',
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px'
+          }}>
+            AUDIO URL
+          </label>
+          <input
+            type="text"
+            value={audioUrl}
+            onChange={(e) => setAudioUrl(e.target.value)}
+            placeholder="https://..."
+            disabled={uploading}
+            style={{
+              width: '100%',
+              fontSize: '12px',
+              padding: '12px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              outline: 'none',
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            disabled={uploading}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: uploading ? 'not-allowed' : 'pointer',
+              color: dark ? '#fff' : '#000',
+              opacity: uploading ? 0.5 : 1,
+              transition: 'border-color 0.2s'
+            }}
+            onMouseEnter={(e) => !uploading && (e.target.style.borderColor = dark ? '#666' : '#999')}
+            onMouseLeave={(e) => !uploading && (e.target.style.borderColor = dark ? '#333' : '#e5e5e5')}
+          >
+            CANCEL
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={uploading}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              backgroundColor: dark ? '#fff' : '#000',
+              border: 'none',
+              cursor: uploading ? 'not-allowed' : 'pointer',
+              color: dark ? '#000' : '#fff',
+              opacity: uploading ? 0.5 : 1,
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.8')}
+            onMouseLeave={(e) => !uploading && (e.target.style.opacity = '1')}
+          >
+            {uploading ? 'UPLOADING...' : 'POST'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RoomModal({ onClose, onCreate, onJoin, dark }) {
+  const [mode, setMode] = useState("create");
+  const [roomName, setRoomName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [isPrivate, setIsPrivate] = useState(true);
+  const [creatorOnly, setCreatorOnly] = useState(false);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '20px'
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: dark ? '#000' : '#fff',
+          border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+          maxWidth: '500px',
+          width: '100%',
+          padding: '40px'
+        }}
+      >
+        <div style={{ marginBottom: '30px' }}>
+          <button
+            onClick={() => setMode("create")}
+            style={{
+              fontSize: '12px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              marginRight: '12px',
+              background: mode === "create" ? (dark ? '#fff' : '#000') : 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: mode === "create" ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+              transition: 'all 0.2s'
+            }}
+          >
+            CREATE
+          </button>
+          <button
+            onClick={() => setMode("join")}
+            style={{
+              fontSize: '12px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              background: mode === "join" ? (dark ? '#fff' : '#000') : 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: mode === "join" ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+              transition: 'all 0.2s'
+            }}
+          >
+            JOIN
+          </button>
+        </div>
+
+        {mode === "create" ? (
+          <>
+            <input
+              value={roomName}
+              onChange={(e) => setRoomName(e.target.value)}
+              placeholder="ROOM NAME"
+              style={{
+                width: '100%',
+                fontSize: '13px',
+                letterSpacing: '0.05em',
+                padding: '16px',
+                marginBottom: '20px',
+                background: 'none',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                color: dark ? '#fff' : '#000',
+                fontFamily: 'Helvetica Neue, Arial, sans-serif'
+              }}
+            />
+            
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              marginBottom: '12px',
+              fontSize: '11px',
+              letterSpacing: '0.05em',
+              color: dark ? '#fff' : '#000',
+              cursor: 'pointer'
+            }}>
+              <input
+                type="checkbox"
+                checked={isPrivate}
+                onChange={(e) => setIsPrivate(e.target.checked)}
+              />
+              PRIVATE (INVITE ONLY)
+            </label>
+
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              marginBottom: '30px',
+              fontSize: '11px',
+              letterSpacing: '0.05em',
+              color: dark ? '#fff' : '#000',
+              cursor: 'pointer'
+            }}>
+              <input
+                type="checkbox"
+                checked={creatorOnly}
+                onChange={(e) => setCreatorOnly(e.target.checked)}
+              />
+              CREATOR ONLY POSTING
+            </label>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={onClose}
+                style={{
+                  fontSize: '10px',
+                  letterSpacing: '0.1em',
+                  padding: '12px 24px',
+                  background: 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: dark ? '#fff' : '#000',
+                  transition: 'border-color 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+                onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={() => onCreate(roomName || "ROOM", isPrivate, creatorOnly)}
+                style={{
+                  fontSize: '10px',
+                  letterSpacing: '0.1em',
+                  padding: '12px 24px',
+                  backgroundColor: dark ? '#fff' : '#000',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: dark ? '#000' : '#fff',
+                  transition: 'opacity 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+                onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                CREATE
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <input
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+              placeholder="PASTE INVITE CODE"
+              style={{
+                width: '100%',
+                fontSize: '13px',
+                letterSpacing: '0.1em',
+                padding: '16px',
+                marginBottom: '30px',
+                background: 'none',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                color: dark ? '#fff' : '#000',
+                fontFamily: 'Helvetica Neue, Arial, sans-serif',
+                textTransform: 'uppercase'
+              }}
+            />
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={onClose}
+                style={{
+                  fontSize: '10px',
+                  letterSpacing: '0.1em',
+                  padding: '12px 24px',
+                  background: 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: dark ? '#fff' : '#000',
+                  transition: 'border-color 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+                onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={() => onJoin(inviteCode)}
+                style={{
+                  fontSize: '10px',
+                  letterSpacing: '0.1em',
+                  padding: '12px 24px',
+                  backgroundColor: dark ? '#fff' : '#000',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: dark ? '#000' : '#fff',
+                  transition: 'opacity 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+                onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                JOIN
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingsModal({ dark, setDark, theme, setTheme, user, onGenerateInvite, onLogout, onClose }) {
+  const [newCode, setNewCode] = useState(null);
+
+  const themes = ['default', 'serika', 'retrocast', 'botanical', 'ocean', 'rose'];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '20px'
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: dark ? '#000' : '#fff',
+          border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+          maxWidth: '500px',
+          width: '100%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          padding: '40px'
+        }}
+      >
+        <div style={{
+          fontSize: '16px',
+          letterSpacing: '0.15em',
+          marginBottom: '40px',
+          color: dark ? '#fff' : '#000'
+        }}>
+          SETTINGS
+        </div>
+
+        <div style={{ marginBottom: '30px' }}>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            APPEARANCE
+          </div>
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            fontSize: '11px',
+            letterSpacing: '0.05em',
+            color: dark ? '#fff' : '#000',
+            cursor: 'pointer'
+          }}>
+            <input
+              type="checkbox"
+              checked={dark}
+              onChange={(e) => setDark(e.target.checked)}
+            />
+            DARK MODE
+          </label>
+        </div>
+
+        <div style={{ marginBottom: '30px' }}>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            THEME
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {themes.map(t => (
+              <button
+                key={t}
+                onClick={() => setTheme(t)}
+                style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.1em',
+                  padding: '8px 16px',
+                  background: theme === t ? (dark ? '#fff' : '#000') : 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: theme === t ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+                  transition: 'all 0.2s',
+                  textTransform: 'uppercase'
+                }}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '30px' }}>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            INVITE CODES
+          </div>
+          <div style={{
+            fontSize: '11px',
+            letterSpacing: '0.05em',
+            color: dark ? '#fff' : '#000',
+            marginBottom: '12px'
+          }}>
+            REMAINING: {user.inviteCodesRemaining}
+          </div>
+          <button
+            onClick={() => {
+              const code = onGenerateInvite();
+              if (code) setNewCode(code);
+            }}
+            disabled={user.inviteCodesRemaining <= 0 && !user.isAdmin}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '10px 20px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: user.inviteCodesRemaining <= 0 && !user.isAdmin ? 'not-allowed' : 'pointer',
+              color: dark ? '#fff' : '#000',
+              opacity: user.inviteCodesRemaining <= 0 && !user.isAdmin ? 0.5 : 1,
+              transition: 'border-color 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              if (user.inviteCodesRemaining > 0 || user.isAdmin) {
+                e.target.style.borderColor = dark ? '#666' : '#999';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (user.inviteCodesRemaining > 0 || user.isAdmin) {
+                e.target.style.borderColor = dark ? '#333' : '#e5e5e5';
+              }
+            }}
+          >
+            GENERATE CODE
+          </button>
+          {newCode && (
+            <div style={{
+              marginTop: '12px',
+              padding: '12px',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              fontSize: '14px',
+              letterSpacing: '0.2em',
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'monospace'
+            }}>
+              {newCode}
+            </div>
+          )}
+        </div>
+
+        <div style={{ 
+          borderTop: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+          paddingTop: '30px',
+          marginTop: '40px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <button
+            onClick={onLogout}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              background: 'none',
+              border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`,
+              cursor: 'pointer',
+              color: dark ? '#ff4444' : '#ff0000',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = dark ? '#ff4444' : '#ff0000';
+              e.target.style.color = '#fff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = 'transparent';
+              e.target.style.color = dark ? '#ff4444' : '#ff0000';
+            }}
+          >
+            LOGOUT
+          </button>
+
+          <button
+            onClick={onClose}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              backgroundColor: dark ? '#fff' : '#000',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#000' : '#fff',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            CLOSE
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileEditModal({ user, onSave, onClose, dark }) {
+  const [bio, setBio] = useState(user.bio || "");
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(user.profileImage || null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadImageToMinIO = async (file) => {
+    try {
+      const filename = `profile_${Date.now()}_${file.name}`;
+      const command = new PutObjectCommand({
+        Bucket: MINIO_BUCKET,
+        Key: filename,
+        Body: file,
+        ContentType: file.type
+      });
+      
+      await s3Client.send(command);
+      return `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
+    } catch (error) {
+      console.error('MinIO upload error:', error);
+      throw error;
+    }
+  };
+
+  const handleSave = async () => {
+    setUploading(true);
+    try {
+      let profileImageUrl = user.profileImage;
+      
+      if (imageFile) {
+        profileImageUrl = await uploadImageToMinIO(imageFile);
+      }
+
+      onSave({
+        ...user,
+        bio: bio.trim() || null,
+        profileImage: profileImageUrl
+      });
+
+      onClose();
+    } catch (error) {
+      alert("UPLOAD FAILED");
+      console.error(error);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '20px'
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: dark ? '#000' : '#fff',
+          border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+          maxWidth: '500px',
+          width: '100%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          padding: '40px'
+        }}
+      >
+        <div style={{
+          fontSize: '16px',
+          letterSpacing: '0.15em',
+          marginBottom: '30px',
+          color: dark ? '#fff' : '#000'
+        }}>
+          EDIT PROFILE
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            display: 'block',
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px'
+          }}>
+            USERNAME
+          </label>
+          <div style={{
+            fontSize: '13px',
+            padding: '16px',
+            border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            color: dark ? '#666' : '#999'
+          }}>
+            {user.username}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{
+            display: 'block',
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px'
+          }}>
+            BIO
+          </label>
+          <textarea
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            placeholder="TELL US ABOUT YOURSELF..."
+            disabled={uploading}
+            style={{
+              width: '100%',
+              minHeight: '100px',
+              fontSize: '12px',
+              letterSpacing: '0.02em',
+              padding: '16px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              outline: 'none',
+              resize: 'vertical',
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: '30px' }}>
+          <label style={{
+            display: 'block',
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px'
+          }}>
+            PROFILE PICTURE
+          </label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleImageChange}
+            disabled={uploading}
+            style={{
+              fontSize: '11px',
+              color: dark ? '#fff' : '#000',
+              marginBottom: '12px'
+            }}
+          />
+          {imagePreview && (
+            <img
+              src={imagePreview}
+              style={{
+                width: '120px',
+                height: '120px',
+                objectFit: 'cover',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`
+              }}
+              alt="preview"
+            />
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            disabled={uploading}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: uploading ? 'not-allowed' : 'pointer',
+              color: dark ? '#fff' : '#000',
+              opacity: uploading ? 0.5 : 1,
+              transition: 'border-color 0.2s'
+            }}
+            onMouseEnter={(e) => !uploading && (e.target.style.borderColor = dark ? '#666' : '#999')}
+            onMouseLeave={(e) => !uploading && (e.target.style.borderColor = dark ? '#333' : '#e5e5e5')}
+          >
+            CANCEL
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={uploading}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              backgroundColor: dark ? '#fff' : '#000',
+              border: 'none',
+              cursor: uploading ? 'not-allowed' : 'pointer',
+              color: dark ? '#000' : '#fff',
+              opacity: uploading ? 0.5 : 1,
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.8')}
+            onMouseLeave={(e) => !uploading && (e.target.style.opacity = '1')}
+          >
+            {uploading ? 'SAVING...' : 'SAVE'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LogoutConfirmModal({ onConfirm, onCancel, dark }) {
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '20px'
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: dark ? '#000' : '#fff',
+          border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+          maxWidth: '400px',
+          width: '100%',
+          padding: '40px'
+        }}
+      >
+        <div style={{
+          fontSize: '16px',
+          letterSpacing: '0.15em',
+          marginBottom: '20px',
+          color: dark ? '#fff' : '#000'
+        }}>
+          LOGOUT
+        </div>
+
+        <div style={{
+          fontSize: '12px',
+          lineHeight: '1.6',
+          letterSpacing: '0.02em',
+          color: dark ? '#999' : '#666',
+          marginBottom: '30px'
+        }}>
+          Are you sure you want to logout? You'll need your username and password to log back in.
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+          <button
+            onClick={onCancel}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: dark ? '#fff' : '#000',
+              transition: 'border-color 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+            onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+          >
+            CANCEL
+          </button>
+          <button
+            onClick={onConfirm}
+            style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              background: 'none',
+              border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`,
+              cursor: 'pointer',
+              color: dark ? '#ff4444' : '#ff0000',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = dark ? '#ff4444' : '#ff0000';
+              e.target.style.color = '#fff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = 'transparent';
+              e.target.style.color = dark ? '#ff4444' : '#ff0000';
+            }}
+          >
+            LOGOUT
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminPanel({ onClose, dark, user }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '20px'
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          backgroundColor: dark ? '#000' : '#fff',
+          border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`,
+          maxWidth: '500px',
+          width: '100%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          padding: '40px'
+        }}
+      >
+        <div style={{
+          fontSize: '16px',
+          letterSpacing: '0.15em',
+          marginBottom: '30px',
+          color: dark ? '#ff4444' : '#ff0000'
+        }}>
+          🛡️ ADMIN PANEL
+        </div>
+
+        <div style={{
+          fontSize: '11px',
+          letterSpacing: '0.05em',
+          lineHeight: '1.8',
+          color: dark ? '#fff' : '#000',
+          marginBottom: '30px'
+        }}>
+          <div>USERNAME: {user.username}</div>
+          <div>ADMIN STATUS: ACTIVE</div>
+          <div>INVITE CODES: UNLIMITED</div>
+        </div>
+
+        <div style={{
+          padding: '20px',
+          border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+          marginBottom: '20px'
+        }}>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            ADMIN PRIVILEGES
+          </div>
+          <div style={{
+            fontSize: '11px',
+            letterSpacing: '0.05em',
+            lineHeight: '1.8',
+            color: dark ? '#fff' : '#000'
+          }}>
+            • DELETE ANY POST OR COMMENT<br />
+            • DELETE ANY ROOM<br />
+            • UNLIMITED INVITE CODES<br />
+            • BYPASS ALL RESTRICTIONS
+          </div>
+        </div>
+
+        <button
+          onClick={onClose}
+          style={{
+            width: '100%',
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            padding: '12px',
+            backgroundColor: dark ? '#ff4444' : '#ff0000',
+            border: 'none',
+            cursor: 'pointer',
+            color: '#fff',
+            transition: 'opacity 0.2s'
+          }}
+          onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+          onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          CLOSE
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InviteGate({ onSignUp, onLogin, getColor }) {
+  const [mode, setMode] = useState("signup");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [error, setError] = useState("");
+
+  const handleGenerate = () => {
+    setUsername(generateUsername());
+  };
+
+  const handleSubmit = async () => {
+    setError("");
     
-    if (mode === "invite") {
-      const success = onRedeem(input);
+    if (mode === "signup") {
+      if (!username.trim() || !password.trim() || !inviteCode.trim()) {
+        setError("PLEASE FILL IN ALL FIELDS");
+        return;
+      }
+      const success = await onSignUp(username, password, inviteCode);
       if (!success) {
-        setError("INVALID OR USED CODE");
-        setInput("");
+        // Error already shown by onSignUp
       }
     } else {
-      // Login with password
-      const success = await onLogin(input);
+      if (!username.trim() || !password.trim()) {
+        setError("PLEASE ENTER USERNAME AND PASSWORD");
+        return;
+      }
+      const success = await onLogin(username, password);
       if (!success) {
-        setError("INCORRECT PASSWORD");
-        setInput("");
+        // Error already shown by onLogin
       }
     }
   };
@@ -1719,7 +3703,6 @@ function InviteGate({ onRedeem, onLogin, getColor }) {
   const handleAdminBypass = () => {
     const password = prompt("ENTER ADMIN PASSWORD:");
     if (password === "EpicMan101") {
-      // Bypass invite gate with admin access
       const event = new CustomEvent('adminBypass');
       window.dispatchEvent(event);
     } else if (password) {
@@ -1739,63 +3722,41 @@ function InviteGate({ onRedeem, onLogin, getColor }) {
       padding: '20px'
     }}>
       <div style={{
-        maxWidth: '400px',
-        width: '100%',
-        textAlign: 'center'
+        maxWidth: '420px',
+        width: '100%'
       }}>
+        {/* Header */}
         <div style={{
-          fontSize: '32px',
-          fontWeight: '300',
-          letterSpacing: '0.15em',
-          marginBottom: '10px',
-          color: getColor('text')
-        }}>
-          PIN-ANON
-        </div>
-        <div style={{
-          fontSize: '10px',
-          letterSpacing: '0.2em',
-          color: getColor('textMuted'),
+          textAlign: 'center',
           marginBottom: '60px'
         }}>
-          ANONYMOUS ARCHIVE
+          <div style={{
+            fontSize: '32px',
+            fontWeight: '300',
+            letterSpacing: '0.15em',
+            marginBottom: '10px'
+          }}>
+            CARLISLE
+          </div>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.2em',
+            color: getColor('textMuted')
+          }}>
+            ANONYMOUS ARCHIVE
+          </div>
         </div>
 
-        <div style={{
-          fontSize: '11px',
-          letterSpacing: '0.1em',
-          color: getColor('textMuted'),
-          marginBottom: '30px',
-          lineHeight: '1.6'
-        }}>
-          {mode === "invite" ? (
-            <>
-              THIS IS AN INVITE-ONLY COMMUNITY
-              <br />
-              ENTER YOUR INVITE CODE TO CONTINUE
-            </>
-          ) : (
-            <>
-              ENTER YOUR PASSWORD TO LOGIN
-              <br />
-              <span style={{ fontSize: '10px', marginTop: '10px', display: 'block' }}>
-                Your password is the only way to access your account
-              </span>
-            </>
-          )}
-        </div>
-
-        {/* Tab Switcher */}
+        {/* Mode Tabs */}
         <div style={{
           display: 'flex',
-          marginBottom: '20px',
+          marginBottom: '30px',
           border: `1px solid ${getColor('border')}`,
           overflow: 'hidden'
         }}>
           <button
             onClick={() => {
-              setMode("invite");
-              setInput("");
+              setMode("signup");
               setError("");
             }}
             style={{
@@ -1803,20 +3764,19 @@ function InviteGate({ onRedeem, onLogin, getColor }) {
               fontSize: '10px',
               letterSpacing: '0.1em',
               padding: '12px',
-              backgroundColor: mode === "invite" ? getColor('text') : 'transparent',
+              backgroundColor: mode === "signup" ? getColor('text') : 'transparent',
               border: 'none',
               cursor: 'pointer',
-              color: mode === "invite" ? getColor('bg') : getColor('textMuted'),
+              color: mode === "signup" ? getColor('bg') : getColor('textMuted'),
               transition: 'all 0.2s',
               fontFamily: 'Helvetica Neue, Arial, sans-serif'
             }}
           >
-            INVITE CODE
+            SIGN UP
           </button>
           <button
             onClick={() => {
               setMode("login");
-              setInput("");
               setError("");
             }}
             style={{
@@ -1837,3641 +3797,249 @@ function InviteGate({ onRedeem, onLogin, getColor }) {
           </button>
         </div>
 
-        <input
-          type={mode === "login" ? "password" : "text"}
-          value={input}
-          onChange={(e) => {
-            setInput(mode === "invite" ? e.target.value.toUpperCase() : e.target.value);
-            setError("");
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSubmit();
-          }}
-          placeholder={mode === "invite" ? "INVITE CODE" : "PASSWORD"}
-          autoFocus
-          style={{
-            width: '100%',
-            fontSize: '16px',
-            letterSpacing: mode === "login" ? '0.05em' : '0.2em',
-            padding: '15px',
-            marginBottom: '20px',
-            background: 'none',
-            border: `2px solid ${error ? '#ff4444' : getColor('border')}`,
-            outline: 'none',
-            color: getColor('text'),
-            textAlign: 'center',
-            fontFamily: 'Helvetica Neue, Arial, sans-serif',
-            textTransform: mode === "invite" ? 'uppercase' : 'none',
-            boxSizing: 'border-box'
-          }}
-        />
-
-        {error && (
-          <div style={{
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            color: '#ff4444',
-            marginBottom: '20px'
-          }}>
-            {error}
-          </div>
-        )}
-
-        <button
-          onClick={handleSubmit}
-          style={{
-            width: '100%',
-            fontSize: '11px',
-            letterSpacing: '0.15em',
-            padding: '15px',
-            backgroundColor: getColor('text'),
-            border: 'none',
-            cursor: 'pointer',
-            color: getColor('bg'),
-            transition: 'opacity 0.2s',
-            fontFamily: 'Helvetica Neue, Arial, sans-serif',
-            marginBottom: '20px'
-          }}
-          onMouseEnter={(e) => e.target.style.opacity = '0.8'}
-          onMouseLeave={(e) => e.target.style.opacity = '1'}
-        >
-          {mode === "invite" ? "ENTER" : "LOGIN"}
-        </button>
-
-        {/* Hidden admin login - triple click to reveal */}
-        <div 
-          onClick={(e) => {
-            if (e.detail === 3) { // Triple click
-              handleAdminBypass();
-            }
-          }}
-          style={{
-            fontSize: '9px',
-            letterSpacing: '0.1em',
-            color: getColor('borderDim'),
-            cursor: 'default',
-            userSelect: 'none'
-          }}
-        >
-          •
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProfilePicture({ authorId, author, size = 32, dark }) {
-  const [profileImage, setProfileImage] = useState(null);
-
-  useEffect(() => {
-    if (!authorId) return;
-    
-    const userRef = ref(database, `users/${authorId}`);
-    onValue(userRef, (snapshot) => {
-      const userData = snapshot.val();
-      if (userData?.profileImage) {
-        setProfileImage(userData.profileImage);
-      }
-    }, { onlyOnce: true });
-  }, [authorId]);
-
-  if (profileImage) {
-    return (
-      <img
-        src={profileImage}
-        style={{
-          width: `${size}px`,
-          height: `${size}px`,
-          borderRadius: '50%',
-          objectFit: 'cover',
-          flexShrink: 0
-        }}
-        alt=""
-      />
-    );
-  }
-
-  return (
-    <div style={{
-      width: `${size}px`,
-      height: `${size}px`,
-      borderRadius: '50%',
-      backgroundColor: dark ? '#1a1a1a' : '#e5e5e5',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: `${Math.floor(size / 2.5)}px`,
-      color: dark ? '#666' : '#999',
-      flexShrink: 0,
-      fontWeight: '300'
-    }}>
-      {author ? author[0].toUpperCase() : '?'}
-    </div>
-  );
-}
-
-function UserListSidebar({ posts, currentRoom, dark, onProfileClick, windowWidth }) {
-  const [collapsed, setCollapsed] = useState(false);
-  
-  // Get unique users who have posted in this room
-  const roomUsers = useMemo(() => {
-    const usersInRoom = new Map();
-    
-    posts.forEach(post => {
-      if (post.room === currentRoom) {
-        if (!usersInRoom.has(post.author)) {
-          usersInRoom.set(post.author, {
-            id: post.author,
-            authorId: post.authorId,
-            displayName: post.authorDisplayName || post.author.toUpperCase(),
-            postCount: 1
-          });
-        } else {
-          usersInRoom.get(post.author).postCount++;
-        }
-      }
-    });
-    
-    return Array.from(usersInRoom.values()).sort((a, b) => b.postCount - a.postCount);
-  }, [posts, currentRoom]);
-
-  return (
-    <div style={{
-      width: '200px',
-      borderRight: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-      padding: '20px',
-      position: 'sticky',
-      top: '0',
-      alignSelf: 'flex-start',
-      maxHeight: '100vh',
-      overflowY: 'auto',
-      display: windowWidth < 1024 ? 'none' : 'block'
-    }}>
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        style={{
-          fontSize: '10px',
-          letterSpacing: '0.1em',
-          color: dark ? '#666' : '#999',
-          marginBottom: collapsed ? '0' : '20px',
-          fontWeight: '300',
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          padding: '8px',
-          width: '100%',
-          textAlign: 'left',
-          transition: 'opacity 0.2s',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}
-        onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-        onMouseLeave={(e) => e.target.style.opacity = '1'}
-      >
-        <span>USERS ({roomUsers.length})</span>
-        <span style={{ fontSize: '12px' }}>{collapsed ? '+' : '−'}</span>
-      </button>
-      
-      {!collapsed && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {roomUsers.map(user => (
-          <button
-            key={user.id}
-            onClick={() => onProfileClick(user.id)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '8px',
-              transition: 'background 0.2s',
-              backgroundColor: 'transparent',
-              borderRadius: '4px',
-              textAlign: 'left'
-            }}
-            onMouseEnter={(e) => e.target.style.backgroundColor = dark ? '#0f0f0f' : '#f9f9f9'}
-            onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-          >
-            <ProfilePicture 
-              authorId={user.authorId}
-              author={user.id}
-              size={24}
-              dark={dark}
-            />
-            <div style={{
-              fontSize: '10px',
-              letterSpacing: '0.05em',
-              color: dark ? '#fff' : '#000',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap'
-            }}>
-              {user.displayName}
-            </div>
-          </button>
-        ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, userJoinedRooms }) {
-  const [scrollPositions, setScrollPositions] = useState({});
-
-  // Show main room, public rooms, and rooms user has joined
-  const visibleRooms = rooms.filter(r => 
-    r.id === DEFAULT_ROOM || 
-    !r.isPrivate || 
-    (userJoinedRooms || []).includes(r.id)
-  );
-
-  const getRoomPosts = (roomId) => {
-    return (posts || [])
-      .filter(p => p.room === roomId)
-      .sort((a, b) => b.created - a.created)
-      .slice(0, 10);
-  };
-
-  const getRoomActivity = (roomId) => {
-    const roomPosts = (posts || []).filter(p => p.room === roomId);
-    if (roomPosts.length === 0) return 0;
-    // Return the timestamp of the most recent post
-    return Math.max(...roomPosts.map(p => p.created));
-  };
-
-  // Sort rooms by most recent activity
-  const sortedRooms = [...visibleRooms].sort((a, b) => {
-    const activityA = getRoomActivity(a.id);
-    const activityB = getRoomActivity(b.id);
-    // Main room always stays on top
-    if (a.id === DEFAULT_ROOM) return -1;
-    if (b.id === DEFAULT_ROOM) return 1;
-    return activityB - activityA;
-  });
-
-  const handleScroll = (roomId, e) => {
-    setScrollPositions(prev => ({
-      ...prev,
-      [roomId]: e.target.scrollLeft
-    }));
-  };
-
-  return (
-    <div>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginBottom: '40px',
-        flexWrap: 'wrap',
-        gap: '20px'
-      }}>
-        <div style={{
-          fontSize: '12px',
-          letterSpacing: '0.15em',
-          color: dark ? '#fff' : '#000'
-        }}>
-          EXPLORE ROOMS
-        </div>
-        <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-          <button
-            onClick={onCreateRoom}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '8px 16px',
-              backgroundColor: dark ? '#fff' : '#000',
-              border: `1px solid ${dark ? '#fff' : '#000'}`,
-              cursor: 'pointer',
-              color: dark ? '#000' : '#fff',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            + CREATE ROOM
-          </button>
-          <button
-            onClick={onJoinRoom}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '8px 16px',
-              background: 'none',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            JOIN WITH CODE
-          </button>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '60px' }}>
-        {sortedRooms.map((room) => {
-          const roomPosts = getRoomPosts(room.id);
-          return (
-            <div key={room.id}>
-              <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                marginBottom: '20px',
-                flexWrap: 'wrap',
-                gap: '10px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <h2 style={{
-                    fontSize: '14px',
-                    letterSpacing: '0.1em',
-                    fontWeight: '300',
-                    margin: 0,
-                    color: dark ? '#fff' : '#000'
-                  }}>
-                    {room.name.toUpperCase()}
-                  </h2>
-                  {room.isPrivate && (
-                    <span style={{ fontSize: '12px' }}>🔒</span>
-                  )}
-                </div>
-                <button
-                  onClick={() => onEnterRoom(room.id)}
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.1em',
-                    padding: '6px 12px',
-                    background: 'none',
-                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                    cursor: 'pointer',
-                    color: dark ? '#999' : '#666',
-                    transition: 'opacity 0.2s',
-                    whiteSpace: 'nowrap'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  VIEW ALL →
-                </button>
-              </div>
-
-              {roomPosts.length === 0 ? (
-                <div style={{
-                  padding: '40px 20px',
-                  textAlign: 'center',
-                  fontSize: '10px',
-                  letterSpacing: '0.1em',
-                  color: dark ? '#666' : '#999',
-                  border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
-                }}>
-                  NO POSTS YET
-                </div>
-              ) : (
-                <div 
-                  onScroll={(e) => handleScroll(room.id, e)}
-                  style={{
-                    display: 'flex',
-                    gap: '20px',
-                    overflowX: 'auto',
-                    overflowY: 'hidden',
-                    paddingBottom: '10px',
-                    scrollbarWidth: 'thin',
-                    scrollbarColor: `${dark ? '#333' : '#ccc'} transparent`,
-                    WebkitOverflowScrolling: 'touch'
-                  }}
-                >
-                  {roomPosts.map((post) => (
-                    <div
-                      key={post.id}
-                      onClick={() => onEnterRoom(room.id)}
-                      style={{
-                        minWidth: '280px',
-                        maxWidth: '280px',
-                        padding: '15px',
-                        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-                        cursor: 'pointer',
-                        transition: 'border-color 0.2s',
-                        backgroundColor: dark ? '#0a0a0a' : '#fafafa'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.borderColor = dark ? '#333' : '#ccc'}
-                      onMouseLeave={(e) => e.currentTarget.style.borderColor = dark ? '#1a1a1a' : '#f5f5f5'}
-                    >
-                      {post.image && (
-                        <img
-                          src={post.image}
-                          style={{
-                            width: '100%',
-                            height: '180px',
-                            objectFit: 'cover',
-                            marginBottom: '12px'
-                          }}
-                          alt="post preview"
-                        />
-                      )}
-                      <div style={{
-                        fontSize: '10px',
-                        letterSpacing: '0.05em',
-                        fontWeight: '400',
-                        color: dark ? '#999' : '#666',
-                        marginBottom: '8px',
-                        wordBreak: 'break-all'
-                      }}>
-                        {post.authorDisplayName || post.author.toUpperCase()}
-                      </div>
-                      <div style={{
-                        fontSize: '11px',
-                        lineHeight: '1.6',
-                        letterSpacing: '0.02em',
-                        color: dark ? '#fff' : '#000',
-                        fontWeight: '300',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 3,
-                        WebkitBoxOrient: 'vertical',
-                        wordWrap: 'break-word'
-                      }}>
-                        {post.text}
-                      </div>
-                      <div style={{
-                        marginTop: '12px',
-                        fontSize: '10px',
-                        letterSpacing: '0.05em',
-                        color: dark ? '#666' : '#999',
-                        display: 'flex',
-                        gap: '15px'
-                      }}>
-                        <span>↑ {post.votes || 0}</span>
-                        <span>💬 {post.comments?.length || 0}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin, userJoinedRooms, userCreatedRooms }) {
-  const [open, setOpen] = useState(false);
-  
-  // Show: main room, public rooms, or rooms user has joined
-  const visibleRooms = rooms.filter(r => 
-    r.id === DEFAULT_ROOM || 
-    !r.isPrivate || 
-    (userJoinedRooms || []).includes(r.id)
-  );
-
-  // Get current room object to check if private
-  const currentRoomObj = rooms.find(r => r.id === currentRoom);
-  const isCurrentRoomPrivate = currentRoomObj?.isPrivate;
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <button
-        onClick={() => setOpen(!open)}
-        style={{
-          fontSize: '10px',
-          letterSpacing: '0.15em',
-          background: 'none',
-          border: 'none',
-          borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-          cursor: 'pointer',
-          color: dark ? '#fff' : '#000',
-          padding: '8px 0',
-          display: 'flex',
-          gap: '8px',
-          alignItems: 'center',
-          maxWidth: '200px',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap'
-        }}
-      >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentRoomName.toUpperCase()}</span>
-        {isCurrentRoomPrivate ? (
-          <span style={{ 
-            fontSize: '9px',
-            opacity: '0.6',
-            flexShrink: 0
-          }}>
-            🔒
-          </span>
-        ) : (
-          <span style={{ 
-            fontSize: '9px',
-            opacity: '0.4',
-            flexShrink: 0
-          }}>
-            🌐
-          </span>
-        )}
-        <span style={{ fontSize: '9px', flexShrink: 0 }}>▼</span>
-      </button>
-
-      {open && (
-        <>
-          <div 
-            style={{ 
-              position: 'fixed', 
-              inset: 0, 
-              zIndex: 10 
-            }}
-            onClick={() => setOpen(false)}
-          />
-          <div style={{
-            position: 'absolute',
-            right: 0,
-            marginTop: '10px',
-            backgroundColor: dark ? '#0a0a0a' : '#fff',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            padding: '10px',
-            zIndex: 20,
-            minWidth: '200px',
-            maxWidth: '300px'
-          }}>
-            <div style={{ 
-              marginBottom: '10px', 
-              paddingBottom: '10px', 
-              borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` 
-            }}>
-              <button
-                onClick={() => {
-                  onCreateRoom();
-                  setOpen(false);
-                }}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  fontSize: '10px',
-                  letterSpacing: '0.1em',
-                  padding: '8px 10px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: dark ? '#999' : '#666',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                + CREATE ROOM
-              </button>
-              <button
-                onClick={() => {
-                  onJoinRoom();
-                  setOpen(false);
-                }}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  fontSize: '10px',
-                  letterSpacing: '0.1em',
-                  padding: '8px 10px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: dark ? '#999' : '#666',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                JOIN ROOM
-              </button>
-            </div>
-
-            <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
-              {visibleRooms.map((r) => {
-                const isCreator = (userCreatedRooms || []).includes(r.id);
-                return (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <button
-                      onClick={() => {
-                        onSelectRoom(r.id);
-                        setOpen(false);
-                      }}
-                      style={{
-                        flex: 1,
-                        textAlign: 'left',
-                        fontSize: '10px',
-                        letterSpacing: '0.1em',
-                        padding: '8px 10px',
-                        background: r.id === currentRoom ? (dark ? '#1a1a1a' : '#f5f5f5') : 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: r.id === currentRoom ? (dark ? '#fff' : '#000') : (dark ? '#999' : '#666'),
-                        transition: 'opacity 0.2s',
-                        wordBreak: 'break-word',
-                        overflowWrap: 'break-word',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                      onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                      onMouseLeave={(e) => e.target.style.opacity = '1'}
-                    >
-                      <span style={{ flex: 1 }}>
-                        {r.name.toUpperCase()}{isCreator ? ' ★' : ''}
-                      </span>
-                      {r.isPrivate ? (
-                        <span style={{ 
-                          fontSize: '9px',
-                          opacity: '0.6',
-                          flexShrink: 0
-                        }}>
-                          🔒
-                        </span>
-                      ) : (
-                        <span style={{ 
-                          fontSize: '9px',
-                          opacity: '0.4',
-                          flexShrink: 0
-                        }}>
-                          🌐
-                        </span>
-                      )}
-                    </button>
-                    {(isAdmin || isCreator) && r.id !== DEFAULT_ROOM && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteRoom(r.id);
-                        }}
-                        style={{
-                          fontSize: '10px',
-                          padding: '4px 8px',
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: dark ? '#666' : '#999',
-                          transition: 'opacity 0.2s',
-                          flexShrink: 0
-                        }}
-                        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                        onMouseLeave={(e) => e.target.style.opacity = '1'}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function NewPostModal({ onClose, onPost, dark }) {
-  const [text, setText] = useState("");
-  const [img, setImg] = useState("");
-  const [videoUrl, setVideoUrl] = useState("");
-  const [audioUrl, setAudioUrl] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [uploadingVideo, setUploadingVideo] = useState(false);
-  const [uploadingAudio, setUploadingAudio] = useState(false);
-
-
-  async function handleFile(e) {
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
-  setUploading(true);
-  try {
-    const filename = `${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
-    
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = new Uint8Array(arrayBuffer);
-    
-    const command = new PutObjectCommand({
-      Bucket: MINIO_BUCKET,
-      Key: filename,
-      Body: buffer,
-      ContentType: file.type
-    });
-    
-    await s3Client.send(command);
-    
-    const publicUrl = `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
-    setImg(publicUrl);
-    setUploading(false);
-  } catch (error) {
-    console.error("Upload error:", error);
-    alert("FAILED TO UPLOAD IMAGE");
-    setUploading(false);
-  }
-}
-
-  async function handleVideoFile(e) {
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
-  setUploadingVideo(true);
-  try {
-    const filename = `${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
-    
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = new Uint8Array(arrayBuffer);
-    
-    const command = new PutObjectCommand({
-      Bucket: MINIO_BUCKET,
-      Key: filename,
-      Body: buffer,
-      ContentType: file.type
-    });
-    
-    await s3Client.send(command);
-    
-    const publicUrl = `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
-    setVideoUrl(publicUrl);
-    setUploadingVideo(false);
-  } catch (error) {
-    console.error("Upload error:", error);
-    alert("FAILED TO UPLOAD VIDEO");
-    setUploadingVideo(false);
-  }
-}
-
-  async function handleAudioFile(e) {
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
-  setUploadingAudio(true);
-  try {
-    const filename = `${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
-    
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = new Uint8Array(arrayBuffer);
-    
-    const command = new PutObjectCommand({
-      Bucket: MINIO_BUCKET,
-      Key: filename,
-      Body: buffer,
-      ContentType: file.type
-    });
-    
-    await s3Client.send(command);
-    
-    const publicUrl = `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
-    setAudioUrl(publicUrl);
-    setUploadingAudio(false);
-  } catch (error) {
-    console.error("Upload error:", error);
-    alert("FAILED TO UPLOAD AUDIO");
-    setUploadingAudio(false);
-  }
-}
-
-  function submit() {
-    if (!text.trim() && !img && !videoUrl && !audioUrl) return;
-    onPost({ 
-      text: text.trim(), 
-      image: img || null,
-      videoUrl: videoUrl.trim() || null,
-      audioUrl: audioUrl.trim() || null
-    });
-    onClose();
-    setText("");
-    setImg("");
-    setVideoUrl("");
-    setAudioUrl("");
-  }
-
-  return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 50, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px',
-      overflowY: 'auto'
-    }}>
-      <div style={{
-        maxWidth: '600px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px 20px',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px' }}>
-          <h3 style={{ 
-            fontSize: '12px', 
-            letterSpacing: '0.15em',
-            fontWeight: '300',
-            color: dark ? '#fff' : '#000'
-          }}>
-            NEW POST
-          </h3>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
-          </button>
-        </div>
-
-        <div style={{ paddingLeft: '20px', paddingRight: '20px' }}>
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="TEXT"
-            style={{
-              width: '100%',
-              height: '120px',
-              padding: '15px',
-              marginBottom: '20px',
-              fontSize: '16px',
-              letterSpacing: '0.05em',
-              fontWeight: '300',
-              lineHeight: '1.6',
-              background: 'none',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              outline: 'none',
-              resize: 'none',
-              color: dark ? '#fff' : '#000',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif',
-              boxSizing: 'border-box'
-            }}
-          />
-
-          <div style={{ marginBottom: '20px' }}>
-            <div style={{ display: 'flex', gap: '15px', marginBottom: '15px', flexWrap: 'wrap' }}>
-              <label style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '10px 15px',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                cursor: uploading ? 'not-allowed' : 'pointer',
-                color: uploading ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                {uploading ? "UPLOADING..." : "CHOOSE IMAGE"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFile}
-                  disabled={uploading}
-                  style={{ display: 'none' }}
-                />
-              </label>
-              
-              <label style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '10px 15px',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                cursor: uploadingVideo ? 'not-allowed' : 'pointer',
-                color: uploadingVideo ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => !uploadingVideo && (e.target.style.opacity = '0.5')}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                {uploadingVideo ? "UPLOADING..." : "CHOOSE VIDEO"}
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={handleVideoFile}
-                  disabled={uploadingVideo}
-                  style={{ display: 'none' }}
-                />
-              </label>
-              
-              <label style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '10px 15px',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                cursor: uploadingAudio ? 'not-allowed' : 'pointer',
-                color: uploadingAudio ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => !uploadingAudio && (e.target.style.opacity = '0.5')}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                {uploadingAudio ? "UPLOADING..." : "CHOOSE AUDIO"}
-                <input
-                  type="file"
-                  accept="audio/*"
-                  onChange={handleAudioFile}
-                  disabled={uploadingAudio}
-                  style={{ display: 'none' }}
-                />
-              </label>
-            </div>
-            
-            <input
-              value={img.startsWith('https://api.pinanonarchive') ? '' : img}
-              onChange={(e) => setImg(e.target.value)}
-              placeholder="OR PASTE IMAGE URL"
-              disabled={uploading}
-              style={{
-                width: '100%',
-                padding: '10px 0',
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                background: 'none',
-                border: 'none',
-                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                color: dark ? '#fff' : '#000',
-                boxSizing: 'border-box'
-              }}
-            />
-            
-            {img && !uploading && (
-              <div style={{ marginTop: '20px', position: 'relative' }}>
-                <img 
-                  src={img} 
-                  alt="preview" 
-                  style={{ 
-                    width: '100%',
-                    maxHeight: '300px',
-                    objectFit: 'contain'
-                  }}
-                />
-                <button
-                  onClick={() => setImg("")}
-                  style={{
-                    position: 'absolute',
-                    top: '10px',
-                    right: '10px',
-                    fontSize: '10px',
-                    letterSpacing: '0.1em',
-                    padding: '6px 10px',
-                    backgroundColor: dark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)',
-                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                    cursor: 'pointer',
-                    color: dark ? '#fff' : '#000',
-                    transition: 'opacity 0.2s'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  REMOVE
-                </button>
-              </div>
-            )}
-            
-            {videoUrl ? (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 0',
-                marginTop: '15px',
-                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                color: dark ? '#4ade80' : '#16a34a'
-              }}>
-                ✓ VIDEO READY
-                <button onClick={() => setVideoUrl('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', letterSpacing: '0.1em', color: dark ? '#666' : '#999' }}>REMOVE</button>
-              </div>
-            ) : (
-              <input
-                value={videoUrl}
-                onChange={(e) => setVideoUrl(e.target.value)}
-                placeholder="PASTE YOUTUBE URL"
-                style={{
-                  width: '100%',
-                  padding: '10px 0',
-                  fontSize: '16px',
-                  letterSpacing: '0.1em',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                  outline: 'none',
-                  color: dark ? '#fff' : '#000',
-                  boxSizing: 'border-box',
-                  marginTop: '15px'
-                }}
-              />
-            )}
-            
-            {audioUrl ? (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 0',
-                marginTop: '15px',
-                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                color: dark ? '#4ade80' : '#16a34a'
-              }}>
-                ✓ AUDIO READY
-                <button onClick={() => setAudioUrl('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', letterSpacing: '0.1em', color: dark ? '#666' : '#999' }}>REMOVE</button>
-              </div>
-            ) : null}
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '15px', flexWrap: 'wrap' }}>
-            <button
-              onClick={onClose}
-              disabled={uploading}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '10px 20px',
-                background: 'none',
-                border: 'none',
-                cursor: uploading ? 'not-allowed' : 'pointer',
-                color: dark ? '#666' : '#999',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              CANCEL
-            </button>
-            <button
-              onClick={submit}
-              disabled={uploading || (!text.trim() && !img && !videoUrl && !audioUrl)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '10px 20px',
-                backgroundColor: (uploading || (!text.trim() && !img && !videoUrl && !audioUrl)) ? 'transparent' : (dark ? '#fff' : '#000'),
-                border: `1px solid ${(uploading || (!text.trim() && !img && !videoUrl && !audioUrl)) ? (dark ? '#333' : '#e5e5e5') : (dark ? '#fff' : '#000')}`,
-                cursor: (uploading || (!text.trim() && !img && !videoUrl && !audioUrl)) ? 'not-allowed' : 'pointer',
-                color: (uploading || (!text.trim() && !img && !videoUrl && !audioUrl)) ? (dark ? '#333' : '#ccc') : (dark ? '#000' : '#fff'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => !(uploading || (!text.trim() && !img && !videoUrl && !audioUrl)) && (e.target.style.opacity = '0.7')}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              {uploading ? "UPLOADING..." : "POST"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CommentBlock({ post, addComment, removeComment, whisper, dark, user, firebaseUser, legacyUserId, isRoomMod, enterProfile }) {
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
-
-  const buildCommentTree = (comments) => {
-    const commentMap = {};
-    const roots = [];
-    comments.forEach(comment => {
-      commentMap[comment.id] = { ...comment, replies: [] };
-    });
-    comments.forEach(comment => {
-      if (comment.parentId && commentMap[comment.parentId]) {
-        commentMap[comment.parentId].replies.push(commentMap[comment.id]);
-      } else {
-        roots.push(commentMap[comment.id]);
-      }
-    });
-    return roots;
-  };
-
-  const commentTree = buildCommentTree(post.comments || []);
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          style={{
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: dark ? '#999' : '#666',
-            transition: 'opacity 0.2s'
-          }}
-          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-          onMouseLeave={(e) => e.target.style.opacity = '1'}
-        >
-          {(post.comments || []).length} {open ? '' : 'COMMENTS'}
-        </button>
-        {!whisper && !open && post.comments?.length === 0 && (
-          <div style={{ 
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            color: dark ? '#666' : '#999'
-          }}>
-            BE THE FIRST TO COMMENT
-          </div>
-        )}
-      </div>
-
-      {open && (
-        <div style={{ 
-          marginTop: '25px',
-          paddingLeft: '20px',
-          borderLeft: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '20px'
-        }}>
-          {commentTree.map((comment) => (
-            <CommentThread 
-              key={comment.id} 
-              comment={comment} 
-              postId={post.id}
-              addComment={addComment}
-              removeComment={removeComment}
-              dark={dark}
-              user={user}
-              firebaseUser={firebaseUser}
-              legacyUserId={legacyUserId}
-              isRoomMod={isRoomMod}
-              enterProfile={enterProfile}
-              depth={0}
-            />
-          ))}
-
-          <div style={{ display: 'flex', gap: '10px', paddingTop: '10px', flexWrap: 'wrap' }}>
-            <input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
-                  e.preventDefault();
-                  addComment(post.id, text, null);
-                  setText("");
-                }
-              }}
-              placeholder="ADD A COMMENT..."
-              style={{
-                flex: 1,
-                minWidth: '200px',
-                fontSize: '16px',
-                letterSpacing: '0.05em',
-                padding: '8px 0',
-                background: 'none',
-                border: 'none',
-                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                color: dark ? '#fff' : '#000'
-              }}
-            />
-            <button
-              onClick={() => {
-                if (text.trim()) {
-                  addComment(post.id, text, null);
-                  setText("");
-                }
-              }}
-              disabled={!text.trim()}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '8px 15px',
-                backgroundColor: text.trim() ? (dark ? '#fff' : '#000') : 'transparent',
-                border: `1px solid ${text.trim() ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
-                cursor: text.trim() ? 'pointer' : 'not-allowed',
-                color: text.trim() ? (dark ? '#000' : '#fff') : (dark ? '#333' : '#ccc'),
-                transition: 'opacity 0.2s',
-                whiteSpace: 'nowrap'
-              }}
-              onMouseEnter={(e) => text.trim() && (e.target.style.opacity = '0.7')}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              REPLY
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CommentThread({ comment, postId, addComment, removeComment, dark, user, firebaseUser, legacyUserId, isRoomMod, depth, enterProfile }) {
-  const [showReplyBox, setShowReplyBox] = useState(false);
-  const [replyText, setReplyText] = useState("");
-  const [collapsed, setCollapsed] = useState(false);
-
-  const handleReply = () => {
-    if (replyText.trim()) {
-      addComment(postId, replyText, comment.id);
-      setReplyText("");
-      setShowReplyBox(false);
-    }
-  };
-  
-  const canDelete = user.isAdmin || comment.author === user.id || (firebaseUser && comment.authorId === firebaseUser.uid) || (legacyUserId && comment.author === legacyUserId) || isRoomMod;
-
-  return (
-    <div style={{ wordWrap: 'break-word', overflowWrap: 'break-word' }}>
-      <div style={{ display: 'flex', gap: '10px' }}>
-        {comment.replies?.length > 0 && (
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            style={{
-              fontSize: '10px',
-              width: '16px',
-              height: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#666' : '#999',
-              flexShrink: 0,
-              marginTop: '2px'
-            }}
-          >
-            {collapsed ? "+" : "−"}
-          </button>
-        )}
-        
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {!collapsed && (
-            <>
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                <ProfilePicture 
-                  authorId={comment.authorId}
-                  author={comment.author}
-                  size={20}
-                  dark={dark}
-                />
-                <button
-                  onClick={() => enterProfile(comment.author)}
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.05em',
-                    fontWeight: '400',
-                    color: dark ? '#999' : '#666',
-                    wordBreak: 'break-all',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                    padding: 0
-                  }}
-                >
-                  {comment.authorDisplayName || comment.author.toUpperCase()}
-                </button>
-                <span style={{
-                  fontSize: '10px',
-                  letterSpacing: '0.05em',
-                  color: dark ? '#666' : '#999'
-                }}>
-                  •
-                </span>
-                <span style={{
-                  fontSize: '10px',
-                  letterSpacing: '0.05em',
-                  color: dark ? '#666' : '#999'
-                }}>
-                  {new Date(comment.created).toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: '2-digit', 
-                    day: '2-digit' 
-                  }).toUpperCase()}
-                </span>
-              </div>
-              
-              <div style={{
-                fontSize: '11px',
-                lineHeight: '1.6',
-                letterSpacing: '0.02em',
-                marginBottom: '12px',
-                color: dark ? '#fff' : '#000',
-                fontWeight: '300',
-                wordWrap: 'break-word',
-                overflowWrap: 'break-word'
-              }}>
-                {comment.text}
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => setShowReplyBox(!showReplyBox)}
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.1em',
-                    padding: '4px 8px',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: dark ? '#666' : '#999',
-                    transition: 'opacity 0.2s',
-                    whiteSpace: 'nowrap'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  REPLY
-                </button>
-                {canDelete && (
-                  <button
-                    onClick={() => removeComment(postId, comment.id)}
-                    style={{
-                      fontSize: '10px',
-                      letterSpacing: '0.1em',
-                      padding: '4px 8px',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: dark ? '#666' : '#999',
-                      transition: 'opacity 0.2s',
-                      whiteSpace: 'nowrap'
-                    }}
-                    onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                    onMouseLeave={(e) => e.target.style.opacity = '1'}
-                  >
-                    DELETE
-                  </button>
-                )}
-                {comment.replies?.length > 0 && (
-                  <span style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.05em',
-                    color: dark ? '#666' : '#999'
-                  }}>
-                    {comment.replies.length} {comment.replies.length === 1 ? 'REPLY' : 'REPLIES'}
-                  </span>
-                )}
-              </div>
-
-              {showReplyBox && (
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}>
-                  <input
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey && replyText.trim()) {
-                        e.preventDefault();
-                        handleReply();
-                      }
-                      if (e.key === 'Escape') {
-                        setShowReplyBox(false);
-                        setReplyText("");
-                      }
-                    }}
-                    placeholder={`REPLY TO ${comment.authorDisplayName || comment.author.toUpperCase()}...`}
-                    autoFocus
-                    style={{
-                      flex: 1,
-                      minWidth: '200px',
-                      fontSize: '16px',
-                      letterSpacing: '0.05em',
-                      padding: '8px 0',
-                      background: 'none',
-                      border: 'none',
-                      borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                      outline: 'none',
-                      color: dark ? '#fff' : '#000'
-                    }}
-                  />
-                  <button
-                    onClick={handleReply}
-                    disabled={!replyText.trim()}
-                    style={{
-                      fontSize: '10px',
-                      letterSpacing: '0.1em',
-                      padding: '6px 12px',
-                      backgroundColor: replyText.trim() ? (dark ? '#fff' : '#000') : 'transparent',
-                      border: `1px solid ${replyText.trim() ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
-                      cursor: replyText.trim() ? 'pointer' : 'not-allowed',
-                      color: replyText.trim() ? (dark ? '#000' : '#fff') : (dark ? '#333' : '#ccc'),
-                      transition: 'opacity 0.2s',
-                      whiteSpace: 'nowrap'
-                    }}
-                    onMouseEnter={(e) => replyText.trim() && (e.target.style.opacity = '0.7')}
-                    onMouseLeave={(e) => e.target.style.opacity = '1'}
-                  >
-                    REPLY
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-
-          {collapsed && (
-            <div style={{
-              fontSize: '10px',
-              padding: '4px 0',
-              letterSpacing: '0.05em',
-              color: dark ? '#666' : '#999'
-            }}>
-              {comment.authorDisplayName || comment.author.toUpperCase()} • {comment.replies.length} {comment.replies.length === 1 ? 'REPLY' : 'REPLIES'} HIDDEN
-            </div>
-          )}
-
-          {!collapsed && comment.replies?.length > 0 && (
-            <div style={{ 
-              marginTop: '15px',
-              paddingLeft: '20px',
-              borderLeft: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '20px'
-            }}>
-              {comment.replies.map((reply) => (
-                <CommentThread
-                  key={reply.id}
-                  comment={reply}
-                  postId={postId}
-                  addComment={addComment}
-                  removeComment={removeComment}
-                  dark={dark}
-                  user={user}
-                  firebaseUser={firebaseUser}
-                  legacyUserId={legacyUserId}
-                  isRoomMod={isRoomMod}
-                  enterProfile={enterProfile}
-                  depth={depth + 1}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AdminPage({ dark, state, user, onBack }) {
-
-  if (!user.isAdmin) {
-    return (
-      <div style={{ padding: '40px', textAlign: 'center' }}>
-        <div style={{ fontSize: '14px', color: dark ? '#999' : '#666' }}>
-          ACCESS DENIED
-        </div>
-      </div>
-    );
-  }
-
-
-
-  // Get reports from Firebase (you'll need to implement report submission)
-  const reports = state.reports || [];
-
-  return (
-    <div>
-      <button
-        onClick={onBack}
-        style={{
-          fontSize: '10px',
-          letterSpacing: '0.15em',
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          color: dark ? '#999' : '#666',
-          marginBottom: '40px',
-          transition: 'opacity 0.2s'
-        }}
-        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-        onMouseLeave={(e) => e.target.style.opacity = '1'}
-      >
-        ← BACK TO HOME
-      </button>
-
-      <div style={{
-        fontSize: '20px',
-        fontWeight: '300',
-        letterSpacing: '0.15em',
-        marginBottom: '40px',
-        color: dark ? '#fff' : '#000'
-      }}>
-        ADMIN PANEL
-      </div>
-
-      {/* Generate Sync Token Section */}
-      <div style={{
-        marginBottom: '60px',
-        padding: '30px',
-        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-        backgroundColor: dark ? '#050505' : '#fafafa'
-      }}>
-      </div>
-
-      {/* Reports Section */}
-      <div style={{
-        padding: '30px',
-        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-        backgroundColor: dark ? '#050505' : '#fafafa'
-      }}>
-        <div style={{
-          fontSize: '14px',
-          fontWeight: '400',
-          letterSpacing: '0.1em',
-          marginBottom: '20px',
-          color: dark ? '#fff' : '#000'
-        }}>
-          REPORTS ({reports.length})
-        </div>
-
-        {reports.length === 0 ? (
-          <div style={{ fontSize: '10px', color: dark ? '#666' : '#999' }}>
-            No reports yet
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            {reports.map((report, idx) => (
-              <div
-                key={idx}
-                style={{
-                  padding: '20px',
-                  border: `1px solid ${dark ? '#1a1a1a' : '#e5e5e5'}`,
-                  backgroundColor: dark ? '#0a0a0a' : '#fff'
-                }}
-              >
-                <div style={{
-                  fontSize: '10px',
-                  color: dark ? '#999' : '#666',
-                  marginBottom: '10px'
-                }}>
-                  {new Date(report.timestamp).toLocaleString()}
-                </div>
-                <div style={{
-                  fontSize: '11px',
-                  color: dark ? '#fff' : '#000',
-                  marginBottom: '10px'
-                }}>
-                  <strong>TYPE:</strong> {report.type}
-                </div>
-                <div style={{
-                  fontSize: '11px',
-                  color: dark ? '#fff' : '#000',
-                  lineHeight: '1.6'
-                }}>
-                  {report.description}
-                </div>
-                {report.postId && (
-                  <div style={{
-                    fontSize: '10px',
-                    color: dark ? '#666' : '#999',
-                    marginTop: '10px',
-                    fontFamily: 'monospace'
-                  }}>
-                    Post ID: {report.postId}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ProfilePage({ authorId, posts, onBack, dark, allPosts, user, firebaseUser, onEditProfile, onDeletePost }) {
-  const [profileData, setProfileData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Fetch user profile data from Firebase
-    // The authorId might be the display name, so we need to find the user
-    // by checking if any post by this author has an authorId field
-    const postByAuthor = allPosts.find(p => p.author === authorId);
-    const firebaseUserId = postByAuthor?.authorId;
-
-
-    if (firebaseUserId) {
-      const userRef = ref(database, `users/${firebaseUserId}`);
-      onValue(userRef, (snapshot) => {
-        const userData = snapshot.val();
-        if (userData) {
-          setProfileData(userData);
-        }
-        setLoading(false);
-      }, { onlyOnce: true });
-    } else {
-      // Fallback: search all users by id
-      const usersRef = ref(database, 'users');
-      onValue(usersRef, (snapshot) => {
-        const users = snapshot.val();
-        if (users) {
-          const userData = Object.values(users).find(u => u.id === authorId);
-          setProfileData(userData);
-        }
-        setLoading(false);
-      }, { onlyOnce: true });
-    }
-  }, [authorId, allPosts]);
-
-  // Calculate comment count across all posts
-  const commentCount = allPosts ? allPosts.reduce((count, p) => 
-    count + (p.comments || []).filter(c => c.author === authorId).length, 0
-  ) : 0;
-
-  // Calculate total votes
-  const totalVotes = posts.reduce((sum, p) => sum + (p.votes || 0), 0);
-
-  return (
-    <div style={{
-      minHeight: '100vh',
-      backgroundColor: dark ? '#000' : '#fff',
-      color: dark ? '#fff' : '#000',
-      fontFamily: 'Helvetica Neue, Arial, sans-serif',
-      padding: '40px 20px'
-    }}>
-      {/* Back Button */}
-      <div style={{ maxWidth: '1200px', margin: '0 auto', marginBottom: '40px' }}>
-        <button 
-          onClick={onBack}
-          style={{
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            background: 'none',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            cursor: 'pointer',
-            color: dark ? '#fff' : '#000',
-            padding: '10px 16px',
-            transition: 'opacity 0.2s'
-          }}
-          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-          onMouseLeave={(e) => e.target.style.opacity = '1'}
-        >
-          ← BACK
-        </button>
-      </div>
-
-      {/* Profile Content */}
-      <div style={{ 
-        maxWidth: '1200px', 
-        margin: '0 auto', 
-        padding: '0 20px'
-      }}>
-        {/* Profile Image */}
-        {profileData?.profileImage ? (
-          <img
-            src={profileData.profileImage}
-            style={{
-              width: '120px',
-              height: '120px',
-              borderRadius: '50%',
-              objectFit: 'cover',
-              border: `3px solid ${dark ? '#1a1a1a' : '#e5e5e5'}`,
-              marginBottom: '20px'
-            }}
-            alt="profile"
-          />
-        ) : (
-          <div style={{
-            width: '120px',
-            height: '120px',
-            borderRadius: '50%',
-            backgroundColor: dark ? '#1a1a1a' : '#e5e5e5',
-            border: `3px solid ${dark ? '#333' : '#ccc'}`,
-            marginBottom: '20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '48px',
-            fontWeight: '300',
-            color: dark ? '#666' : '#999'
-          }}>
-            {(profileData?.displayName || authorId)[0].toUpperCase()}
-          </div>
-        )}
-
-        {/* Username */}
-        <h1 style={{ 
-          fontSize: '32px', 
-          letterSpacing: '0.1em',
-          fontWeight: '300',
-          color: dark ? '#fff' : '#000',
-          marginBottom: '16px',
-          wordBreak: 'break-all'
-        }}>
-          {profileData?.displayName || authorId.toUpperCase()}
-        </h1>
-
-        {/* Bio */}
-        {profileData?.bio && (
-          <div style={{
-            fontSize: '14px',
-            lineHeight: '1.8',
-            letterSpacing: '0.02em',
-            color: dark ? '#ccc' : '#666',
-            marginBottom: '30px',
-            maxWidth: '700px'
-          }}>
-            {profileData.bio}
-          </div>
-        )}
-
-        {/* Stats */}
-        <div style={{ 
-          display: 'flex', 
-          gap: '40px',
-          marginBottom: '30px',
-          paddingBottom: '30px',
-          borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
-        }}>
-          <div>
-            <div style={{ 
-              fontSize: '24px',
-              fontWeight: '400',
-              color: dark ? '#fff' : '#000',
-              marginBottom: '6px'
-            }}>
-              {posts.length}
-            </div>
-            <div style={{ 
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#666' : '#999'
-            }}>
-              POSTS
-            </div>
-          </div>
-          <div>
-            <div style={{ 
-              fontSize: '24px',
-              fontWeight: '400',
-              color: dark ? '#fff' : '#000',
-              marginBottom: '6px'
-            }}>
-              {commentCount}
-            </div>
-            <div style={{ 
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#666' : '#999'
-            }}>
-              COMMENTS
-            </div>
-          </div>
-          <div>
-            <div style={{ 
-              fontSize: '24px',
-              fontWeight: '400',
-              color: dark ? '#fff' : '#000',
-              marginBottom: '6px'
-            }}>
-              {totalVotes}
-            </div>
-            <div style={{ 
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#666' : '#999'
-            }}>
-              VOTES
-            </div>
-          </div>
-        </div>
-
-        {/* Edit Profile Button (only show if it's user's own profile) */}
-        {user.id === authorId && (
-          <button
-            onClick={onEditProfile}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px 30px',
-              marginBottom: '40px',
-              backgroundColor: dark ? '#fff' : '#000',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#000' : '#fff',
-              transition: 'opacity 0.2s',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.8'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            EDIT PROFILE
-          </button>
-        )}
-
-        {/* Posts Grid */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
-          gap: '20px'
-        }}>
-          {posts.map((p) => (
-            <div
-              key={p.id}
-              style={{
-                padding: '20px',
-                border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-                backgroundColor: dark ? '#0a0a0a' : '#fafafa',
-                wordWrap: 'break-word',
-                overflowWrap: 'break-word',
-                position: 'relative'
-              }}
-            >
-              {/* Delete button (only show if it's user's own post) */}
-              {(() => {
-                const canDelete = p.author === user.id || (firebaseUser && p.authorId === firebaseUser.uid) || user.isAdmin;
-                if (!canDelete && p.author === authorId) {
-                  console.warn('Post delete mismatch:', {
-                    postAuthor: p.author,
-                    postAuthorId: p.authorId,
-                    userId: user.id,
-                    firebaseUid: firebaseUser?.uid,
-                    profileAuthorId: authorId
-                  });
-                }
-                return canDelete;
-              })() && (
-                <button
-                  onClick={() => {
-                    if (window.confirm('DELETE THIS POST?')) {
-                      onDeletePost(p.id);
-                    }
-                  }}
-                  style={{
-                    position: 'absolute',
-                    top: '10px',
-                    right: '10px',
-                    fontSize: '10px',
-                    letterSpacing: '0.1em',
-                    padding: '6px 10px',
-                    backgroundColor: dark ? 'rgba(255,0,0,0.1)' : 'rgba(255,0,0,0.05)',
-                    border: `1px solid ${dark ? '#ff4444' : '#ffaaaa'}`,
-                    cursor: 'pointer',
-                    color: '#ff4444',
-                    transition: 'opacity 0.2s',
-                    fontFamily: 'Helvetica Neue, Arial, sans-serif'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  DELETE
-                </button>
-              )}
-              {p.image && (
-                <img
-                  src={p.image}
-                  style={{ 
-                    width: '100%',
-                    maxHeight: '240px',
-                    objectFit: 'cover',
-                    marginBottom: '15px'
-                  }}
-                  alt="post"
-                />
-              )}
-              <div style={{ 
-                fontSize: '12px',
-                lineHeight: '1.7',
-                letterSpacing: '0.02em',
-                color: dark ? '#fff' : '#000',
-                fontWeight: '300',
-                wordWrap: 'break-word',
-                overflowWrap: 'break-word',
-                marginBottom: '12px'
-              }}>
-                {p.text}
-              </div>
-              <div style={{
-                fontSize: '10px',
-                letterSpacing: '0.05em',
-                color: dark ? '#666' : '#999',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <span>
-                  {new Date(p.created).toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: '2-digit', 
-                    day: '2-digit' 
-                  }).toUpperCase()}
-                </span>
-                <span>
-                  ▲ {p.votes || 0}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RoomModal({ onClose, onCreate, onJoin, dark }) {
-  const [name, setName] = useState("");
-  const [isPrivate, setIsPrivate] = useState(true);
-  const [creatorOnly, setCreatorOnly] = useState(false);
-
-  return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 60, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px',
-      overflowY: 'auto'
-    }}>
-      <div style={{
-        maxWidth: '450px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px 20px',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', paddingLeft: '20px', paddingRight: '20px' }}>
-          <h3 style={{ 
-            fontSize: '12px', 
-            letterSpacing: '0.15em',
-            fontWeight: '300',
-            color: dark ? '#fff' : '#000'
-          }}>
-            ROOMS
-          </h3>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
-          </button>
-        </div>
-
-        <div style={{ marginBottom: '25px', paddingLeft: '20px', paddingRight: '20px' }}>
-          <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#fff' : '#000'
-            }}>
-              ROOM TYPE:
-            </span>
-            <button
-              onClick={() => setIsPrivate(true)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '8px 16px',
-                backgroundColor: isPrivate ? (dark ? '#fff' : '#000') : 'transparent',
-                border: `1px solid ${dark ? '#fff' : '#000'}`,
-                cursor: 'pointer',
-                color: isPrivate ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              PRIVATE
-            </button>
-            <button
-              onClick={() => setIsPrivate(false)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '8px 16px',
-                backgroundColor: !isPrivate ? (dark ? '#fff' : '#000') : 'transparent',
-                border: `1px solid ${dark ? '#fff' : '#000'}`,
-                cursor: 'pointer',
-                color: !isPrivate ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              PUBLIC
-            </button>
-          </div>
-
-          <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-            <label style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#fff' : '#000',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              cursor: 'pointer'
-            }}>
-              <input
-                type="checkbox"
-                checked={creatorOnly}
-                onChange={(e) => setCreatorOnly(e.target.checked)}
-                style={{
-                  width: '16px',
-                  height: '16px',
-                  cursor: 'pointer'
-                }}
-              />
-              CREATOR-ONLY POSTS
-            </label>
-          </div>
-          
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="NEW ROOM NAME (OPTIONAL)"
-            style={{
-              width: '100%',
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px 0',
-              marginBottom: '20px',
-              background: 'none',
-              border: 'none',
-              borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              outline: 'none',
-              color: dark ? '#fff' : '#000',
-              boxSizing: 'border-box'
-            }}
-          />
-          
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => onCreate(name, isPrivate, creatorOnly)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '12px 20px',
-                backgroundColor: dark ? '#fff' : '#000',
-                border: `1px solid ${dark ? '#fff' : '#000'}`,
-                cursor: 'pointer',
-                color: dark ? '#000' : '#fff',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              CREATE
-            </button>
-            <button
-              onClick={() => {
-                const code = prompt("PASTE INVITE CODE") || "";
-                if (code) onJoin(code);
-              }}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '12px 20px',
-                background: 'none',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                cursor: 'pointer',
-                color: dark ? '#999' : '#666',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              JOIN
-            </button>
-          </div>
-        </div>
-
+        {/* Info Text */}
         <div style={{
           fontSize: '10px',
           letterSpacing: '0.05em',
+          color: getColor('textMuted'),
+          marginBottom: '25px',
           lineHeight: '1.5',
-          color: dark ? '#666' : '#999',
-          paddingLeft: '20px',
-          paddingRight: '20px'
+          textAlign: 'center'
         }}>
-          PRIVATE ROOMS: INVITE-ONLY VIA CODE • PUBLIC ROOMS: VISIBLE TO ALL USERS • CREATOR-ONLY: ONLY YOU CAN POST
-        </div>
-      </div>
-    </div>
-  );
-}
-function ProfileEditModal({ user, onSave, onClose, dark }) {
-  const [bio, setBio] = useState(user.bio || "");
-  const [profileImage, setProfileImage] = useState(user.profileImage || "");
-  const [uploading, setUploading] = useState(false);
-
-
-  async function handleProfileImageUpload(e) {
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
-  setUploading(true);
-  try {
-    const filename = `profile_${Date.now()}_${Math.random().toString(36).substring(2, 15)}.${file.name.split('.').pop()}`;
-    
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = new Uint8Array(arrayBuffer);
-    
-    const command = new PutObjectCommand({
-      Bucket: MINIO_BUCKET,
-      Key: filename,
-      Body: buffer,
-      ContentType: file.type
-    });
-    
-    await s3Client.send(command);
-    
-    const publicUrl = `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
-    setProfileImage(publicUrl);
-    setUploading(false);
-  } catch (error) {
-    console.error("Upload error:", error);
-    alert("FAILED TO UPLOAD PROFILE IMAGE");
-    setUploading(false);
-  }
-}
-
-  function handleSave() {
-    onSave({
-      ...user,
-      bio: bio.trim(),
-      profileImage
-    });
-    onClose();
-  }
-
-  return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 60, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px',
-      overflowY: 'auto'
-    }}>
-      <div style={{
-        maxWidth: '500px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px 20px',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', paddingLeft: '20px', paddingRight: '20px' }}>
-          <div>
-            <h3 style={{ 
-              fontSize: '12px', 
-              letterSpacing: '0.15em',
-              fontWeight: '300',
-              color: dark ? '#fff' : '#000',
-              marginBottom: '5px'
-            }}>
-              EDIT PROFILE
-            </h3>
-            <div style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#666' : '#999'
-            }}>
-              USERNAME: {user.displayName || user.id.toUpperCase()}
-            </div>
-          </div>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
-          </button>
+          {mode === "signup" ? (
+            <>
+              Pick a username or generate a random one.
+              <br />
+              No emails. No recovery. Remember your password.
+            </>
+          ) : (
+            <>
+              Enter your username and password.
+            </>
+          )}
         </div>
 
-        <div style={{ paddingLeft: '20px', paddingRight: '20px' }}>
-          {/* Bio */}
-          <div style={{ marginBottom: '25px' }}>
-            <label style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#999' : '#666',
-              display: 'block',
-              marginBottom: '10px'
-            }}>
-              BIO
-            </label>
-            <textarea
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              placeholder="TELL US ABOUT YOURSELF..."
-              maxLength={200}
-              style={{
-                width: '100%',
-                height: '80px',
-                fontSize: '16px',
-                letterSpacing: '0.05em',
-                padding: '12px',
-                background: 'none',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                resize: 'none',
-                color: dark ? '#fff' : '#000',
-                fontFamily: 'Helvetica Neue, Arial, sans-serif',
-                boxSizing: 'border-box'
-              }}
-            />
-            <div style={{
-              fontSize: '10px',
-              letterSpacing: '0.05em',
-              color: dark ? '#666' : '#999',
-              marginTop: '5px',
-              textAlign: 'right'
-            }}>
-              {bio.length}/200
-            </div>
-          </div>
-
-          {/* Profile Image */}
-          <div style={{ marginBottom: '25px' }}>
-            <label style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#999' : '#666',
-              display: 'block',
-              marginBottom: '10px'
-            }}>
-              PROFILE IMAGE
-            </label>
-            <div style={{ display: 'flex', gap: '15px', alignItems: 'center', marginBottom: '10px' }}>
-              {profileImage && (
-                <img
-                  src={profileImage}
-                  style={{
-                    width: '60px',
-                    height: '60px',
-                    borderRadius: '50%',
-                    objectFit: 'cover',
-                    border: `2px solid ${dark ? '#333' : '#e5e5e5'}`
-                  }}
-                  alt="profile preview"
-                />
-              )}
+        {/* Form Fields */}
+        <div style={{ marginBottom: '20px' }}>
+          {/* Invite Code (signup only) */}
+          {mode === "signup" && (
+            <div style={{ marginBottom: '20px' }}>
               <label style={{
-                fontSize: '10px',
+                display: 'block',
+                fontSize: '9px',
                 letterSpacing: '0.1em',
-                padding: '10px 15px',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                cursor: uploading ? 'not-allowed' : 'pointer',
-                color: uploading ? (dark ? '#333' : '#ccc') : (dark ? '#fff' : '#000'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.5')}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                {uploading ? "UPLOADING..." : profileImage ? "CHANGE" : "UPLOAD"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleProfileImageUpload}
-                  disabled={uploading}
-                  style={{ display: 'none' }}
-                />
+                color: getColor('textMuted'),
+                marginBottom: '8px'
+              }}>
+                INVITE CODE
               </label>
-              {profileImage && (
+              <input
+                type="text"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                placeholder="ABC123XYZ"
+                style={{
+                  width: '100%',
+                  fontSize: '14px',
+                  letterSpacing: '0.1em',
+                  padding: '12px',
+                  background: 'none',
+                  border: `1px solid ${getColor('border')}`,
+                  outline: 'none',
+                  color: getColor('text'),
+                  fontFamily: 'Helvetica Neue, Arial, sans-serif',
+                  boxSizing: 'border-box',
+                  textTransform: 'uppercase'
+                }}
+              />
+            </div>
+          )}
+
+          {/* Username */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              color: getColor('textMuted'),
+              marginBottom: '8px'
+            }}>
+              USERNAME
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="HalfKitty28"
+                style={{
+                  width: '100%',
+                  fontSize: '16px',
+                  letterSpacing: '0.05em',
+                  padding: '12px',
+                  paddingRight: mode === "signup" ? '50px' : '12px',
+                  background: 'none',
+                  border: `1px solid ${getColor('border')}`,
+                  outline: 'none',
+                  color: getColor('text'),
+                  fontFamily: 'Helvetica Neue, Arial, sans-serif',
+                  boxSizing: 'border-box'
+                }}
+              />
+              {mode === "signup" && (
                 <button
-                  onClick={() => setProfileImage("")}
+                  onClick={handleGenerate}
                   style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.1em',
-                    padding: '10px 15px',
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontSize: '18px',
                     background: 'none',
-                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    border: 'none',
                     cursor: 'pointer',
-                    color: dark ? '#999' : '#666',
+                    color: getColor('textMuted'),
+                    padding: '4px 8px',
                     transition: 'opacity 0.2s'
                   }}
                   onMouseEnter={(e) => e.target.style.opacity = '0.5'}
                   onMouseLeave={(e) => e.target.style.opacity = '1'}
+                  title="Generate random username"
                 >
-                  REMOVE
+                  🎲
                 </button>
               )}
             </div>
-            <input
-              value={profileImage}
-              onChange={(e) => setProfileImage(e.target.value)}
-              placeholder="OR PASTE IMAGE URL"
-              style={{
-                width: '100%',
-                padding: '10px 0',
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                background: 'none',
-                border: 'none',
-                borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                color: dark ? '#fff' : '#000',
-                boxSizing: 'border-box'
-              }}
-            />
+            {mode === "signup" && (
+              <div style={{
+                fontSize: '9px',
+                letterSpacing: '0.05em',
+                color: getColor('textMuted'),
+                marginTop: '6px'
+              }}>
+                Click the dice to generate random names
+              </div>
+            )}
           </div>
 
-          {/* Save Button */}
-          <button
-            onClick={handleSave}
-            style={{
-              width: '100%',
-              fontSize: '11px',
-              letterSpacing: '0.15em',
-              padding: '15px',
-              backgroundColor: dark ? '#fff' : '#000',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#000' : '#fff',
-              transition: 'opacity 0.2s',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.8'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            SAVE PROFILE
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function LoginModal({ onClose, onAdminLogin, onSignUp, onLogin, dark }) {
-  const [mode, setMode] = useState("signup"); // "signup", "login", or "admin"
-  const [password, setPassword] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
-  const [error, setError] = useState("");
-
-  async function handleSubmit() {
-    setError("");
-    
-    if (mode === "signup") {
-      if (!password.trim() || !inviteCode.trim()) {
-        setError("PLEASE ENTER PASSWORD AND INVITE CODE");
-        return;
-      }
-      if (password.length < 6) {
-        setError("PASSWORD MUST BE AT LEAST 6 CHARACTERS");
-        return;
-      }
-      const success = await onSignUp(password, inviteCode);
-      if (success) {
-        onClose();
-      }
-    } else if (mode === "login") {
-      if (!password.trim()) {
-        setError("PLEASE ENTER PASSWORD");
-        return;
-      }
-      const success = await onLogin(password);
-      if (success) {
-        onClose();
-      }
-    } else {
-      // Admin mode
-      if (password === "EpicMan101") {
-        onAdminLogin();
-        onClose();
-      } else {
-        setError("INCORRECT ADMIN PASSWORD");
-        setPassword("");
-      }
-    }
-  }
-
-  return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 60, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px'
-    }}>
-      <div style={{
-        maxWidth: '450px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        padding: '40px 30px',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-          <h3 style={{ 
-            fontSize: '12px', 
-            letterSpacing: '0.15em',
-            fontWeight: '300',
-            color: dark ? '#fff' : '#000'
-          }}>
-            {mode === "signup" ? "CREATE ACCOUNT" : mode === "login" ? "LOGIN" : "ADMIN LOGIN"}
-          </h3>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
+          {/* Password */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '9px',
               letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
-          </button>
-        </div>
-
-        {/* Tab Switcher */}
-        <div style={{
-          display: 'flex',
-          marginBottom: '25px',
-          border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-          overflow: 'hidden'
-        }}>
-          <button
-            onClick={() => {
-              setMode("signup");
-              setPassword("");
-              setInviteCode("");
-              setError("");
-            }}
-            style={{
-              flex: 1,
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px',
-              backgroundColor: mode === "signup" ? (dark ? '#fff' : '#000') : 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              color: mode === "signup" ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
-              transition: 'all 0.2s',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif'
-            }}
-          >
-            SIGN UP
-          </button>
-          <button
-            onClick={() => {
-              setMode("login");
-              setPassword("");
-              setInviteCode("");
-              setError("");
-            }}
-            style={{
-              flex: 1,
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px',
-              backgroundColor: mode === "login" ? (dark ? '#fff' : '#000') : 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              color: mode === "login" ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
-              transition: 'all 0.2s',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif'
-            }}
-          >
-            LOGIN
-          </button>
-          <button
-            onClick={() => {
-              setMode("admin");
-              setPassword("");
-              setInviteCode("");
-              setError("");
-            }}
-            style={{
-              flex: 1,
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px',
-              backgroundColor: mode === "admin" ? (dark ? '#fff' : '#000') : 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              color: mode === "admin" ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
-              transition: 'all 0.2s',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif'
-            }}
-          >
-            ADMIN
-          </button>
-        </div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ 
-            fontSize: '10px',
-            letterSpacing: '0.05em',
-            color: dark ? '#666' : '#999',
-            marginBottom: '15px',
-            lineHeight: '1.5'
-          }}>
-            {mode === "signup" && "Create a password-protected anonymous account. This password is the ONLY way to access your account - there is no recovery."}
-            {mode === "login" && "Enter your password to login. Your account is completely anonymous."}
-            {mode === "admin" && "Enter the admin password to access admin features."}
-          </div>
-
-          {mode !== "admin" && mode === "signup" && (
+              color: getColor('textMuted'),
+              marginBottom: '8px'
+            }}>
+              PASSWORD
+            </label>
             <input
-              type="text"
-              value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value)}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSubmit();
               }}
-              placeholder="INVITE CODE"
+              placeholder="••••••••••"
               style={{
                 width: '100%',
                 fontSize: '16px',
                 letterSpacing: '0.1em',
                 padding: '12px',
-                marginBottom: '15px',
                 background: 'none',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                border: `1px solid ${getColor('border')}`,
                 outline: 'none',
-                color: dark ? '#fff' : '#000',
+                color: getColor('text'),
                 fontFamily: 'Helvetica Neue, Arial, sans-serif',
-                boxSizing: 'border-box',
-                textTransform: 'uppercase'
+                boxSizing: 'border-box'
               }}
             />
-          )}
+          </div>
 
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSubmit();
-            }}
-            placeholder={mode === "admin" ? "ADMIN PASSWORD" : "PASSWORD"}
-            autoFocus
-            style={{
-              width: '100%',
-              fontSize: '16px',
-              letterSpacing: '0.1em',
-              padding: '12px',
-              marginBottom: '20px',
-              background: 'none',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              outline: 'none',
-              color: dark ? '#fff' : '#000',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif',
-              boxSizing: 'border-box'
-            }}
-          />
+          {/* Warning (signup only) */}
+          {mode === "signup" && (
+            <div style={{
+              fontSize: '9px',
+              letterSpacing: '0.05em',
+              color: '#ff4444',
+              lineHeight: '1.4',
+              padding: '10px',
+              backgroundColor: getColor('bg') === '#000' ? '#1a0a0a' : '#fff5f5',
+              border: `1px solid #ff4444`,
+              marginBottom: '20px'
+            }}>
+              ⚠️ No password recovery. Write it down.
+            </div>
+          )}
 
           {error && (
             <div style={{
               fontSize: '10px',
-              letterSpacing: '0.05em',
-              color: dark ? '#ff4444' : '#ff0000',
-              marginBottom: '15px'
+              letterSpacing: '0.1em',
+              color: '#ff4444',
+              marginBottom: '20px',
+              textAlign: 'center'
             }}>
               {error}
             </div>
           )}
 
+          {/* Submit Button */}
           <button
             onClick={handleSubmit}
             style={{
               width: '100%',
-              fontSize: '10px',
+              fontSize: '11px',
               letterSpacing: '0.1em',
               padding: '15px',
-              backgroundColor: dark ? '#fff' : '#000',
-              border: `1px solid ${dark ? '#fff' : '#000'}`,
+              backgroundColor: getColor('text'),
+              border: 'none',
               cursor: 'pointer',
-              color: dark ? '#000' : '#fff',
+              color: getColor('bg'),
               transition: 'opacity 0.2s',
               fontFamily: 'Helvetica Neue, Arial, sans-serif'
             }}
             onMouseEnter={(e) => e.target.style.opacity = '0.8'}
             onMouseLeave={(e) => e.target.style.opacity = '1'}
           >
-            {mode === "signup" ? "CREATE ACCOUNT" : mode === "login" ? "LOGIN" : "ADMIN LOGIN"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SettingsModal({ dark, setDark, theme, setTheme, onClose, user, onGenerateInvite, onLogout }) {
-  const [showCopied, setShowCopied] = useState(false);
-
-  const handleGenerateInvite = () => {
-    const code = onGenerateInvite();
-    if (code) {
-      navigator.clipboard.writeText(code);
-      setShowCopied(true);
-      setTimeout(() => setShowCopied(false), 2000);
-      alert(`INVITE CODE: ${code}\n\nCopied to clipboard!`);
-    }
-  };
-
-  return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 50, 
-      display: 'flex', 
-      alignItems: 'flex-start',
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px',
-      overflowY: 'auto'
-    }}>
-      <div style={{
-        maxWidth: '500px',
-        width: '100%',
-        maxHeight: 'calc(100vh - 40px)',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        fontFamily: 'Helvetica Neue, Arial, sans-serif',
-        display: 'flex',
-        flexDirection: 'column',
-        margin: '20px auto'
-      }}>
-        {/* Fixed Header */}
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          padding: '40px 40px 20px 40px',
-          borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-          flexShrink: 0
-        }}>
-          <h3 style={{ 
-            fontSize: '12px', 
-            letterSpacing: '0.15em',
-            fontWeight: '300',
-            color: dark ? '#fff' : '#000'
-          }}>
-            SETTINGS
-          </h3>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
+            {mode === "signup" ? "CREATE ACCOUNT" : "LOGIN"}
           </button>
         </div>
 
-        {/* Scrollable Content */}
-        <div style={{ 
-          fontSize: '11px', 
-          letterSpacing: '0.05em', 
-          padding: '30px 40px 40px 40px',
-          overflowY: 'auto',
-          flexGrow: 1
-        }}>
-          {/* Account Info Section */}
-          <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
-            <div style={{ marginBottom: '15px' }}>
-              <span style={{ color: dark ? '#fff' : '#000', display: 'block', marginBottom: '10px' }}>ACCOUNT INFO</span>
-              <div style={{ 
-                fontSize: '10px', 
-                letterSpacing: '0.05em',
-                color: dark ? '#666' : '#999',
-                marginBottom: '15px',
-                lineHeight: '1.5'
-              }}>
-                Your account is password-protected and completely anonymous.
-              </div>
-              <div style={{ 
-                fontSize: '10px', 
-                letterSpacing: '0.05em',
-                color: dark ? '#888' : '#777',
-                marginBottom: '15px',
-                lineHeight: '1.6',
-                padding: '10px',
-                backgroundColor: dark ? '#0f0f0f' : '#f9f9f9',
-                border: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`
-              }}>
-                <strong style={{ display: 'block', marginBottom: '5px', color: dark ? '#fff' : '#000' }}>MULTI-DEVICE ACCESS:</strong>
-                Login with your password on any device to access your account. Your password is the ONLY way to access your account - there is no recovery method.
-              </div>
-              <div style={{ 
-                fontSize: '9px', 
-                letterSpacing: '0.05em',
-                color: dark ? '#ff4444' : '#ff0000',
-                lineHeight: '1.4',
-                padding: '8px',
-                backgroundColor: dark ? '#0f0f0f' : '#fff5f5',
-                border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`
-              }}>
-                ⚠️ Remember your password! If you lose it, you lose access to your account permanently.
-              </div>
-            </div>
-          </div>
-
-          {/* Invite Codes Section */}
-          <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-              <span style={{ color: dark ? '#fff' : '#000' }}>INVITE CODES</span>
-              <span style={{ color: dark ? '#999' : '#666', fontSize: '10px' }}>
-                {user.isAdmin ? '∞' : user.inviteCodesRemaining} REMAINING
-              </span>
-            </div>
-            <button
-              onClick={handleGenerateInvite}
-              disabled={user.inviteCodesRemaining <= 0 && !user.isAdmin}
-              style={{
-                width: '100%',
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '12px 20px',
-                backgroundColor: (user.inviteCodesRemaining > 0 || user.isAdmin) ? (dark ? '#fff' : '#000') : 'transparent',
-                border: `1px solid ${(user.inviteCodesRemaining > 0 || user.isAdmin) ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
-                cursor: (user.inviteCodesRemaining > 0 || user.isAdmin) ? 'pointer' : 'not-allowed',
-                color: (user.inviteCodesRemaining > 0 || user.isAdmin) ? (dark ? '#000' : '#fff') : (dark ? '#333' : '#ccc'),
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => (user.inviteCodesRemaining > 0 || user.isAdmin) && (e.target.style.opacity = '0.7')}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              {showCopied ? 'COPIED!' : 'GENERATE INVITE CODE'}
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <span style={{ color: dark ? '#fff' : '#000' }}>DARK MODE</span>
-            <button
-              onClick={() => setDark((d) => !d)}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '10px 20px',
-                backgroundColor: dark ? '#fff' : '#000',
-                border: `1px solid ${dark ? '#fff' : '#000'}`,
-                cursor: 'pointer',
-                color: dark ? '#000' : '#fff',
-                transition: 'opacity 0.2s'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              {dark ? "ON" : "OFF"}
-            </button>
-          </div>
-
-          <div style={{ marginBottom: '15px' }}>
-            <span style={{ color: dark ? '#fff' : '#000', display: 'block', marginBottom: '15px' }}>COLOR THEME</span>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-              {['default', 'serika', 'retrocast', 'botanical', 'ocean', 'rose'].map((themeName) => (
-                <button
-                  key={themeName}
-                  onClick={() => setTheme(themeName)}
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.1em',
-                    padding: '10px 15px',
-                    backgroundColor: theme === themeName ? (dark ? '#fff' : '#000') : 'transparent',
-                    border: `1px solid ${theme === themeName ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
-                    cursor: 'pointer',
-                    color: theme === themeName ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
-                    transition: 'opacity 0.2s',
-                    textTransform: 'uppercase'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  {themeName}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ marginTop: '30px', paddingTop: '30px', borderTop: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
-            <button
-              onClick={onLogout}
-              style={{
-                fontSize: '10px',
-                letterSpacing: '0.1em',
-                padding: '12px 20px',
-                backgroundColor: 'transparent',
-                border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`,
-                cursor: 'pointer',
-                color: dark ? '#ff4444' : '#ff0000',
-                transition: 'opacity 0.2s',
-                width: '100%',
-                fontWeight: '500'
-              }}
-              onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-              onMouseLeave={(e) => e.target.style.opacity = '1'}
-            >
-              ⚠️ LOGOUT (REQUIRES PASSWORD TO LOG BACK IN)
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function LogoutConfirmModal({ onConfirm, onCancel, dark }) {
-  const [confirmText, setConfirmText] = useState("");
-  
-  return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 60, 
-      display: 'flex', 
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.9)',
-      padding: '20px'
-    }}>
-      <div style={{
-        maxWidth: '400px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `2px solid ${dark ? '#ff4444' : '#ff0000'}`,
-        padding: '30px',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <h3 style={{ 
-          fontSize: '14px', 
-          letterSpacing: '0.15em',
-          fontWeight: '400',
-          color: dark ? '#ff4444' : '#ff0000',
-          marginBottom: '20px',
-          textAlign: 'center'
-        }}>
-          ⚠️ CONFIRM LOGOUT
-        </h3>
-        
-        <div style={{
-          fontSize: '11px',
-          letterSpacing: '0.05em',
-          color: dark ? '#999' : '#666',
-          marginBottom: '20px',
-          lineHeight: '1.6'
-        }}>
-          You will need your password to log back into this account. Make sure you remember it - there is no recovery method.
-          <br/><br/>
-          Type <strong style={{ color: dark ? '#fff' : '#000' }}>LOGOUT</strong> to confirm:
-        </div>
-        
-        <input
-          value={confirmText}
-          onChange={(e) => setConfirmText(e.target.value)}
-          placeholder="Type LOGOUT"
-          style={{
-            width: '100%',
-            fontSize: '16px',
-            letterSpacing: '0.1em',
-            padding: '12px',
-            marginBottom: '20px',
-            background: 'none',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            outline: 'none',
-            color: dark ? '#fff' : '#000',
-            fontFamily: 'Helvetica Neue, Arial, sans-serif',
-            boxSizing: 'border-box',
-            textTransform: 'uppercase'
+        {/* Hidden admin login - triple click */}
+        <div 
+          onClick={(e) => {
+            if (e.detail === 3) {
+              handleAdminBypass();
+            }
           }}
-        />
-        
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            onClick={onCancel}
-            style={{
-              flex: 1,
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px',
-              backgroundColor: dark ? '#1a1a1a' : '#f5f5f5',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CANCEL
-          </button>
-          <button
-            onClick={() => {
-              if (confirmText.toUpperCase() === "LOGOUT") {
-                onConfirm();
-              } else {
-                alert('Please type LOGOUT to confirm');
-              }
-            }}
-            disabled={confirmText.toUpperCase() !== "LOGOUT"}
-            style={{
-              flex: 1,
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px',
-              backgroundColor: confirmText.toUpperCase() === "LOGOUT" ? (dark ? '#ff4444' : '#ff0000') : 'transparent',
-              border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`,
-              cursor: confirmText.toUpperCase() === "LOGOUT" ? 'pointer' : 'not-allowed',
-              color: confirmText.toUpperCase() === "LOGOUT" ? '#fff' : (dark ? '#ff4444' : '#ff0000'),
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => confirmText.toUpperCase() === "LOGOUT" && (e.target.style.opacity = '0.7')}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CONFIRM LOGOUT
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AdminPanel({ onClose, dark, user }) {
-  const [reports, setReports] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [selectedTab, setSelectedTab] = useState("reports"); // "reports" or "users"
-  const [loading, setLoading] = useState(true);
-  
-  useEffect(() => {
-    // Load reports
-    const reportsRef = ref(database, 'appState/reports');
-    onValue(reportsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const reportsArray = Object.values(data).sort((a, b) => b.reportedAt - a.reportedAt);
-        setReports(reportsArray);
-      }
-      setLoading(false);
-    });
-    
-    // Load all users
-    const usersRef = ref(database, 'users');
-    onValue(usersRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const usersArray = Object.values(data);
-        setUsers(usersArray);
-      }
-    });
-  }, []);
-  
-  const dismissReport = async (reportId) => {
-    const reportRef = ref(database, `appState/reports/${reportId}/status`);
-    await set(reportRef, "dismissed");
-  };
-  
-  const resetPassword = async (userId, newPassword) => {
-    try {
-      const hashedPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(newPassword));
-      const hashedHex = Array.from(new Uint8Array(hashedPassword))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-      
-      const passwordRef = ref(database, `users/${userId}/password`);
-      await set(passwordRef, hashedHex);
-      alert(`PASSWORD RESET TO: ${newPassword}`);
-    } catch (error) {
-      console.error("Password reset error:", error);
-      alert("PASSWORD RESET FAILED");
-    }
-  };
-
-  // CHANGE 3: Add removeUser function to AdminPanel
-  const removeUser = async (userId, displayName) => {
-    const confirmed = confirm(`⚠️ REMOVE USER?\n\nThis will permanently delete:\n- User: ${displayName}\n- ID: ${userId}\n- All their data\n\nThis action CANNOT be undone!\n\nType "DELETE" to confirm.`);
-    
-    if (!confirmed) return;
-    
-    const confirmText = prompt('Type "DELETE" to confirm:');
-    if (confirmText !== "DELETE") {
-      alert("REMOVAL CANCELLED");
-      return;
-    }
-    
-    try {
-      // Remove user from Firebase
-      const userRef = ref(database, `users/${userId}`);
-      await remove(userRef);
-      
-      alert(`USER ${displayName} REMOVED SUCCESSFULLY`);
-    } catch (error) {
-      console.error("Remove user error:", error);
-      alert("USER REMOVAL FAILED");
-    }
-  };
-  
-  return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 50, 
-      display: 'flex', 
-      alignItems: 'flex-start',
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: '20px',
-      overflowY: 'auto'
-    }}>
-      <div style={{
-        maxWidth: '800px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        fontFamily: 'Helvetica Neue, Arial, sans-serif',
-        margin: '20px auto'
-      }}>
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          padding: '30px',
-          borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
-        }}>
-          <h3 style={{ 
-            fontSize: '14px', 
-            letterSpacing: '0.15em',
-            fontWeight: '300',
-            color: dark ? '#fff' : '#000'
-          }}>
-            🛡️ ADMIN PANEL
-          </h3>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
-          </button>
-        </div>
-        
-        {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
-          <button
-            onClick={() => setSelectedTab("reports")}
-            style={{
-              flex: 1,
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '15px',
-              background: selectedTab === "reports" ? (dark ? '#1a1a1a' : '#f5f5f5') : 'none',
-              border: 'none',
-              borderBottom: selectedTab === "reports" ? `2px solid ${dark ? '#fff' : '#000'}` : 'none',
-              cursor: 'pointer',
-              color: dark ? '#fff' : '#000',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            REPORTS ({reports.filter(r => r.status === "pending").length})
-          </button>
-          <button
-            onClick={() => setSelectedTab("users")}
-            style={{
-              flex: 1,
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '15px',
-              background: selectedTab === "users" ? (dark ? '#1a1a1a' : '#f5f5f5') : 'none',
-              border: 'none',
-              borderBottom: selectedTab === "users" ? `2px solid ${dark ? '#fff' : '#000'}` : 'none',
-              cursor: 'pointer',
-              color: dark ? '#fff' : '#000',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            USERS ({users.length})
-          </button>
-        </div>
-        
-        {/* Content */}
-        <div style={{ padding: '30px', maxHeight: '500px', overflowY: 'auto' }}>
-          {loading ? (
-            <div style={{ textAlign: 'center', color: dark ? '#666' : '#999' }}>LOADING...</div>
-          ) : selectedTab === "reports" ? (
-            reports.length === 0 ? (
-              <div style={{ textAlign: 'center', color: dark ? '#666' : '#999' }}>NO REPORTS</div>
-            ) : (
-              reports.map(report => (
-                <div 
-                  key={report.id}
-                  style={{ 
-                    marginBottom: '20px',
-                    padding: '15px',
-                    border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-                    backgroundColor: report.status === "dismissed" ? (dark ? '#0f0f0f' : '#fafafa') : 'transparent'
-                  }}
-                >
-                  <div style={{ 
-                    fontSize: '10px',
-                    letterSpacing: '0.1em',
-                    color: dark ? '#ff4444' : '#ff0000',
-                    marginBottom: '10px'
-                  }}>
-                    {report.type.toUpperCase()} REPORT - {report.status.toUpperCase()}
-                  </div>
-                  <div style={{ 
-                    fontSize: '11px',
-                    color: dark ? '#fff' : '#000',
-                    marginBottom: '8px'
-                  }}>
-                    <strong>Reason:</strong> {report.reason}
-                  </div>
-                  <div style={{ 
-                    fontSize: '10px',
-                    color: dark ? '#999' : '#666',
-                    marginBottom: '8px'
-                  }}>
-                    <strong>Details:</strong> {report.details}
-                  </div>
-                  <div style={{ 
-                    fontSize: '10px',
-                    color: dark ? '#666' : '#999',
-                    marginBottom: '10px'
-                  }}>
-                    Target ID: {report.targetId} | Reported by: {report.reportedBy}
-                  </div>
-                  {report.status === "pending" && (
-                    <button
-                      onClick={() => dismissReport(report.id)}
-                      style={{
-                        fontSize: '9px',
-                        letterSpacing: '0.1em',
-                        padding: '8px 12px',
-                        backgroundColor: 'transparent',
-                        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                        cursor: 'pointer',
-                        color: dark ? '#999' : '#666',
-                        transition: 'opacity 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-                      onMouseLeave={(e) => e.target.style.opacity = '1'}
-                    >
-                      DISMISS
-                    </button>
-                  )}
-                </div>
-              ))
-            )
-          ) : (
-            users.length === 0 ? (
-              <div style={{ textAlign: 'center', color: dark ? '#666' : '#999' }}>NO USERS</div>
-            ) : (
-              users.map(u => (
-                <div 
-                  key={u.id}
-                  style={{ 
-                    marginBottom: '15px',
-                    padding: '15px',
-                    border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
-                  }}
-                >
-                  <div style={{ 
-                    fontSize: '11px',
-                    color: dark ? '#fff' : '#000',
-                    marginBottom: '8px'
-                  }}>
-                    <strong>USER {u.id.substring(0, 8)}...</strong> {u.isAdmin && "👑"}
-                  </div>
-                  <div style={{ 
-                    fontSize: '10px',
-                    color: dark ? '#999' : '#666',
-                    marginBottom: '10px'
-                  }}>
-                    ID: {u.id}
-                  </div>
-                  {/* CHANGE 4: Replace single button with flex container holding RESET PASSWORD + REMOVE USER */}
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                    <button
-                      onClick={() => {
-                        const newPw = prompt("ENTER NEW PASSWORD FOR THIS USER:");
-                        if (newPw) {
-                          resetPassword(u.id, newPw);
-                        }
-                      }}
-                      style={{
-                        fontSize: '9px',
-                        letterSpacing: '0.1em',
-                        padding: '8px 12px',
-                        backgroundColor: 'transparent',
-                        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                        cursor: 'pointer',
-                        color: dark ? '#999' : '#666',
-                        transition: 'opacity 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-                      onMouseLeave={(e) => e.target.style.opacity = '1'}
-                    >
-                      RESET PASSWORD
-                    </button>
-                    {u.id !== user.id && (
-                      <button
-                        onClick={() => {
-                          removeUser(u.id, u.displayName || u.id.substring(0, 8));
-                        }}
-                        style={{
-                          fontSize: '9px',
-                          letterSpacing: '0.1em',
-                          padding: '8px 12px',
-                          backgroundColor: 'transparent',
-                          border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`,
-                          cursor: 'pointer',
-                          color: dark ? '#ff4444' : '#ff0000',
-                          transition: 'opacity 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-                        onMouseLeave={(e) => e.target.style.opacity = '1'}
-                      >
-                        REMOVE USER
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
-            )
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PasswordBanner({ onSetup, onDismiss, dark }) {
-  return (
-    <div style={{
-      position: 'fixed',
-      bottom: '20px',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      zIndex: 55,
-      maxWidth: '500px',
-      width: '90%',
-      backgroundColor: dark ? '#1a1a1a' : '#fff',
-      border: `2px solid ${dark ? '#ffa500' : '#ff8c00'}`,
-      padding: '20px',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-      fontFamily: 'Helvetica Neue, Arial, sans-serif'
-    }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: '15px'
-      }}>
-        <div style={{
-          fontSize: '11px',
-          letterSpacing: '0.1em',
-          color: dark ? '#ffa500' : '#ff8c00',
-          fontWeight: '500'
-        }}>
-          ⚠️ SECURE YOUR ACCOUNT
-        </div>
-        <button
-          onClick={onDismiss}
           style={{
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: dark ? '#666' : '#999',
-            transition: 'opacity 0.2s',
-            padding: '0'
-          }}
-          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-          onMouseLeave={(e) => e.target.style.opacity = '1'}
-        >
-          ✕
-        </button>
-      </div>
-      
-      <div style={{
-        fontSize: '10px',
-        letterSpacing: '0.05em',
-        color: dark ? '#ccc' : '#666',
-        marginBottom: '15px',
-        lineHeight: '1.5'
-      }}>
-        Set a password to access your account from multiple devices. Your display name and all posts will remain unchanged.
-      </div>
-      
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <button
-          onClick={onDismiss}
-          style={{
-            flex: 1,
+            marginTop: '40px',
             fontSize: '9px',
             letterSpacing: '0.1em',
-            padding: '10px',
-            backgroundColor: 'transparent',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            cursor: 'pointer',
-            color: dark ? '#999' : '#666',
-            transition: 'opacity 0.2s'
-          }}
-          onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-          onMouseLeave={(e) => e.target.style.opacity = '1'}
-        >
-          MAYBE LATER
-        </button>
-        <button
-          onClick={onSetup}
-          style={{
-            flex: 1,
-            fontSize: '9px',
-            letterSpacing: '0.1em',
-            padding: '10px',
-            backgroundColor: dark ? '#ffa500' : '#ff8c00',
-            border: 'none',
-            cursor: 'pointer',
-            color: '#000',
-            transition: 'opacity 0.2s',
-            fontWeight: '500'
-          }}
-          onMouseEnter={(e) => e.target.style.opacity = '0.8'}
-          onMouseLeave={(e) => e.target.style.opacity = '1'}
-        >
-          SET PASSWORD
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function PasswordSetupModal({ onClose, onSetup, dark, currentDisplayName }) {
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
-
-  async function handleSubmit() {
-    setError("");
-    
-    if (!password || !confirmPassword) {
-      setError("PLEASE FILL IN BOTH FIELDS");
-      return;
-    }
-    
-    if (password.length < 6) {
-      setError("PASSWORD MUST BE AT LEAST 6 CHARACTERS");
-      return;
-    }
-    
-    if (password !== confirmPassword) {
-      setError("PASSWORDS DO NOT MATCH");
-      return;
-    }
-    
-    const success = await onSetup(password);
-    if (success) {
-      onClose();
-    }
-  }
-
-  return (
-    <div style={{ 
-      position: 'fixed', 
-      inset: 0, 
-      zIndex: 60, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      backgroundColor: 'rgba(0,0,0,0.9)',
-      padding: '20px'
-    }}>
-      <div style={{
-        maxWidth: '450px',
-        width: '100%',
-        backgroundColor: dark ? '#0a0a0a' : '#fff',
-        border: `2px solid ${dark ? '#ffa500' : '#ff8c00'}`,
-        padding: '40px 30px',
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
-          <h3 style={{ 
-            fontSize: '12px', 
-            letterSpacing: '0.15em',
-            fontWeight: '400',
-            color: dark ? '#ffa500' : '#ff8c00'
-          }}>
-            🔐 SET PASSWORD
-          </h3>
-          <button 
-            onClick={onClose}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CLOSE
-          </button>
-        </div>
-
-        <div style={{ 
-          fontSize: '10px',
-          letterSpacing: '0.05em',
-          color: dark ? '#666' : '#999',
-          marginBottom: '20px',
-          lineHeight: '1.6',
-          padding: '15px',
-          backgroundColor: dark ? '#0f0f0f' : '#f9f9f9',
-          border: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`
-        }}>
-          <strong style={{ display: 'block', marginBottom: '8px', color: dark ? '#ffa500' : '#ff8c00' }}>YOUR DISPLAY NAME:</strong>
-          <div style={{ fontSize: '14px', color: dark ? '#fff' : '#000', marginBottom: '10px' }}>
-            {currentDisplayName}
-          </div>
-          This will remain your permanent display name. Setting a password allows you to access your account from any device.
-        </div>
-
-        <div style={{ marginBottom: '15px' }}>
-          <div style={{ 
-            fontSize: '9px',
-            letterSpacing: '0.05em',
-            color: dark ? '#999' : '#666',
-            marginBottom: '8px'
-          }}>
-            NEW PASSWORD (MIN 6 CHARACTERS)
-          </div>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSubmit();
-            }}
-            placeholder="Enter password"
-            autoFocus
-            style={{
-              width: '100%',
-              fontSize: '16px',
-              letterSpacing: '0.05em',
-              padding: '12px',
-              background: 'none',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              outline: 'none',
-              color: dark ? '#fff' : '#000',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif',
-              boxSizing: 'border-box'
-            }}
-          />
-        </div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <div style={{ 
-            fontSize: '9px',
-            letterSpacing: '0.05em',
-            color: dark ? '#999' : '#666',
-            marginBottom: '8px'
-          }}>
-            CONFIRM PASSWORD
-          </div>
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSubmit();
-            }}
-            placeholder="Confirm password"
-            style={{
-              width: '100%',
-              fontSize: '16px',
-              letterSpacing: '0.05em',
-              padding: '12px',
-              background: 'none',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              outline: 'none',
-              color: dark ? '#fff' : '#000',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif',
-              boxSizing: 'border-box'
-            }}
-          />
-        </div>
-
-        {error && (
-          <div style={{
-            fontSize: '10px',
-            letterSpacing: '0.05em',
-            color: dark ? '#ff4444' : '#ff0000',
-            marginBottom: '15px',
+            color: getColor('borderDim'),
+            cursor: 'default',
+            userSelect: 'none',
             textAlign: 'center'
-          }}>
-            {error}
-          </div>
-        )}
-
-        <div style={{
-          fontSize: '9px',
-          letterSpacing: '0.05em',
-          color: dark ? '#ff4444' : '#ff0000',
-          marginBottom: '20px',
-          lineHeight: '1.5',
-          padding: '10px',
-          backgroundColor: dark ? '#1a0a0a' : '#fff5f5',
-          border: `1px solid ${dark ? '#ff4444' : '#ff0000'}`
-        }}>
-          ⚠️ Remember this password! There is no recovery method. Without your password, you cannot access your account.
+          }}
+        >
+          •
         </div>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            onClick={onClose}
-            style={{
-              flex: 1,
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px',
-              backgroundColor: 'transparent',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.7'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            CANCEL
-          </button>
-          <button
-            onClick={handleSubmit}
-            style={{
-              flex: 1,
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px',
-              backgroundColor: dark ? '#ffa500' : '#ff8c00',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#000',
-              transition: 'opacity 0.2s',
-              fontWeight: '500'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.8'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-          >
-            SET PASSWORD
-          </button>
+        {/* Example Usernames */}
+        <div style={{
+          marginTop: '60px',
+          textAlign: 'center',
+          fontSize: '9px',
+          letterSpacing: '0.1em',
+          color: getColor('textMuted')
+        }}>
+          <div style={{ marginBottom: '10px' }}>EXAMPLE USERNAMES:</div>
+          <div style={{ lineHeight: '1.8' }}>
+            HalfKitty28 • BigFrog12 • TinyMoon99
+            <br />
+            SadRock45 • FastCheese03 • OldBox71
+          </div>
         </div>
       </div>
     </div>
