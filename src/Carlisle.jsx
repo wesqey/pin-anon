@@ -1307,7 +1307,7 @@ export default function Carlisle() {
                               wordBreak: 'break-all'
                             }}
                           >
-                            {post.authorDisplayName || post.author.toUpperCase()}
+                            {post.authorDisplayName || post.author?.toUpperCase() || 'UNKNOWN'}
                           </button>
                         </div>
                         {!whisper && (
@@ -2372,7 +2372,7 @@ function CommentThread({ comment, allComments, postId, addComment, removeComment
               padding: 0
             }}
           >
-            {comment.authorDisplayName || comment.author.toUpperCase()}
+            {comment.authorDisplayName || comment.author?.toUpperCase() || 'UNKNOWN'}
           </button>
           {!whisper && (
             <span style={{
