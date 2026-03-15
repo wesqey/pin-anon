@@ -4017,7 +4017,7 @@ function InviteGate({ onSignUp, onLogin, getColor }) {
             marginTop: '40px',
             fontSize: '9px',
             letterSpacing: '0.1em',
-            color: dark ? '#2a2a2a' : '#e5e5e5',
+            color: getColor('borderDim'),
             cursor: 'default',
             userSelect: 'none',
             textAlign: 'center'
