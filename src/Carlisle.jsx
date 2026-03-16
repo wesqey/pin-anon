@@ -3801,60 +3801,86 @@ function Sandbox({ onBack, dark }) {
               { 
                 name: 'KICK',
                 // Dynamics
-                gain: 1.0,
-                compression: 0.5,
-                volume: 0.8,
+                gain: 1.0, compression: 0.5, volume: 0.8,
+                // Synthesis
+                decay: 0.5, sweep: 0, contour: 0.5, shape: 0,
                 // EQ
-                highpass: 0,
-                eqLow: 0,
-                eqMid: 0,
-                eqHigh: 0,
+                highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
                 // FX
-                reverbDecay: 0.2,
-                delayTime: 0,
-                delayFeedback: 0,
+                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
                 // Modulation
-                pan: 0,
-                chorusDepth: 0,
-                drive: 0
+                pan: 0, chorusDepth: 0, drive: 0,
+                lfoRate: 2, lfoDepth: 0.3, lfoWave: 'sine'
               },
               { 
                 name: 'SNARE',
                 gain: 1.0, compression: 0.5, volume: 0.8,
+                decay: 0.2, sweep: 0, contour: 0.5, shape: 0,
                 highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
-                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0,
-                pan: 0, chorusDepth: 0, drive: 0
+                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
+                pan: 0, chorusDepth: 0, drive: 0,
+                lfoRate: 4, lfoDepth: 0.2, lfoWave: 'triangle'
               },
               { 
                 name: 'HAT',
                 gain: 1.0, compression: 0.5, volume: 0.8,
+                decay: 0.05, sweep: 0, contour: 0.5, shape: 0,
                 highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
-                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0,
-                pan: 0, chorusDepth: 0, drive: 0
+                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
+                pan: 0, chorusDepth: 0, drive: 0,
+                lfoRate: 6, lfoDepth: 0.1, lfoWave: 'square'
               },
               { 
                 name: 'PERC',
                 gain: 1.0, compression: 0.5, volume: 0.8,
+                decay: 0.3, sweep: 0, contour: 0.5, shape: 0,
                 highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
-                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0,
-                pan: 0, chorusDepth: 0, drive: 0
+                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
+                pan: 0, chorusDepth: 0, drive: 0,
+                lfoRate: 3, lfoDepth: 0.25, lfoWave: 'sawtooth'
               },
               { 
                 name: 'FX',
                 gain: 1.0, compression: 0.5, volume: 0.8,
+                decay: 0.4, sweep: 0, contour: 0.5, shape: 0,
                 highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
-                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0,
-                pan: 0, chorusDepth: 0, drive: 0
+                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
+                pan: 0, chorusDepth: 0, drive: 0,
+                lfoRate: 5, lfoDepth: 0.4, lfoWave: 'sine'
               }
             ]
           };
       
-      setInstrumentParams(new Map(instrumentParams.set(nextId, defaultParams)));
-      
       // Auto-focus new instruments
       setFocusedInstrument(nextId);
+    } else if (type === 'pulsewave') {
+      const defaultParams = {
+        oscType: 'sine',
+        attack: 0.01,
+        decay: 0.1,
+        sustain: 0.7,
+        release: 0.3,
+        filterType: 'lowpass',
+        filterFreq: 2000,
+        filterQ: 1,
+        volume: 0.3,
+        octave: 4,
+        // LFO
+        lfoRate: 4,
+        lfoDepth: 0.3,
+        lfoWave: 'sine',
+        // Advanced
+        sweep: 0,
+        contour: 0.5,
+        shape: 0,
+        pan: 0,
+        drive: 0
+      };
+      
+      setInstrumentParams(new Map(instrumentParams.set(nextId, defaultParams)));
+      setFocusedInstrument(nextId);
     }
-
+    
     setWindows([...windows, newWindow]);
     setNextId(nextId + 1);
     setShowAddMenu(false);
@@ -4317,7 +4343,8 @@ function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType,
           {window.type === 'oscilloscope' && (
             <OscilloscopeVisual 
               dark={dark}
-              audioContext={audioContext}
+              params={params}
+              instrumentType={focusedInstrumentType}
             />
           )}
         </div>
@@ -4401,6 +4428,35 @@ function PulseWaveMinimal({ dark, params, audioContext, onParamChange }) {
       setActiveNotes(new Set([...voicesRef.current.keys()]));
     }, params.release * 1000 + 100);
   };
+
+  // Add keyboard support
+  React.useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.repeat) return;
+      
+      const note = notes.find(n => n.key === e.key.toLowerCase());
+      if (note) {
+        e.preventDefault();
+        playNote(note.name, note.offset);
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      const note = notes.find(n => n.key === e.key.toLowerCase());
+      if (note) {
+        e.preventDefault();
+        stopNote(note.name);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [params, audioContext]);
 
   return (
     <div style={{ width: '400px' }}>
@@ -4605,25 +4661,28 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
   const playSound = (trackIndex) => {
     if (!audioContext) return;
 
-    const currentParams = paramsRef.current; // Read from ref for latest values
+    const currentParams = paramsRef.current;
     const track = tracks[trackIndex];
     const preset = presetLibrary[track.type][track.preset];
     const now = audioContext.currentTime;
 
-    // Get mixer settings from paramsRef (always current)
+    // Get mixer settings from paramsRef
     const mixerTrack = currentParams?.tracks?.[trackIndex] || {
-      gain: 1.0, volume: 0.8, pan: 0, drive: 0, 
-      highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0
+      gain: 1.0, volume: 0.8, pan: 0, drive: 0,
+      highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
+      decay: 0.5, sweep: 0, contour: 0.5, shape: 0
     };
 
-    // Create audio nodes
+    // Use mixer decay (0.01 to 10 seconds, 10 = infinite sustain)
+    const actualDecay = mixerTrack.decay >= 9.9 ? 10 : mixerTrack.decay;
+
     const osc = audioContext.createOscillator();
     const gain = audioContext.createGain();
     const driveGain = audioContext.createGain();
     const volumeGain = audioContext.createGain();
     const panner = audioContext.createStereoPanner();
     
-    // High-pass filter if enabled
+    // High-pass filter
     let currentNode = gain;
     if (mixerTrack.highpass > 0) {
       const hpf = audioContext.createBiquadFilter();
@@ -4662,36 +4721,53 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
       currentNode = highShelf;
     }
 
-    // Connect through drive -> volume -> pan -> destination
     currentNode.connect(driveGain);
     driveGain.connect(volumeGain);
     volumeGain.connect(panner);
     panner.connect(audioContext.destination);
 
-    // Set oscillator
-    osc.type = preset.type;
+    // Apply shape to oscillator type
+    let oscType = preset.type;
+    if (mixerTrack.shape > 0.66) oscType = 'square';
+    else if (mixerTrack.shape > 0.33) oscType = 'sawtooth';
+    else oscType = preset.type;
+    
+    osc.type = oscType;
     osc.connect(gain);
 
+    // Frequency with sweep
+    const baseFreq = preset.freq;
+    const sweepAmount = mixerTrack.sweep * 2000; // Up to 2kHz sweep
+    
     if (track.type === 'kick') {
-      osc.frequency.setValueAtTime(preset.freq, now);
-      osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+      osc.frequency.setValueAtTime(baseFreq + sweepAmount, now);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(50, baseFreq * 0.3), now + 0.1);
     } else {
-      osc.frequency.setValueAtTime(preset.freq, now);
+      osc.frequency.setValueAtTime(baseFreq + sweepAmount, now);
+      if (mixerTrack.sweep !== 0) {
+        osc.frequency.exponentialRampToValueAtTime(Math.max(50, baseFreq), now + actualDecay * 0.5);
+      }
     }
 
-    // Apply mixer settings
+    // Gain envelope with contour
     const baseGain = 0.3 * mixerTrack.gain * mixerTrack.volume;
-    const driveAmount = 1 + (mixerTrack.drive * 2); // 1x to 3x
+    const driveAmount = 1 + (mixerTrack.drive * 2);
     
-    gain.gain.setValueAtTime(baseGain, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + preset.decay);
+    // Contour affects envelope curve (0 = linear, 1 = exponential)
+    if (mixerTrack.contour > 0.5) {
+      gain.gain.setValueAtTime(baseGain, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + actualDecay);
+    } else {
+      gain.gain.setValueAtTime(baseGain, now);
+      gain.gain.linearRampToValueAtTime(0, now + actualDecay);
+    }
     
     driveGain.gain.value = driveAmount;
     volumeGain.gain.value = 1;
     panner.pan.value = mixerTrack.pan;
 
     osc.start(now);
-    osc.stop(now + preset.decay);
+    osc.stop(now + actualDecay);
   };
 
   const toggleCell = (trackIndex, step) => {
@@ -4985,7 +5061,7 @@ function UnifiedControlBoard({ dark, params, instrumentType, onParamChange }) {
   return null;
 }
 
-// GridSeq Professional Mixing Console
+// GridSeq Professional Mixing Console - Ultra Compact
 function GridSeqMixerControls({ dark, params, onParamChange }) {
   if (!params || !params.tracks) return null;
 
@@ -5002,463 +5078,431 @@ function GridSeqMixerControls({ dark, params, onParamChange }) {
   };
 
   return (
-    <div style={{ width: '500px' }}>
+    <div style={{ width: '550px' }}>
       {/* Track Header */}
       <div style={{
-        marginBottom: '16px',
-        padding: '10px',
+        marginBottom: '12px',
+        padding: '8px',
         background: dark ? '#0a0a0a' : '#fafafa',
         border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
         textAlign: 'center'
       }}>
         <div style={{
-          fontSize: '10px',
+          fontSize: '9px',
           letterSpacing: '0.15em',
           color: dark ? '#fff' : '#000',
           fontWeight: '500'
         }}>
-          {selectedTrack.name} CHANNEL
+          {selectedTrack.name}
         </div>
       </div>
 
-      {/* 4-Column Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '12px' }}>
+      {/* 5-Column Ultra Compact Layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
         
         {/* COLUMN 1: DYNAMICS */}
         <div>
           <div style={{
-            fontSize: '7px',
+            fontSize: '6px',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
-            marginBottom: '10px',
-            paddingBottom: '4px',
+            marginBottom: '8px',
+            paddingBottom: '3px',
             borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
             textAlign: 'center'
           }}>
-            DYNAMICS
+            DYN
           </div>
           
-          <DragKnob 
-            dark={dark}
-            label="GAIN"
-            value={selectedTrack.gain}
-            min={0}
-            max={2}
-            step={0.1}
-            onChange={(v) => updateTrackParam('gain', v)}
-            unit="x"
-          />
-          
-          <DragKnob 
-            dark={dark}
-            label="COMP"
-            value={selectedTrack.compression}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(v) => updateTrackParam('compression', v)}
-          />
-          
-          <DragKnob 
-            dark={dark}
-            label="VOL"
-            value={selectedTrack.volume}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(v) => updateTrackParam('volume', v)}
-          />
+          <DragKnob dark={dark} label="GAIN" value={selectedTrack.gain} min={0} max={2} step={0.1} onChange={(v) => updateTrackParam('gain', v)} unit="x" />
+          <DragKnob dark={dark} label="VOL" value={selectedTrack.volume} min={0} max={1} step={0.01} onChange={(v) => updateTrackParam('volume', v)} />
+          <DragKnob dark={dark} label="PAN" value={selectedTrack.pan} min={-1} max={1} step={0.01} onChange={(v) => updateTrackParam('pan', v)} />
         </div>
 
-        {/* COLUMN 2: EQ */}
+        {/* COLUMN 2: SYNTH */}
         <div>
           <div style={{
-            fontSize: '7px',
+            fontSize: '6px',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
-            marginBottom: '10px',
-            paddingBottom: '4px',
+            marginBottom: '8px',
+            paddingBottom: '3px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            textAlign: 'center'
+          }}>
+            SYNTH
+          </div>
+          
+          <DragKnob dark={dark} label="DECAY" value={selectedTrack.decay} min={0.01} max={10} step={0.01} onChange={(v) => updateTrackParam('decay', v)} unit="s" />
+          <DragKnob dark={dark} label="SWEEP" value={selectedTrack.sweep} min={-1} max={1} step={0.01} onChange={(v) => updateTrackParam('sweep', v)} />
+          <DragKnob dark={dark} label="SHAPE" value={selectedTrack.shape} min={0} max={1} step={0.01} onChange={(v) => updateTrackParam('shape', v)} />
+          <DragKnob dark={dark} label="CONTR" value={selectedTrack.contour} min={0} max={1} step={0.01} onChange={(v) => updateTrackParam('contour', v)} />
+        </div>
+
+        {/* COLUMN 3: EQ */}
+        <div>
+          <div style={{
+            fontSize: '6px',
+            letterSpacing: '0.12em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px',
+            paddingBottom: '3px',
             borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
             textAlign: 'center'
           }}>
             EQ
           </div>
           
-          <DragKnob 
-            dark={dark}
-            label="HPF"
-            value={selectedTrack.highpass}
-            min={0}
-            max={500}
-            step={10}
-            onChange={(v) => updateTrackParam('highpass', v)}
-            unit="Hz"
-          />
-          
-          <DragKnob 
-            dark={dark}
-            label="LOW"
-            value={selectedTrack.eqLow}
-            min={-12}
-            max={12}
-            step={0.5}
-            onChange={(v) => updateTrackParam('eqLow', v)}
-            unit="dB"
-          />
-          
-          <DragKnob 
-            dark={dark}
-            label="MID"
-            value={selectedTrack.eqMid}
-            min={-12}
-            max={12}
-            step={0.5}
-            onChange={(v) => updateTrackParam('eqMid', v)}
-            unit="dB"
-          />
-          
-          <DragKnob 
-            dark={dark}
-            label="HIGH"
-            value={selectedTrack.eqHigh}
-            min={-12}
-            max={12}
-            step={0.5}
-            onChange={(v) => updateTrackParam('eqHigh', v)}
-            unit="dB"
-          />
+          <DragKnob dark={dark} label="HPF" value={selectedTrack.highpass} min={0} max={500} step={10} onChange={(v) => updateTrackParam('highpass', v)} unit="Hz" />
+          <DragKnob dark={dark} label="LOW" value={selectedTrack.eqLow} min={-12} max={12} step={0.5} onChange={(v) => updateTrackParam('eqLow', v)} unit="dB" />
+          <DragKnob dark={dark} label="MID" value={selectedTrack.eqMid} min={-12} max={12} step={0.5} onChange={(v) => updateTrackParam('eqMid', v)} unit="dB" />
+          <DragKnob dark={dark} label="HIGH" value={selectedTrack.eqHigh} min={-12} max={12} step={0.5} onChange={(v) => updateTrackParam('eqHigh', v)} unit="dB" />
         </div>
 
-        {/* COLUMN 3: FX */}
+        {/* COLUMN 4: FX */}
         <div>
           <div style={{
-            fontSize: '7px',
+            fontSize: '6px',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
-            marginBottom: '10px',
-            paddingBottom: '4px',
+            marginBottom: '8px',
+            paddingBottom: '3px',
             borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
             textAlign: 'center'
           }}>
             FX
           </div>
           
-          <DragKnob 
-            dark={dark}
-            label="REVERB"
-            value={selectedTrack.reverbDecay}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(v) => updateTrackParam('reverbDecay', v)}
-          />
-          
-          <DragKnob 
-            dark={dark}
-            label="DELAY"
-            value={selectedTrack.delayTime}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(v) => updateTrackParam('delayTime', v)}
-            unit="s"
-          />
-          
-          <DragKnob 
-            dark={dark}
-            label="FDBK"
-            value={selectedTrack.delayFeedback}
-            min={0}
-            max={0.9}
-            step={0.01}
-            onChange={(v) => updateTrackParam('delayFeedback', v)}
-          />
+          <DragKnob dark={dark} label="REVERB" value={selectedTrack.reverbDecay} min={0} max={1} step={0.01} onChange={(v) => updateTrackParam('reverbDecay', v)} />
+          <DragKnob dark={dark} label="DELAY" value={selectedTrack.delayTime} min={0} max={1} step={0.01} onChange={(v) => updateTrackParam('delayTime', v)} unit="s" />
+          <DragKnob dark={dark} label="FDBK" value={selectedTrack.delayFeedback} min={0} max={0.9} step={0.01} onChange={(v) => updateTrackParam('delayFeedback', v)} />
+          <DragKnob dark={dark} label="SEND" value={selectedTrack.delaySend} min={0} max={1} step={0.01} onChange={(v) => updateTrackParam('delaySend', v)} />
         </div>
 
-        {/* COLUMN 4: MODULATION */}
+        {/* COLUMN 5: LFO + MOD */}
         <div>
           <div style={{
-            fontSize: '7px',
+            fontSize: '6px',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
-            marginBottom: '10px',
-            paddingBottom: '4px',
+            marginBottom: '8px',
+            paddingBottom: '3px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            textAlign: 'center'
+          }}>
+            LFO
+          </div>
+          
+          <DragKnob dark={dark} label="RATE" value={selectedTrack.lfoRate} min={0.1} max={20} step={0.1} onChange={(v) => updateTrackParam('lfoRate', v)} unit="Hz" />
+          <DragKnob dark={dark} label="DEPTH" value={selectedTrack.lfoDepth} min={0} max={1} step={0.01} onChange={(v) => updateTrackParam('lfoDepth', v)} />
+          <DragKnob dark={dark} label="CHORUS" value={selectedTrack.chorusDepth} min={0} max={1} step={0.01} onChange={(v) => updateTrackParam('chorusDepth', v)} />
+          <DragKnob dark={dark} label="DRIVE" value={selectedTrack.drive} min={0} max={1} step={0.01} onChange={(v) => updateTrackParam('drive', v)} />
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{
+        marginTop: '10px',
+        fontSize: '5px',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999',
+        textAlign: 'center'
+      }}>
+        DRAG KNOBS UP/DOWN • DECAY 10s = INFINITE SUSTAIN
+      </div>
+    </div>
+  );
+}
+
+// PulseWave unified controls - Ultra Compact
+function PulseWaveControls({ dark, params, onParamChange }) {
+  return (
+    <div style={{ width: '550px' }}>
+      {/* Header */}
+      <div style={{
+        marginBottom: '12px',
+        padding: '8px',
+        background: dark ? '#0a0a0a' : '#fafafa',
+        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+        textAlign: 'center'
+      }}>
+        <div style={{
+          fontSize: '9px',
+          letterSpacing: '0.15em',
+          color: dark ? '#fff' : '#000',
+          fontWeight: '500'
+        }}>
+          PULSEWAVE
+        </div>
+      </div>
+
+      {/* 5-Column Layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
+        
+        {/* COLUMN 1: OSC */}
+        <div>
+          <div style={{
+            fontSize: '6px',
+            letterSpacing: '0.12em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px',
+            paddingBottom: '3px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            textAlign: 'center'
+          }}>
+            OSC
+          </div>
+          
+          {/* Wave type selector */}
+          <div style={{ marginBottom: '8px' }}>
+            <div style={{ fontSize: '5px', color: dark ? '#666' : '#999', marginBottom: '4px', textAlign: 'center' }}>WAVE</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px' }}>
+              {['sine', 'square', 'saw', 'tri'].map(type => (
+                <button
+                  key={type}
+                  onClick={() => onParamChange('oscType', type === 'saw' ? 'sawtooth' : type === 'tri' ? 'triangle' : type)}
+                  style={{
+                    fontSize: '5px',
+                    padding: '4px 2px',
+                    background: params.oscType === (type === 'saw' ? 'sawtooth' : type === 'tri' ? 'triangle' : type) ? (dark ? '#fff' : '#000') : 'none',
+                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    cursor: 'pointer',
+                    color: params.oscType === (type === 'saw' ? 'sawtooth' : type === 'tri' ? 'triangle' : type) ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000')
+                  }}
+                >
+                  {type.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <DragKnob dark={dark} label="SWEEP" value={params.sweep || 0} min={-1} max={1} step={0.01} onChange={(v) => onParamChange('sweep', v)} />
+          <DragKnob dark={dark} label="SHAPE" value={params.shape || 0} min={0} max={1} step={0.01} onChange={(v) => onParamChange('shape', v)} />
+        </div>
+
+        {/* COLUMN 2: ENVELOPE */}
+        <div>
+          <div style={{
+            fontSize: '6px',
+            letterSpacing: '0.12em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px',
+            paddingBottom: '3px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            textAlign: 'center'
+          }}>
+            ENV
+          </div>
+          
+          <DragKnob dark={dark} label="ATK" value={params.attack} min={0} max={2} step={0.01} onChange={(v) => onParamChange('attack', v)} unit="s" />
+          <DragKnob dark={dark} label="DEC" value={params.decay} min={0} max={2} step={0.01} onChange={(v) => onParamChange('decay', v)} unit="s" />
+          <DragKnob dark={dark} label="SUS" value={params.sustain} min={0} max={1} step={0.01} onChange={(v) => onParamChange('sustain', v)} />
+          <DragKnob dark={dark} label="REL" value={params.release} min={0} max={3} step={0.01} onChange={(v) => onParamChange('release', v)} unit="s" />
+        </div>
+
+        {/* COLUMN 3: FILTER */}
+        <div>
+          <div style={{
+            fontSize: '6px',
+            letterSpacing: '0.12em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px',
+            paddingBottom: '3px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            textAlign: 'center'
+          }}>
+            FILT
+          </div>
+          
+          {/* Filter type */}
+          <div style={{ marginBottom: '8px' }}>
+            <div style={{ fontSize: '5px', color: dark ? '#666' : '#999', marginBottom: '4px', textAlign: 'center' }}>TYPE</div>
+            <div style={{ display: 'flex', gap: '2px' }}>
+              {['LP', 'HP', 'BP'].map((type, i) => (
+                <button
+                  key={type}
+                  onClick={() => onParamChange('filterType', ['lowpass', 'highpass', 'bandpass'][i])}
+                  style={{
+                    flex: 1,
+                    fontSize: '5px',
+                    padding: '4px 2px',
+                    background: params.filterType === ['lowpass', 'highpass', 'bandpass'][i] ? (dark ? '#fff' : '#000') : 'none',
+                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    cursor: 'pointer',
+                    color: params.filterType === ['lowpass', 'highpass', 'bandpass'][i] ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000')
+                  }}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <DragKnob dark={dark} label="FREQ" value={params.filterFreq} min={20} max={20000} step={10} onChange={(v) => onParamChange('filterFreq', v)} unit="Hz" />
+          <DragKnob dark={dark} label="RES" value={params.filterQ} min={0.1} max={30} step={0.1} onChange={(v) => onParamChange('filterQ', v)} />
+        </div>
+
+        {/* COLUMN 4: MOD */}
+        <div>
+          <div style={{
+            fontSize: '6px',
+            letterSpacing: '0.12em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px',
+            paddingBottom: '3px',
             borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
             textAlign: 'center'
           }}>
             MOD
           </div>
           
-          <DragKnob 
-            dark={dark}
-            label="PAN"
-            value={selectedTrack.pan}
-            min={-1}
-            max={1}
-            step={0.01}
-            onChange={(v) => updateTrackParam('pan', v)}
-          />
+          <DragKnob dark={dark} label="VOL" value={params.volume} min={0} max={1} step={0.01} onChange={(v) => onParamChange('volume', v)} />
+          <DragKnob dark={dark} label="PAN" value={params.pan || 0} min={-1} max={1} step={0.01} onChange={(v) => onParamChange('pan', v)} />
+          <DragKnob dark={dark} label="DRIVE" value={params.drive || 0} min={0} max={1} step={0.01} onChange={(v) => onParamChange('drive', v)} />
+          <DragKnob dark={dark} label="CONTR" value={params.contour || 0.5} min={0} max={1} step={0.01} onChange={(v) => onParamChange('contour', v)} />
+        </div>
+
+        {/* COLUMN 5: LFO */}
+        <div>
+          <div style={{
+            fontSize: '6px',
+            letterSpacing: '0.12em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '8px',
+            paddingBottom: '3px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            textAlign: 'center'
+          }}>
+            LFO
+          </div>
           
-          <DragKnob 
-            dark={dark}
-            label="CHORUS"
-            value={selectedTrack.chorusDepth}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(v) => updateTrackParam('chorusDepth', v)}
-          />
+          <DragKnob dark={dark} label="RATE" value={params.lfoRate || 4} min={0.1} max={20} step={0.1} onChange={(v) => onParamChange('lfoRate', v)} unit="Hz" />
+          <DragKnob dark={dark} label="DEPTH" value={params.lfoDepth || 0.3} min={0} max={1} step={0.01} onChange={(v) => onParamChange('lfoDepth', v)} />
           
-          <DragKnob 
-            dark={dark}
-            label="DRIVE"
-            value={selectedTrack.drive}
-            min={0}
-            max={1}
-            step={0.01}
-            onChange={(v) => updateTrackParam('drive', v)}
-          />
+          {/* LFO Wave selector */}
+          <div style={{ marginBottom: '8px', marginTop: '8px' }}>
+            <div style={{ fontSize: '5px', color: dark ? '#666' : '#999', marginBottom: '4px', textAlign: 'center' }}>WAVE</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px' }}>
+              {['sine', 'square', 'saw', 'tri'].map(type => (
+                <button
+                  key={type}
+                  onClick={() => onParamChange('lfoWave', type === 'saw' ? 'sawtooth' : type === 'tri' ? 'triangle' : type)}
+                  style={{
+                    fontSize: '5px',
+                    padding: '4px 2px',
+                    background: (params.lfoWave || 'sine') === (type === 'saw' ? 'sawtooth' : type === 'tri' ? 'triangle' : type) ? (dark ? '#fff' : '#000') : 'none',
+                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    cursor: 'pointer',
+                    color: (params.lfoWave || 'sine') === (type === 'saw' ? 'sawtooth' : type === 'tri' ? 'triangle' : type) ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000')
+                  }}
+                >
+                  {type.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Footer */}
       <div style={{
-        marginTop: '12px',
-        fontSize: '6px',
+        marginTop: '10px',
+        fontSize: '5px',
         letterSpacing: '0.05em',
         color: dark ? '#666' : '#999',
         textAlign: 'center'
       }}>
-        CLICK + DRAG KNOBS UP/DOWN • SELECT TRACK ON GRIDSEQ
+        USE QWERTY KEYS TO PLAY • DRAG KNOBS UP/DOWN
       </div>
     </div>
   );
 }
 
-// PulseWave unified controls
-function PulseWaveControls({ dark, params, onParamChange }) {
-  return (
-    <div style={{ width: '450px' }}>
-      {/* Oscillator */}
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{
-          fontSize: '9px',
-          letterSpacing: '0.1em',
-          color: dark ? '#666' : '#999',
-          marginBottom: '10px'
-        }}>
-          OSCILLATOR
-        </div>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          {['sine', 'square', 'sawtooth', 'triangle'].map(type => (
-            <button
-              key={type}
-              onClick={() => onParamChange('oscType', type)}
-              style={{
-                flex: 1,
-                fontSize: '10px',
-                letterSpacing: '0.05em',
-                padding: '12px 6px',
-                background: params.oscType === type ? (dark ? '#fff' : '#000') : 'none',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                cursor: 'pointer',
-                color: params.oscType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
-                transition: 'all 0.2s'
-              }}
-            >
-              {type.toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Envelope (2 column layout) */}
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{
-          fontSize: '9px',
-          letterSpacing: '0.1em',
-          color: dark ? '#666' : '#999',
-          marginBottom: '10px'
-        }}>
-          ENVELOPE
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-          {[
-            { label: 'ATTACK', param: 'attack', min: 0, max: 2, step: 0.01 },
-            { label: 'DECAY', param: 'decay', min: 0, max: 2, step: 0.01 },
-            { label: 'SUSTAIN', param: 'sustain', min: 0, max: 1, step: 0.01 },
-            { label: 'RELEASE', param: 'release', min: 0, max: 3, step: 0.01 }
-          ].map(control => (
-            <div key={control.param}>
-              <div style={{
-                fontSize: '8px',
-                letterSpacing: '0.1em',
-                color: dark ? '#666' : '#999',
-                marginBottom: '6px'
-              }}>
-                {control.label}: {params[control.param]?.toFixed(2)}
-              </div>
-              <input
-                type="range"
-                min={control.min}
-                max={control.max}
-                step={control.step}
-                value={params[control.param] || 0}
-                onChange={(e) => onParamChange(control.param, parseFloat(e.target.value))}
-                style={{ width: '100%' }}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Filter */}
-      <div>
-        <div style={{
-          fontSize: '9px',
-          letterSpacing: '0.1em',
-          color: dark ? '#666' : '#999',
-          marginBottom: '10px'
-        }}>
-          FILTER
-        </div>
-        <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
-          {['lowpass', 'highpass', 'bandpass'].map(type => (
-            <button
-              key={type}
-              onClick={() => onParamChange('filterType', type)}
-              style={{
-                flex: 1,
-                fontSize: '9px',
-                letterSpacing: '0.05em',
-                padding: '10px 6px',
-                background: params.filterType === type ? (dark ? '#fff' : '#000') : 'none',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                cursor: 'pointer',
-                color: params.filterType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
-                transition: 'all 0.2s'
-              }}
-            >
-              {type.toUpperCase()}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ marginBottom: '16px' }}>
-          <div style={{
-            fontSize: '8px',
-            letterSpacing: '0.1em',
-            color: dark ? '#666' : '#999',
-            marginBottom: '6px'
-          }}>
-            CUTOFF: {params.filterFreq}Hz
-          </div>
-          <input
-            type="range"
-            min="20"
-            max="20000"
-            step="10"
-            value={params.filterFreq || 2000}
-            onChange={(e) => onParamChange('filterFreq', parseInt(e.target.value))}
-            style={{ width: '100%' }}
-          />
-        </div>
-
-        <div>
-          <div style={{
-            fontSize: '8px',
-            letterSpacing: '0.1em',
-            color: dark ? '#666' : '#999',
-            marginBottom: '6px'
-          }}>
-            RESONANCE: {params.filterQ?.toFixed(1)}
-          </div>
-          <input
-            type="range"
-            min="0.1"
-            max="30"
-            step="0.1"
-            value={params.filterQ || 1}
-            onChange={(e) => onParamChange('filterQ', parseFloat(e.target.value))}
-            style={{ width: '100%' }}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Oscilloscope Visual
-function OscilloscopeVisual({ dark, audioContext }) {
+// Oscilloscope Visual - Shows LFO waveform of selected instrument
+function OscilloscopeVisual({ dark, params, instrumentType }) {
   const canvasRef = React.useRef(null);
-  const analyserRef = React.useRef(null);
   const animationRef = React.useRef(null);
-  const sourceConnectedRef = React.useRef(false);
+  const timeRef = React.useRef(0);
 
   React.useEffect(() => {
-    if (!audioContext || !canvasRef.current) return;
-
-    // Only create analyser once
-    if (!analyserRef.current) {
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 2048;
-      analyser.connect(audioContext.destination);
-      
-      // Connect to destination so it intercepts all audio
-      const destination = audioContext.destination;
-      analyserRef.current = analyser;
-      
-      // Note: In a real implementation, you'd need to route all audio through this analyser
-      // For now, this is a basic visualization setup
-    }
+    if (!canvasRef.current || !params) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    const analyser = analyserRef.current;
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
 
-    const draw = () => {
+    // Get LFO params based on instrument type
+    let lfoRate = 4;
+    let lfoWave = 'sine';
+    
+    if (instrumentType === 'gridseq' && params.tracks) {
+      const selectedTrack = params.tracks[params.selectedTrack || 0];
+      lfoRate = selectedTrack.lfoRate || 4;
+      lfoWave = selectedTrack.lfoWave || 'sine';
+    } else if (instrumentType === 'pulsewave') {
+      lfoRate = params.lfoRate || 4;
+      lfoWave = params.lfoWave || 'sine';
+    }
+
+    const draw = (timestamp) => {
       animationRef.current = requestAnimationFrame(draw);
 
-      analyser.getByteTimeDomainData(dataArray);
+      // Update time
+      timeRef.current += 0.016; // ~60fps
 
+      // Clear
       ctx.fillStyle = dark ? '#000' : '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // Draw grid
       ctx.strokeStyle = dark ? '#1a1a1a' : '#f5f5f5';
       ctx.lineWidth = 1;
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i <= 4; i++) {
         const y = (canvas.height / 4) * i;
         ctx.beginPath();
         ctx.moveTo(0, y);
         ctx.lineTo(canvas.width, y);
         ctx.stroke();
       }
+      for (let i = 0; i <= 4; i++) {
+        const x = (canvas.width / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
 
-      // Draw waveform
+      // Draw LFO waveform
       ctx.lineWidth = 2;
       ctx.strokeStyle = dark ? '#4ade80' : '#22c55e';
       ctx.beginPath();
 
-      const sliceWidth = canvas.width / bufferLength;
-      let x = 0;
+      const points = 200;
+      const centerY = canvas.height / 2;
+      const amplitude = canvas.height * 0.4;
 
-      for (let i = 0; i < bufferLength; i++) {
-        const v = dataArray[i] / 128.0;
-        const y = (v * canvas.height) / 2;
+      for (let i = 0; i < points; i++) {
+        const x = (i / points) * canvas.width;
+        const phase = (i / points) * Math.PI * 4 + timeRef.current * lfoRate;
+        
+        let y;
+        if (lfoWave === 'sine') {
+          y = centerY + Math.sin(phase) * amplitude;
+        } else if (lfoWave === 'square') {
+          y = centerY + (Math.sin(phase) > 0 ? 1 : -1) * amplitude;
+        } else if (lfoWave === 'sawtooth') {
+          y = centerY + ((phase % (Math.PI * 2)) / (Math.PI * 2) * 2 - 1) * amplitude;
+        } else if (lfoWave === 'triangle') {
+          const val = (phase % (Math.PI * 2)) / (Math.PI * 2);
+          y = centerY + (val < 0.5 ? val * 4 - 1 : 3 - val * 4) * amplitude;
+        }
 
         if (i === 0) {
           ctx.moveTo(x, y);
         } else {
           ctx.lineTo(x, y);
         }
-
-        x += sliceWidth;
       }
 
-      ctx.lineTo(canvas.width, canvas.height / 2);
       ctx.stroke();
     };
 
@@ -5469,7 +5513,7 @@ function OscilloscopeVisual({ dark, audioContext }) {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [audioContext, dark]);
+  }, [dark, params, instrumentType]);
 
   return (
     <div style={{ width: '400px' }}>
@@ -5490,7 +5534,7 @@ function OscilloscopeVisual({ dark, audioContext }) {
         color: dark ? '#666' : '#999',
         textAlign: 'center'
       }}>
-        WAVEFORM VISUALIZATION
+        LFO WAVEFORM VISUALIZATION
       </div>
     </div>
   );
