@@ -3690,10 +3690,369 @@ function AdminPanel({ onClose, dark, user }) {
   );
 }
 
+function Sandbox({ onBack, dark }) {
+  const [windows, setWindows] = useState([]);
+  const [nextId, setNextId] = useState(1);
+  const [dragging, setDragging] = useState(null);
+  const [showAddMenu, setShowAddMenu] = useState(false);
+
+  const availableModules = [
+    { type: 'gridseq', name: 'GRIDSEQ', description: 'DRUM SEQUENCER' },
+    { type: 'pulsewave', name: 'PULSEWAVE', description: 'SYNTHESIZER' }
+  ];
+
+  const addWindow = (type) => {
+    const newWindow = {
+      id: nextId,
+      type,
+      x: 100 + (nextId * 30),
+      y: 100 + (nextId * 30),
+      minimized: false,
+      zIndex: nextId
+    };
+    setWindows([...windows, newWindow]);
+    setNextId(nextId + 1);
+    setShowAddMenu(false);
+  };
+
+  const removeWindow = (id) => {
+    setWindows(windows.filter(w => w.id !== id));
+  };
+
+  const toggleMinimize = (id) => {
+    setWindows(windows.map(w => 
+      w.id === id ? { ...w, minimized: !w.minimized } : w
+    ));
+  };
+
+  const bringToFront = (id) => {
+    const maxZ = Math.max(...windows.map(w => w.zIndex), 0);
+    setWindows(windows.map(w =>
+      w.id === id ? { ...w, zIndex: maxZ + 1 } : w
+    ));
+  };
+
+  const handleDragStart = (e, id) => {
+    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+    
+    const window = windows.find(w => w.id === id);
+    setDragging({
+      id,
+      offsetX: e.clientX - window.x,
+      offsetY: e.clientY - window.y
+    });
+    bringToFront(id);
+  };
+
+  const handleDrag = (e) => {
+    if (!dragging) return;
+    
+    setWindows(windows.map(w =>
+      w.id === dragging.id
+        ? { ...w, x: e.clientX - dragging.offsetX, y: e.clientY - dragging.offsetY }
+        : w
+    ));
+  };
+
+  const handleDragEnd = () => {
+    setDragging(null);
+  };
+
+  React.useEffect(() => {
+    if (dragging) {
+      window.addEventListener('mousemove', handleDrag);
+      window.addEventListener('mouseup', handleDragEnd);
+      return () => {
+        window.removeEventListener('mousemove', handleDrag);
+        window.removeEventListener('mouseup', handleDragEnd);
+      };
+    }
+  }, [dragging]);
+
+  return (
+    <div>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '40px',
+        flexWrap: 'wrap',
+        gap: '20px'
+      }}>
+        <button
+          onClick={onBack}
+          style={{
+            fontSize: '10px',
+            letterSpacing: '0.15em',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: dark ? '#999' : '#666',
+            transition: 'opacity 0.2s'
+          }}
+          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+          onMouseLeave={(e) => e.target.style.opacity = '1'}
+        >
+          ← BACK TO SOUNDS
+        </button>
+
+        <div style={{
+          fontSize: '24px',
+          fontWeight: '300',
+          letterSpacing: '0.15em',
+          color: dark ? '#fff' : '#000'
+        }}>
+          SANDBOX
+        </div>
+
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setShowAddMenu(!showAddMenu)}
+            style={{
+              fontSize: '11px',
+              letterSpacing: '0.1em',
+              padding: '12px 24px',
+              background: dark ? '#fff' : '#000',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#000' : '#fff',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.8'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            + ADD MODULE
+          </button>
+
+          {showAddMenu && (
+            <>
+              <div
+                onClick={() => setShowAddMenu(false)}
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 999
+                }}
+              />
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: '8px',
+                backgroundColor: dark ? '#000' : '#fff',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                minWidth: '250px',
+                zIndex: 1000,
+                boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+              }}>
+                {availableModules.map(module => (
+                  <button
+                    key={module.type}
+                    onClick={() => addWindow(module.type)}
+                    style={{
+                      width: '100%',
+                      fontSize: '11px',
+                      letterSpacing: '0.05em',
+                      color: dark ? '#fff' : '#000',
+                      background: 'none',
+                      border: 'none',
+                      borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      padding: '16px',
+                      transition: 'background-color 0.2s'
+                    }}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = dark ? '#0a0a0a' : '#fafafa'}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                  >
+                    <div style={{ marginBottom: '4px' }}>{module.name}</div>
+                    <div style={{
+                      fontSize: '9px',
+                      color: dark ? '#666' : '#999'
+                    }}>
+                      {module.description}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Workspace Canvas */}
+      <div style={{
+        position: 'relative',
+        width: '100%',
+        height: '70vh',
+        backgroundColor: dark ? '#0a0a0a' : '#fafafa',
+        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+        overflow: 'hidden'
+      }}>
+        {windows.length === 0 && (
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            fontSize: '11px',
+            letterSpacing: '0.1em',
+            color: dark ? '#333' : '#ccc',
+            textAlign: 'center'
+          }}>
+            CLICK "+ ADD MODULE" TO BEGIN
+          </div>
+        )}
+
+        {/* Module Windows */}
+        {windows.map(window => (
+          <SandboxWindow
+            key={window.id}
+            window={window}
+            dark={dark}
+            onDragStart={(e) => handleDragStart(e, window.id)}
+            onClose={() => removeWindow(window.id)}
+            onToggleMinimize={() => toggleMinimize(window.id)}
+            onFocus={() => bringToFront(window.id)}
+          />
+        ))}
+      </div>
+
+      <div style={{
+        marginTop: '20px',
+        fontSize: '10px',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999',
+        lineHeight: '1.6'
+      }}>
+        🎛️ MODULAR PATCHBAY • ADD MULTIPLE INSTRUMENTS • DRAG WINDOWS TO ARRANGE • COMBINE GRIDSEQ + PULSEWAVE
+      </div>
+    </div>
+  );
+}
+
+function SandboxWindow({ window, dark, onDragStart, onClose, onToggleMinimize, onFocus }) {
+  return (
+    <div
+      onMouseDown={onFocus}
+      style={{
+        position: 'absolute',
+        left: `${window.x}px`,
+        top: `${window.y}px`,
+        width: window.minimized ? '300px' : '600px',
+        backgroundColor: dark ? '#000' : '#fff',
+        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        zIndex: window.zIndex,
+        display: 'flex',
+        flexDirection: 'column',
+        maxHeight: window.minimized ? '50px' : '500px',
+        overflow: 'hidden'
+      }}
+    >
+      {/* Window Header */}
+      <div
+        onMouseDown={onDragStart}
+        style={{
+          padding: '12px 16px',
+          borderBottom: window.minimized ? 'none' : `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+          cursor: 'move',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          backgroundColor: dark ? '#0a0a0a' : '#fafafa',
+          userSelect: 'none'
+        }}
+      >
+        <div style={{
+          fontSize: '10px',
+          letterSpacing: '0.1em',
+          color: dark ? '#fff' : '#000',
+          fontWeight: '500'
+        }}>
+          {window.type.toUpperCase()}
+        </div>
+        
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button
+            onClick={onToggleMinimize}
+            style={{
+              fontSize: '11px',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              padding: '0',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            {window.minimized ? '▢' : '−'}
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              fontSize: '11px',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              padding: '0',
+              transition: 'opacity 0.2s'
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+          >
+            ×
+          </button>
+        </div>
+      </div>
+
+      {/* Window Content */}
+      {!window.minimized && (
+        <div style={{
+          padding: '20px',
+          overflow: 'auto',
+          flex: 1
+        }}>
+          {window.type === 'gridseq' && (
+            <div style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              color: dark ? '#999' : '#666'
+            }}>
+              GRIDSEQ MODULE (COMPACT VERSION IN DEVELOPMENT)
+            </div>
+          )}
+          {window.type === 'pulsewave' && (
+            <div style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              color: dark ? '#999' : '#666'
+            }}>
+              PULSEWAVE MODULE (COMPACT VERSION IN DEVELOPMENT)
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SoundsStudio({ onBack, dark }) {
   const [activeInstrument, setActiveInstrument] = useState(null);
 
   const instruments = [
+    {
+      id: 'sandbox',
+      name: 'SANDBOX',
+      description: 'MODULAR PATCHBAY SYSTEM',
+      status: 'READY'
+    },
     {
       id: 'gridseq',
       name: 'GRIDSEQ',
@@ -3713,6 +4072,10 @@ function SoundsStudio({ onBack, dark }) {
       status: 'COMING SOON'
     }
   ];
+
+  if (activeInstrument === 'sandbox') {
+    return <Sandbox onBack={() => setActiveInstrument(null)} dark={dark} />;
+  }
 
   if (activeInstrument === 'gridseq') {
     return <GridSeq onBack={() => setActiveInstrument(null)} dark={dark} />;
