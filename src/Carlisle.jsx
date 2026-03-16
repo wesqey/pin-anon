@@ -146,6 +146,7 @@ export default function Carlisle() {
     if (hash.startsWith('profile/')) return 'profile';
     if (hash.startsWith('room/')) return 'room';
     if (hash === 'home') return 'home';
+    if (hash === 'sounds') return 'sounds';
     return localStorage.getItem("carlisle_view") || "home";
   });
 
@@ -576,6 +577,7 @@ export default function Carlisle() {
     let hash = 'home';
     if (view === 'room') hash = `room/${room}`;
     else if (view === 'profile' && profileView) hash = `profile/${profileView}`;
+    else if (view === 'sounds') hash = 'sounds';
     if (window.location.hash !== `#${hash}`) {
       window.history.pushState(null, '', `#${hash}`);
     }
@@ -593,6 +595,8 @@ export default function Carlisle() {
       } else if (hash.startsWith('room/')) {
         const r = hash.split('/')[1];
         if (r) { setRoom(r); setView('room'); }
+      } else if (hash === 'sounds') {
+        setView('sounds');
       } else {
         setView('home');
       }
@@ -1035,6 +1039,22 @@ export default function Carlisle() {
                 {user.username}
               </button>
               <button
+                onClick={() => setView('sounds')}
+                style={{
+                  fontSize: '10px',
+                  letterSpacing: '0.15em',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: dark ? '#fff' : '#000',
+                  transition: 'opacity 0.2s'
+                }}
+                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                onMouseLeave={(e) => e.target.style.opacity = '1'}
+              >
+                SOUNDS
+              </button>
+              <button
                 onClick={() => setShowSettings(true)}
                 style={{
                   fontSize: '10px',
@@ -1213,6 +1233,11 @@ export default function Carlisle() {
             }}
             onEditProfile={() => setShowProfileEdit(true)}
             onDeletePost={removePost}
+            dark={dark}
+          />
+        ) : view === "sounds" ? (
+          <SoundsStudio
+            onBack={() => setView("home")}
             dark={dark}
           />
         ) : view === "home" ? (
@@ -3660,6 +3685,450 @@ function AdminPanel({ onClose, dark, user }) {
         >
           CLOSE
         </button>
+      </div>
+    </div>
+  );
+}
+
+function SoundsStudio({ onBack, dark }) {
+  const [activeInstrument, setActiveInstrument] = useState(null);
+
+  const instruments = [
+    {
+      id: 'gridseq',
+      name: 'GRIDSEQ',
+      description: '16-STEP DRUM SEQUENCER',
+      status: 'READY'
+    },
+    {
+      id: 'pulsewave',
+      name: 'PULSEWAVE',
+      description: 'MONOPHONIC SYNTHESIZER',
+      status: 'COMING SOON'
+    },
+    {
+      id: 'tapegrid',
+      name: 'TAPEGRID',
+      description: 'SAMPLE LOOP STATION',
+      status: 'COMING SOON'
+    }
+  ];
+
+  if (activeInstrument === 'gridseq') {
+    return <GridSeq onBack={() => setActiveInstrument(null)} dark={dark} />;
+  }
+
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        style={{
+          fontSize: '10px',
+          letterSpacing: '0.15em',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: dark ? '#999' : '#666',
+          marginBottom: '40px',
+          transition: 'opacity 0.2s'
+        }}
+        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+        onMouseLeave={(e) => e.target.style.opacity = '1'}
+      >
+        ← BACK TO HOME
+      </button>
+
+      <div style={{
+        fontSize: '24px',
+        fontWeight: '300',
+        letterSpacing: '0.15em',
+        marginBottom: '60px',
+        color: dark ? '#fff' : '#000'
+      }}>
+        SOUNDS
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+        gap: '30px'
+      }}>
+        {instruments.map(inst => (
+          <button
+            key={inst.id}
+            onClick={() => inst.status === 'READY' && setActiveInstrument(inst.id)}
+            disabled={inst.status !== 'READY'}
+            style={{
+              padding: '40px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: inst.status === 'READY' ? 'pointer' : 'not-allowed',
+              textAlign: 'left',
+              transition: 'border-color 0.2s',
+              opacity: inst.status === 'READY' ? 1 : 0.5
+            }}
+            onMouseEnter={(e) => {
+              if (inst.status === 'READY') {
+                e.target.style.borderColor = dark ? '#666' : '#999';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (inst.status === 'READY') {
+                e.target.style.borderColor = dark ? '#333' : '#e5e5e5';
+              }
+            }}
+          >
+            <div style={{
+              fontSize: '18px',
+              letterSpacing: '0.1em',
+              color: dark ? '#fff' : '#000',
+              marginBottom: '12px',
+              fontWeight: '300'
+            }}>
+              {inst.name}
+            </div>
+            <div style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              color: dark ? '#666' : '#999',
+              marginBottom: '20px'
+            }}>
+              {inst.description}
+            </div>
+            <div style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              color: inst.status === 'READY' ? (dark ? '#4ade80' : '#22c55e') : (dark ? '#666' : '#999')
+            }}>
+              {inst.status}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GridSeq({ onBack, dark }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [bpm, setBpm] = useState(120);
+  const [currentStep, setCurrentStep] = useState(-1);
+  const [pattern, setPattern] = useState(() => {
+    // 8 tracks x 16 steps
+    return Array(8).fill(null).map(() => Array(16).fill(false));
+  });
+
+  const audioContextRef = React.useRef(null);
+  const intervalRef = React.useRef(null);
+
+  const tracks = [
+    { name: 'KICK', freq: 150, decay: 0.5 },
+    { name: 'SNARE', freq: 200, decay: 0.2 },
+    { name: 'CLAP', freq: 400, decay: 0.15 },
+    { name: 'HAT-C', freq: 8000, decay: 0.05 },
+    { name: 'HAT-O', freq: 10000, decay: 0.1 },
+    { name: 'TOM-H', freq: 300, decay: 0.3 },
+    { name: 'TOM-L', freq: 180, decay: 0.4 },
+    { name: 'PERC', freq: 800, decay: 0.15 }
+  ];
+
+  React.useEffect(() => {
+    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, []);
+
+  const playSound = (trackIndex) => {
+    const ctx = audioContextRef.current;
+    if (!ctx) return;
+
+    const track = tracks[trackIndex];
+    const now = ctx.currentTime;
+
+    // Oscillator for tone
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    // Different wave types for different drums
+    if (trackIndex === 0) { // Kick
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(track.freq, now);
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+    } else if (trackIndex === 1 || trackIndex === 2) { // Snare/Clap
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(track.freq, now);
+    } else if (trackIndex === 3 || trackIndex === 4) { // Hi-hats
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(track.freq, now);
+    } else { // Toms/Perc
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(track.freq, now);
+      osc.frequency.exponentialRampToValueAtTime(track.freq * 0.5, now + track.decay);
+    }
+
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + track.decay);
+
+    osc.start(now);
+    osc.stop(now + track.decay);
+  };
+
+  const toggleCell = (trackIndex, step) => {
+    const newPattern = pattern.map((row, i) =>
+      i === trackIndex ? row.map((cell, j) => (j === step ? !cell : cell)) : row
+    );
+    setPattern(newPattern);
+  };
+
+  const handlePlayPause = () => {
+    if (isPlaying) {
+      clearInterval(intervalRef.current);
+      setCurrentStep(-1);
+      setIsPlaying(false);
+    } else {
+      setIsPlaying(true);
+      let step = 0;
+      const stepTime = (60 / bpm) * 250; // 16th notes
+
+      intervalRef.current = setInterval(() => {
+        setCurrentStep(step);
+        
+        // Play sounds for active cells in this step
+        pattern.forEach((row, trackIndex) => {
+          if (row[step]) {
+            playSound(trackIndex);
+          }
+        });
+
+        step = (step + 1) % 16;
+      }, stepTime);
+    }
+  };
+
+  const clearPattern = () => {
+    setPattern(Array(8).fill(null).map(() => Array(16).fill(false)));
+  };
+
+  const exportPattern = () => {
+    const data = JSON.stringify({ pattern, bpm }, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gridseq-pattern-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        style={{
+          fontSize: '10px',
+          letterSpacing: '0.15em',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: dark ? '#999' : '#666',
+          marginBottom: '40px',
+          transition: 'opacity 0.2s'
+        }}
+        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+        onMouseLeave={(e) => e.target.style.opacity = '1'}
+      >
+        ← BACK TO SOUNDS
+      </button>
+
+      <div style={{
+        fontSize: '24px',
+        fontWeight: '300',
+        letterSpacing: '0.15em',
+        marginBottom: '40px',
+        color: dark ? '#fff' : '#000'
+      }}>
+        GRIDSEQ
+      </div>
+
+      {/* Controls */}
+      <div style={{
+        display: 'flex',
+        gap: '20px',
+        marginBottom: '40px',
+        flexWrap: 'wrap',
+        alignItems: 'center'
+      }}>
+        <button
+          onClick={handlePlayPause}
+          style={{
+            fontSize: '11px',
+            letterSpacing: '0.1em',
+            padding: '12px 24px',
+            background: isPlaying ? (dark ? '#fff' : '#000') : 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: 'pointer',
+            color: isPlaying ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+            transition: 'all 0.2s'
+          }}
+        >
+          {isPlaying ? 'STOP' : 'PLAY'}
+        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <label style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666'
+          }}>
+            BPM
+          </label>
+          <input
+            type="number"
+            value={bpm}
+            onChange={(e) => setBpm(Math.max(60, Math.min(200, parseInt(e.target.value) || 120)))}
+            style={{
+              width: '70px',
+              fontSize: '12px',
+              padding: '8px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              color: dark ? '#fff' : '#000',
+              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+            }}
+          />
+        </div>
+
+        <button
+          onClick={clearPattern}
+          style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            padding: '10px 20px',
+            background: 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: 'pointer',
+            color: dark ? '#fff' : '#000',
+            transition: 'border-color 0.2s'
+          }}
+          onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+          onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+        >
+          CLEAR
+        </button>
+
+        <button
+          onClick={exportPattern}
+          style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            padding: '10px 20px',
+            background: 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: 'pointer',
+            color: dark ? '#fff' : '#000',
+            transition: 'border-color 0.2s'
+          }}
+          onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+          onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+        >
+          EXPORT PATTERN
+        </button>
+      </div>
+
+      {/* Sequencer Grid */}
+      <div style={{ 
+        overflowX: 'auto',
+        paddingBottom: '20px'
+      }}>
+        <div style={{ 
+          display: 'inline-block',
+          minWidth: '100%'
+        }}>
+          {/* Track names */}
+          <div style={{ 
+            display: 'flex',
+            marginBottom: '12px'
+          }}>
+            <div style={{ width: '80px' }} />
+            {Array(16).fill(0).map((_, i) => (
+              <div
+                key={i}
+                style={{
+                  width: '32px',
+                  height: '20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '9px',
+                  color: dark ? '#666' : '#999',
+                  marginRight: '4px'
+                }}
+              >
+                {(i + 1).toString().padStart(2, '0')}
+              </div>
+            ))}
+          </div>
+
+          {/* Tracks */}
+          {tracks.map((track, trackIndex) => (
+            <div key={trackIndex} style={{ 
+              display: 'flex',
+              marginBottom: '8px',
+              alignItems: 'center'
+            }}>
+              <div style={{
+                width: '80px',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                color: dark ? '#999' : '#666',
+                paddingRight: '12px'
+              }}>
+                {track.name}
+              </div>
+              {Array(16).fill(0).map((_, step) => (
+                <button
+                  key={step}
+                  onClick={() => toggleCell(trackIndex, step)}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    background: pattern[trackIndex][step] 
+                      ? (dark ? '#fff' : '#000')
+                      : 'none',
+                    border: `1px solid ${
+                      currentStep === step 
+                        ? (dark ? '#666' : '#999')
+                        : (dark ? '#1a1a1a' : '#f5f5f5')
+                    }`,
+                    cursor: 'pointer',
+                    marginRight: '4px',
+                    transition: 'all 0.1s',
+                    padding: 0
+                  }}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{
+        marginTop: '40px',
+        fontSize: '10px',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999',
+        lineHeight: '1.6'
+      }}>
+        CLICK CELLS TO BUILD YOUR PATTERN • ADJUST BPM • EXPORT TO SAVE
       </div>
     </div>
   );
