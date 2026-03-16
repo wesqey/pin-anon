@@ -3704,7 +3704,7 @@ function SoundsStudio({ onBack, dark }) {
       id: 'pulsewave',
       name: 'PULSEWAVE',
       description: 'MONOPHONIC SYNTHESIZER',
-      status: 'COMING SOON'
+      status: 'READY'
     },
     {
       id: 'tapegrid',
@@ -3716,6 +3716,10 @@ function SoundsStudio({ onBack, dark }) {
 
   if (activeInstrument === 'gridseq') {
     return <GridSeq onBack={() => setActiveInstrument(null)} dark={dark} />;
+  }
+
+  if (activeInstrument === 'pulsewave') {
+    return <PulseWave onBack={() => setActiveInstrument(null)} dark={dark} />;
   }
 
   return (
@@ -3804,6 +3808,465 @@ function SoundsStudio({ onBack, dark }) {
             </div>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function PulseWave({ onBack, dark }) {
+  const [oscType, setOscType] = useState('sine');
+  const [attack, setAttack] = useState(0.01);
+  const [decay, setDecay] = useState(0.1);
+  const [sustain, setSustain] = useState(0.7);
+  const [release, setRelease] = useState(0.3);
+  const [filterType, setFilterType] = useState('lowpass');
+  const [filterFreq, setFilterFreq] = useState(2000);
+  const [filterQ, setFilterQ] = useState(1);
+  const [volume, setVolume] = useState(0.3);
+  const [activeNote, setActiveNote] = useState(null);
+
+  const audioContextRef = React.useRef(null);
+  const oscillatorRef = React.useRef(null);
+  const gainNodeRef = React.useRef(null);
+  const filterNodeRef = React.useRef(null);
+
+  // Note frequencies (C4 to C5)
+  const notes = [
+    { name: 'C', freq: 261.63, isBlack: false },
+    { name: 'C#', freq: 277.18, isBlack: true },
+    { name: 'D', freq: 293.66, isBlack: false },
+    { name: 'D#', freq: 311.13, isBlack: true },
+    { name: 'E', freq: 329.63, isBlack: false },
+    { name: 'F', freq: 349.23, isBlack: false },
+    { name: 'F#', freq: 369.99, isBlack: true },
+    { name: 'G', freq: 392.00, isBlack: false },
+    { name: 'G#', freq: 415.30, isBlack: true },
+    { name: 'A', freq: 440.00, isBlack: false },
+    { name: 'A#', freq: 466.16, isBlack: true },
+    { name: 'B', freq: 493.88, isBlack: false },
+    { name: 'C', freq: 523.25, isBlack: false }
+  ];
+
+  React.useEffect(() => {
+    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    return () => {
+      if (oscillatorRef.current) {
+        try {
+          oscillatorRef.current.stop();
+        } catch (e) {}
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
+
+  const playNote = (freq) => {
+    const ctx = audioContextRef.current;
+    if (!ctx) return;
+
+    // Stop previous note
+    if (oscillatorRef.current) {
+      try {
+        oscillatorRef.current.stop();
+      } catch (e) {}
+    }
+
+    const now = ctx.currentTime;
+
+    // Create oscillator
+    const osc = ctx.createOscillator();
+    osc.type = oscType;
+    osc.frequency.setValueAtTime(freq, now);
+
+    // Create gain envelope
+    const gainNode = ctx.createGain();
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(volume, now + attack);
+    gainNode.gain.linearRampToValueAtTime(volume * sustain, now + attack + decay);
+
+    // Create filter
+    const filter = ctx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.setValueAtTime(filterFreq, now);
+    filter.Q.setValueAtTime(filterQ, now);
+
+    // Connect: osc → filter → gain → destination
+    osc.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    osc.start(now);
+
+    oscillatorRef.current = osc;
+    gainNodeRef.current = gainNode;
+    filterNodeRef.current = filter;
+  };
+
+  const stopNote = () => {
+    if (!oscillatorRef.current || !gainNodeRef.current) return;
+
+    const ctx = audioContextRef.current;
+    const now = ctx.currentTime;
+
+    // Release envelope
+    gainNodeRef.current.gain.cancelScheduledValues(now);
+    gainNodeRef.current.gain.setValueAtTime(gainNodeRef.current.gain.value, now);
+    gainNodeRef.current.gain.linearRampToValueAtTime(0, now + release);
+
+    setTimeout(() => {
+      if (oscillatorRef.current) {
+        try {
+          oscillatorRef.current.stop();
+        } catch (e) {}
+        oscillatorRef.current = null;
+      }
+    }, release * 1000 + 100);
+  };
+
+  const handleNoteDown = (note) => {
+    setActiveNote(note.name);
+    playNote(note.freq);
+  };
+
+  const handleNoteUp = () => {
+    setActiveNote(null);
+    stopNote();
+  };
+
+  const exportSettings = () => {
+    const settings = {
+      oscType,
+      envelope: { attack, decay, sustain, release },
+      filter: { type: filterType, frequency: filterFreq, q: filterQ },
+      volume
+    };
+    const data = JSON.stringify(settings, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pulsewave-preset-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        style={{
+          fontSize: '10px',
+          letterSpacing: '0.15em',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: dark ? '#999' : '#666',
+          marginBottom: '40px',
+          transition: 'opacity 0.2s'
+        }}
+        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+        onMouseLeave={(e) => e.target.style.opacity = '1'}
+      >
+        ← BACK TO SOUNDS
+      </button>
+
+      <div style={{
+        fontSize: '24px',
+        fontWeight: '300',
+        letterSpacing: '0.15em',
+        marginBottom: '40px',
+        color: dark ? '#fff' : '#000'
+      }}>
+        PULSEWAVE
+      </div>
+
+      {/* Controls */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+        gap: '30px',
+        marginBottom: '40px'
+      }}>
+        {/* Oscillator */}
+        <div>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            OSCILLATOR
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {['sine', 'square', 'sawtooth', 'triangle'].map(type => (
+              <button
+                key={type}
+                onClick={() => setOscType(type)}
+                style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.1em',
+                  padding: '8px 12px',
+                  background: oscType === type ? (dark ? '#fff' : '#000') : 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: oscType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+                  transition: 'all 0.2s',
+                  textTransform: 'uppercase'
+                }}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Envelope */}
+        <div>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            ENVELOPE (ADSR)
+          </div>
+          {[
+            { label: 'ATTACK', value: attack, set: setAttack, min: 0, max: 2, step: 0.01 },
+            { label: 'DECAY', value: decay, set: setDecay, min: 0, max: 2, step: 0.01 },
+            { label: 'SUSTAIN', value: sustain, set: setSustain, min: 0, max: 1, step: 0.01 },
+            { label: 'RELEASE', value: release, set: setRelease, min: 0, max: 3, step: 0.01 }
+          ].map(param => (
+            <div key={param.label} style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '8px',
+                letterSpacing: '0.1em',
+                color: dark ? '#666' : '#999',
+                marginBottom: '4px'
+              }}>
+                {param.label}: {param.value.toFixed(2)}
+              </div>
+              <input
+                type="range"
+                min={param.min}
+                max={param.max}
+                step={param.step}
+                value={param.value}
+                onChange={(e) => param.set(parseFloat(e.target.value))}
+                style={{ width: '100%' }}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Filter */}
+        <div>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            FILTER
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+            {['lowpass', 'highpass', 'bandpass'].map(type => (
+              <button
+                key={type}
+                onClick={() => setFilterType(type)}
+                style={{
+                  fontSize: '8px',
+                  letterSpacing: '0.1em',
+                  padding: '6px 10px',
+                  background: filterType === type ? (dark ? '#fff' : '#000') : 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: filterType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+                  transition: 'all 0.2s',
+                  textTransform: 'uppercase'
+                }}
+              >
+                {type.slice(0, 2)}
+              </button>
+            ))}
+          </div>
+          <div style={{ marginBottom: '8px' }}>
+            <div style={{
+              fontSize: '8px',
+              letterSpacing: '0.1em',
+              color: dark ? '#666' : '#999',
+              marginBottom: '4px'
+            }}>
+              CUTOFF: {filterFreq}Hz
+            </div>
+            <input
+              type="range"
+              min="20"
+              max="20000"
+              step="10"
+              value={filterFreq}
+              onChange={(e) => setFilterFreq(parseInt(e.target.value))}
+              style={{ width: '100%' }}
+            />
+          </div>
+          <div>
+            <div style={{
+              fontSize: '8px',
+              letterSpacing: '0.1em',
+              color: dark ? '#666' : '#999',
+              marginBottom: '4px'
+            }}>
+              RESONANCE: {filterQ.toFixed(1)}
+            </div>
+            <input
+              type="range"
+              min="0.1"
+              max="30"
+              step="0.1"
+              value={filterQ}
+              onChange={(e) => setFilterQ(parseFloat(e.target.value))}
+              style={{ width: '100%' }}
+            />
+          </div>
+        </div>
+
+        {/* Output */}
+        <div>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            OUTPUT
+          </div>
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{
+              fontSize: '8px',
+              letterSpacing: '0.1em',
+              color: dark ? '#666' : '#999',
+              marginBottom: '4px'
+            }}>
+              VOLUME: {(volume * 100).toFixed(0)}%
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              style={{ width: '100%' }}
+            />
+          </div>
+          <button
+            onClick={exportSettings}
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              padding: '8px 16px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: dark ? '#fff' : '#000',
+              transition: 'border-color 0.2s',
+              width: '100%'
+            }}
+            onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+            onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+          >
+            EXPORT PRESET
+          </button>
+        </div>
+      </div>
+
+      {/* Keyboard */}
+      <div style={{
+        marginTop: '60px',
+        marginBottom: '20px'
+      }}>
+        <div style={{
+          fontSize: '10px',
+          letterSpacing: '0.1em',
+          color: dark ? '#999' : '#666',
+          marginBottom: '20px'
+        }}>
+          KEYBOARD (C4 - C5)
+        </div>
+        
+        <div style={{
+          display: 'flex',
+          position: 'relative',
+          height: '180px',
+          userSelect: 'none'
+        }}>
+          {/* White keys */}
+          {notes.filter(n => !n.isBlack).map((note, i) => (
+            <button
+              key={note.name + i}
+              onMouseDown={() => handleNoteDown(note)}
+              onMouseUp={handleNoteUp}
+              onMouseLeave={handleNoteUp}
+              onTouchStart={(e) => { e.preventDefault(); handleNoteDown(note); }}
+              onTouchEnd={(e) => { e.preventDefault(); handleNoteUp(); }}
+              style={{
+                flex: 1,
+                background: activeNote === note.name ? (dark ? '#999' : '#ccc') : (dark ? '#fff' : '#fff'),
+                border: `1px solid ${dark ? '#000' : '#000'}`,
+                cursor: 'pointer',
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'flex-end',
+                justifyContent: 'center',
+                paddingBottom: '12px',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                color: '#000',
+                transition: 'background 0.05s'
+              }}
+            >
+              {note.name}
+            </button>
+          ))}
+
+          {/* Black keys */}
+          {notes.filter(n => n.isBlack).map((note, i) => {
+            const whiteKeyIndex = notes.filter(n => !n.isBlack && notes.indexOf(n) < notes.indexOf(note)).length;
+            const offset = whiteKeyIndex * (100 / 8) - 2.5;
+            
+            return (
+              <button
+                key={note.name + i}
+                onMouseDown={() => handleNoteDown(note)}
+                onMouseUp={handleNoteUp}
+                onMouseLeave={handleNoteUp}
+                onTouchStart={(e) => { e.preventDefault(); handleNoteDown(note); }}
+                onTouchEnd={(e) => { e.preventDefault(); handleNoteUp(); }}
+                style={{
+                  position: 'absolute',
+                  left: `${offset}%`,
+                  width: '5%',
+                  height: '60%',
+                  background: activeNote === note.name ? (dark ? '#333' : '#555') : (dark ? '#000' : '#000'),
+                  border: `1px solid ${dark ? '#fff' : '#fff'}`,
+                  cursor: 'pointer',
+                  zIndex: 10,
+                  transition: 'background 0.05s'
+                }}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{
+        marginTop: '40px',
+        fontSize: '10px',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999',
+        lineHeight: '1.6'
+      }}>
+        CLICK AND HOLD KEYS TO PLAY • ADJUST OSCILLATOR, ENVELOPE, AND FILTER • EXPORT PRESET
       </div>
     </div>
   );
