@@ -3750,7 +3750,11 @@ function Sandbox({ onBack, dark }) {
           }
         : {
             bpm: 120,
-            pattern: Array(8).fill(null).map(() => Array(16).fill(false))
+            pattern: Array(8).fill(null).map(() => Array(16).fill(false)),
+            kickPreset: 0,
+            snarePreset: 0,
+            hatPreset: 0,
+            percPreset: 0
           };
       
       setInstrumentParams(new Map(instrumentParams.set(nextId, defaultParams)));
@@ -4352,42 +4356,70 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
   const [currentStep, setCurrentStep] = useState(-1);
   const intervalRef = React.useRef(null);
 
+  const trackPresets = {
+    kick: [
+      { name: 'DEEP', freq: 120, decay: 0.6, type: 'sine' },
+      { name: 'PUNCH', freq: 150, decay: 0.4, type: 'sine' },
+      { name: '808', freq: 100, decay: 0.8, type: 'sine' },
+      { name: 'SUB', freq: 80, decay: 0.5, type: 'sine' },
+      { name: 'TIGHT', freq: 180, decay: 0.3, type: 'sine' }
+    ],
+    snare: [
+      { name: 'CLASSIC', freq: 200, decay: 0.2, type: 'triangle' },
+      { name: 'CRISP', freq: 250, decay: 0.15, type: 'triangle' },
+      { name: 'RIM', freq: 300, decay: 0.1, type: 'square' },
+      { name: 'CLAP', freq: 400, decay: 0.15, type: 'triangle' },
+      { name: 'POP', freq: 350, decay: 0.12, type: 'square' }
+    ],
+    hat: [
+      { name: 'CLOSED', freq: 8000, decay: 0.05, type: 'square' },
+      { name: 'OPEN', freq: 10000, decay: 0.15, type: 'square' },
+      { name: 'SHAKER', freq: 12000, decay: 0.08, type: 'square' },
+      { name: 'RIDE', freq: 6000, decay: 0.2, type: 'square' },
+      { name: 'BELL', freq: 5000, decay: 0.3, type: 'sine' }
+    ],
+    perc: [
+      { name: 'TOM', freq: 180, decay: 0.4, type: 'sine' },
+      { name: 'CONGA', freq: 220, decay: 0.3, type: 'sine' },
+      { name: 'COWBELL', freq: 800, decay: 0.15, type: 'square' },
+      { name: 'WOODBLOCK', freq: 1200, decay: 0.08, type: 'square' },
+      { name: 'CLICK', freq: 2000, decay: 0.05, type: 'square' }
+    ]
+  };
+
   const tracks = [
-    { name: 'KICK', freq: 150, decay: 0.5 },
-    { name: 'SNARE', freq: 200, decay: 0.2 },
-    { name: 'CLAP', freq: 400, decay: 0.15 },
-    { name: 'HAT', freq: 8000, decay: 0.05 }
+    { name: 'KICK', type: 'kick', preset: params?.kickPreset || 0 },
+    { name: 'SNARE', type: 'snare', preset: params?.snarePreset || 0 },
+    { name: 'HAT', type: 'hat', preset: params?.hatPreset || 0 },
+    { name: 'PERC', type: 'perc', preset: params?.percPreset || 0 }
   ];
 
   const playSound = (trackIndex) => {
     if (!audioContext) return;
 
     const track = tracks[trackIndex];
+    const preset = trackPresets[track.type][track.preset];
     const now = audioContext.currentTime;
 
     const osc = audioContext.createOscillator();
     const gain = audioContext.createGain();
 
+    osc.type = preset.type;
     osc.connect(gain);
     gain.connect(audioContext.destination);
 
-    if (trackIndex === 0) {
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(track.freq, now);
+    if (track.type === 'kick') {
+      osc.frequency.setValueAtTime(preset.freq, now);
       osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
-    } else if (trackIndex === 1 || trackIndex === 2) {
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(track.freq, now);
     } else {
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(track.freq, now);
+      osc.frequency.setValueAtTime(preset.freq, now);
     }
 
     gain.gain.setValueAtTime(0.3, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + track.decay);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + preset.decay);
 
     osc.start(now);
-    osc.stop(now + track.decay);
+    osc.stop(now + preset.decay);
   };
 
   const toggleCell = (trackIndex, step) => {
@@ -4398,9 +4430,19 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
     );
     onParamChange('pattern', newPattern);
     
+    // Always play sound when activating a cell (whether playing or not)
     if (!params.pattern[trackIndex][step]) {
       playSound(trackIndex);
     }
+  };
+
+  const changePreset = (trackIndex, presetIndex) => {
+    const track = tracks[trackIndex];
+    const paramName = `${track.type}Preset`;
+    onParamChange(paramName, presetIndex);
+    
+    // Preview the sound when changing preset
+    playSound(trackIndex);
   };
 
   const handlePlayPause = () => {
@@ -4436,7 +4478,7 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
   }, []);
 
   return (
-    <div style={{ width: '500px' }}>
+    <div style={{ width: '600px' }}>
       {/* Controls */}
       <div style={{
         display: 'flex',
@@ -4477,42 +4519,91 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
         />
       </div>
 
-      {/* Grid */}
+      {/* Grid with preset selectors */}
       <div>
         {tracks.map((track, trackIndex) => (
-          <div key={trackIndex} style={{ display: 'flex', marginBottom: '4px', alignItems: 'center' }}>
-            <div style={{
-              width: '50px',
-              fontSize: '8px',
-              letterSpacing: '0.1em',
-              color: dark ? '#999' : '#666',
-              paddingRight: '8px'
-            }}>
-              {track.name}
+          <div key={trackIndex} style={{ marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+              <div style={{
+                width: '50px',
+                fontSize: '8px',
+                letterSpacing: '0.1em',
+                color: dark ? '#999' : '#666',
+                paddingRight: '8px'
+              }}>
+                {track.name}
+              </div>
+              
+              {/* Preset selector */}
+              <div style={{ display: 'flex', gap: '4px', marginRight: '12px' }}>
+                {trackPresets[track.type].map((preset, presetIndex) => (
+                  <button
+                    key={presetIndex}
+                    onClick={() => changePreset(trackIndex, presetIndex)}
+                    style={{
+                      fontSize: '7px',
+                      letterSpacing: '0.05em',
+                      padding: '4px 6px',
+                      background: track.preset === presetIndex ? (dark ? '#666' : '#999') : 'none',
+                      border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                      cursor: 'pointer',
+                      color: track.preset === presetIndex ? (dark ? '#fff' : '#fff') : (dark ? '#666' : '#999'),
+                      transition: 'all 0.1s'
+                    }}
+                    title={preset.name}
+                  >
+                    {presetIndex + 1}
+                  </button>
+                ))}
+              </div>
+              
+              <div style={{
+                fontSize: '7px',
+                letterSpacing: '0.05em',
+                color: dark ? '#666' : '#999',
+                width: '80px'
+              }}>
+                {trackPresets[track.type][track.preset].name}
+              </div>
             </div>
-            {Array(16).fill(0).map((_, step) => (
-              <button
-                key={step}
-                onClick={() => toggleCell(trackIndex, step)}
-                style={{
-                  width: '24px',
-                  height: '24px',
-                  background: params?.pattern[trackIndex][step] 
-                    ? (dark ? '#fff' : '#000')
-                    : 'none',
-                  border: `1px solid ${
-                    currentStep === step 
-                      ? (dark ? '#666' : '#999')
-                      : (dark ? '#1a1a1a' : '#f5f5f5')
-                  }`,
-                  cursor: 'pointer',
-                  marginRight: '2px',
-                  padding: 0
-                }}
-              />
-            ))}
+            
+            {/* Step grid */}
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <div style={{ width: '50px' }} />
+              {Array(16).fill(0).map((_, step) => (
+                <button
+                  key={step}
+                  onClick={() => toggleCell(trackIndex, step)}
+                  style={{
+                    width: '24px',
+                    height: '24px',
+                    background: params?.pattern[trackIndex][step] 
+                      ? (dark ? '#fff' : '#000')
+                      : 'none',
+                    border: `1px solid ${
+                      currentStep === step 
+                        ? (dark ? '#666' : '#999')
+                        : (dark ? '#1a1a1a' : '#f5f5f5')
+                    }`,
+                    cursor: 'pointer',
+                    marginRight: '2px',
+                    padding: 0,
+                    transition: 'all 0.05s'
+                  }}
+                />
+              ))}
+            </div>
           </div>
         ))}
+      </div>
+
+      <div style={{
+        marginTop: '12px',
+        fontSize: '8px',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999'
+      }}>
+        CLICK NUMBERS TO CHANGE SOUND • CLICK GRID TO TRIGGER (LIVE OR STOPPED)
       </div>
     </div>
   );
