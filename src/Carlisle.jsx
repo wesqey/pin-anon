@@ -3824,31 +3824,64 @@ function PulseWave({ onBack, dark }) {
   const [filterQ, setFilterQ] = useState(1);
   const [volume, setVolume] = useState(0.3);
   const [activeNote, setActiveNote] = useState(null);
+  const [activeKeys, setActiveKeys] = useState(new Set());
 
   const audioContextRef = React.useRef(null);
   const oscillatorRef = React.useRef(null);
   const gainNodeRef = React.useRef(null);
   const filterNodeRef = React.useRef(null);
+  const currentNoteRef = React.useRef(null);
 
   // Note frequencies (C4 to C5)
   const notes = [
-    { name: 'C', freq: 261.63, isBlack: false },
-    { name: 'C#', freq: 277.18, isBlack: true },
-    { name: 'D', freq: 293.66, isBlack: false },
-    { name: 'D#', freq: 311.13, isBlack: true },
-    { name: 'E', freq: 329.63, isBlack: false },
-    { name: 'F', freq: 349.23, isBlack: false },
-    { name: 'F#', freq: 369.99, isBlack: true },
-    { name: 'G', freq: 392.00, isBlack: false },
-    { name: 'G#', freq: 415.30, isBlack: true },
-    { name: 'A', freq: 440.00, isBlack: false },
-    { name: 'A#', freq: 466.16, isBlack: true },
-    { name: 'B', freq: 493.88, isBlack: false },
-    { name: 'C', freq: 523.25, isBlack: false }
+    { name: 'C', freq: 261.63, isBlack: false, key: 'a' },
+    { name: 'C#', freq: 277.18, isBlack: true, key: 'w' },
+    { name: 'D', freq: 293.66, isBlack: false, key: 's' },
+    { name: 'D#', freq: 311.13, isBlack: true, key: 'e' },
+    { name: 'E', freq: 329.63, isBlack: false, key: 'd' },
+    { name: 'F', freq: 349.23, isBlack: false, key: 'f' },
+    { name: 'F#', freq: 369.99, isBlack: true, key: 't' },
+    { name: 'G', freq: 392.00, isBlack: false, key: 'g' },
+    { name: 'G#', freq: 415.30, isBlack: true, key: 'y' },
+    { name: 'A', freq: 440.00, isBlack: false, key: 'h' },
+    { name: 'A#', freq: 466.16, isBlack: true, key: 'u' },
+    { name: 'B', freq: 493.88, isBlack: false, key: 'j' },
+    { name: 'C', freq: 523.25, isBlack: false, key: 'k' }
   ];
 
   React.useEffect(() => {
     audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Keyboard event listeners
+    const handleKeyDown = (e) => {
+      const key = e.key.toLowerCase();
+      if (activeKeys.has(key)) return; // Prevent repeat
+      
+      const note = notes.find(n => n.key === key);
+      if (note) {
+        e.preventDefault();
+        setActiveKeys(prev => new Set(prev).add(key));
+        handleNoteDown(note);
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      const key = e.key.toLowerCase();
+      const note = notes.find(n => n.key === key);
+      if (note) {
+        e.preventDefault();
+        setActiveKeys(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(key);
+          return newSet;
+        });
+        handleNoteUp();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
     return () => {
       if (oscillatorRef.current) {
         try {
@@ -3858,17 +3891,38 @@ function PulseWave({ onBack, dark }) {
       if (audioContextRef.current) {
         audioContextRef.current.close();
       }
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []);
+  }, [activeKeys]);
 
-  const playNote = (freq) => {
+  const playNote = (freq, noteName) => {
     const ctx = audioContextRef.current;
     if (!ctx) return;
+
+    // Resume audio context if suspended (required for some browsers)
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
 
     // Stop previous note
     if (oscillatorRef.current) {
       try {
-        oscillatorRef.current.stop();
+        const oldGain = gainNodeRef.current;
+        const oldOsc = oscillatorRef.current;
+        
+        // Quick fade out
+        if (oldGain) {
+          oldGain.gain.cancelScheduledValues(ctx.currentTime);
+          oldGain.gain.setValueAtTime(oldGain.gain.value, ctx.currentTime);
+          oldGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.01);
+        }
+        
+        setTimeout(() => {
+          try {
+            oldOsc.stop();
+          } catch (e) {}
+        }, 20);
       } catch (e) {}
     }
 
@@ -3901,6 +3955,7 @@ function PulseWave({ onBack, dark }) {
     oscillatorRef.current = osc;
     gainNodeRef.current = gainNode;
     filterNodeRef.current = filter;
+    currentNoteRef.current = noteName;
   };
 
   const stopNote = () => {
@@ -3910,23 +3965,27 @@ function PulseWave({ onBack, dark }) {
     const now = ctx.currentTime;
 
     // Release envelope
-    gainNodeRef.current.gain.cancelScheduledValues(now);
-    gainNodeRef.current.gain.setValueAtTime(gainNodeRef.current.gain.value, now);
-    gainNodeRef.current.gain.linearRampToValueAtTime(0, now + release);
+    try {
+      gainNodeRef.current.gain.cancelScheduledValues(now);
+      gainNodeRef.current.gain.setValueAtTime(gainNodeRef.current.gain.value, now);
+      gainNodeRef.current.gain.linearRampToValueAtTime(0, now + release);
+    } catch (e) {}
 
+    const oscToStop = oscillatorRef.current;
     setTimeout(() => {
-      if (oscillatorRef.current) {
-        try {
-          oscillatorRef.current.stop();
-        } catch (e) {}
-        oscillatorRef.current = null;
-      }
+      try {
+        oscToStop.stop();
+      } catch (e) {}
     }, release * 1000 + 100);
+
+    oscillatorRef.current = null;
+    gainNodeRef.current = null;
+    currentNoteRef.current = null;
   };
 
   const handleNoteDown = (note) => {
     setActiveNote(note.name);
-    playNote(note.freq);
+    playNote(note.freq, note.name);
   };
 
   const handleNoteUp = () => {
@@ -4191,7 +4250,7 @@ function PulseWave({ onBack, dark }) {
           color: dark ? '#999' : '#666',
           marginBottom: '20px'
         }}>
-          KEYBOARD (C4 - C5)
+          KEYBOARD (C4 - C5) • USE COMPUTER KEYS: A W S E D F T G Y H U J K
         </div>
         
         <div style={{
@@ -4203,28 +4262,38 @@ function PulseWave({ onBack, dark }) {
           {/* White keys */}
           {notes.filter(n => !n.isBlack).map((note, i) => (
             <button
-              key={note.name + i}
-              onMouseDown={() => handleNoteDown(note)}
-              onMouseUp={handleNoteUp}
-              onMouseLeave={handleNoteUp}
-              onTouchStart={(e) => { e.preventDefault(); handleNoteDown(note); }}
-              onTouchEnd={(e) => { e.preventDefault(); handleNoteUp(); }}
+              key={note.name + i + note.freq}
+              onPointerDown={(e) => { e.preventDefault(); handleNoteDown(note); }}
+              onPointerUp={(e) => { e.preventDefault(); handleNoteUp(); }}
+              onPointerLeave={(e) => { 
+                if (e.buttons === 1) { // Only if mouse button is pressed
+                  e.preventDefault(); 
+                  handleNoteUp(); 
+                }
+              }}
               style={{
                 flex: 1,
-                background: activeNote === note.name ? (dark ? '#999' : '#ccc') : (dark ? '#fff' : '#fff'),
+                background: (activeNote === note.name || activeKeys.has(note.key)) 
+                  ? (dark ? '#999' : '#ccc') 
+                  : (dark ? '#fff' : '#fff'),
                 border: `1px solid ${dark ? '#000' : '#000'}`,
                 cursor: 'pointer',
                 position: 'relative',
                 display: 'flex',
-                alignItems: 'flex-end',
-                justifyContent: 'center',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
                 paddingBottom: '12px',
                 fontSize: '10px',
                 letterSpacing: '0.1em',
                 color: '#000',
-                transition: 'background 0.05s'
+                transition: 'background 0.05s',
+                touchAction: 'none'
               }}
             >
+              <div style={{ fontSize: '8px', color: '#666', marginBottom: '4px' }}>
+                {note.key.toUpperCase()}
+              </div>
               {note.name}
             </button>
           ))}
@@ -4236,24 +4305,39 @@ function PulseWave({ onBack, dark }) {
             
             return (
               <button
-                key={note.name + i}
-                onMouseDown={() => handleNoteDown(note)}
-                onMouseUp={handleNoteUp}
-                onMouseLeave={handleNoteUp}
-                onTouchStart={(e) => { e.preventDefault(); handleNoteDown(note); }}
-                onTouchEnd={(e) => { e.preventDefault(); handleNoteUp(); }}
+                key={note.name + i + note.freq}
+                onPointerDown={(e) => { e.preventDefault(); handleNoteDown(note); }}
+                onPointerUp={(e) => { e.preventDefault(); handleNoteUp(); }}
+                onPointerLeave={(e) => { 
+                  if (e.buttons === 1) {
+                    e.preventDefault(); 
+                    handleNoteUp(); 
+                  }
+                }}
                 style={{
                   position: 'absolute',
                   left: `${offset}%`,
                   width: '5%',
                   height: '60%',
-                  background: activeNote === note.name ? (dark ? '#333' : '#555') : (dark ? '#000' : '#000'),
+                  background: (activeNote === note.name || activeKeys.has(note.key))
+                    ? (dark ? '#333' : '#555') 
+                    : (dark ? '#000' : '#000'),
                   border: `1px solid ${dark ? '#fff' : '#fff'}`,
                   cursor: 'pointer',
                   zIndex: 10,
-                  transition: 'background 0.05s'
+                  transition: 'background 0.05s',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'center',
+                  paddingTop: '8px',
+                  fontSize: '7px',
+                  color: '#fff',
+                  letterSpacing: '0.1em',
+                  touchAction: 'none'
                 }}
-              />
+              >
+                {note.key.toUpperCase()}
+              </button>
             );
           })}
         </div>
@@ -4266,7 +4350,7 @@ function PulseWave({ onBack, dark }) {
         color: dark ? '#666' : '#999',
         lineHeight: '1.6'
       }}>
-        CLICK AND HOLD KEYS TO PLAY • ADJUST OSCILLATOR, ENVELOPE, AND FILTER • EXPORT PRESET
+        CLICK/HOLD KEYS OR USE COMPUTER KEYBOARD • ADJUST PARAMETERS IN REAL-TIME • EXPORT PRESET
       </div>
     </div>
   );
