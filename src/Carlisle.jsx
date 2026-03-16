@@ -3695,10 +3695,32 @@ function Sandbox({ onBack, dark }) {
   const [nextId, setNextId] = useState(1);
   const [dragging, setDragging] = useState(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [focusedInstrument, setFocusedInstrument] = useState(null);
+  const [instrumentParams, setInstrumentParams] = useState(new Map());
+  const audioContextRef = React.useRef(null);
+
+  React.useEffect(() => {
+    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
 
   const availableModules = [
-    { type: 'gridseq', name: 'GRIDSEQ', description: 'DRUM SEQUENCER' },
-    { type: 'pulsewave', name: 'PULSEWAVE', description: 'SYNTHESIZER' }
+    { category: 'INSTRUMENTS', items: [
+      { type: 'pulsewave', name: 'PULSEWAVE', description: 'KEYBOARD SYNTH' },
+      { type: 'gridseq', name: 'GRIDSEQ', description: 'DRUM SEQUENCER' }
+    ]},
+    { category: 'CONTROL BOARDS', items: [
+      { type: 'oscillator', name: 'OSCILLATOR', description: 'WAVE TYPE' },
+      { type: 'envelope', name: 'ENVELOPE', description: 'ADSR CONTROLS' },
+      { type: 'filter', name: 'FILTER', description: 'FILTER SECTION' }
+    ]},
+    { category: 'VISUALS', items: [
+      { type: 'oscilloscope', name: 'OSCILLOSCOPE', description: 'WAVEFORM DISPLAY' }
+    ]}
   ];
 
   const addWindow = (type) => {
@@ -3710,6 +3732,33 @@ function Sandbox({ onBack, dark }) {
       minimized: false,
       zIndex: nextId
     };
+
+    // If adding an instrument, initialize its parameters
+    if (type === 'pulsewave' || type === 'gridseq') {
+      const defaultParams = type === 'pulsewave' 
+        ? {
+            oscType: 'sine',
+            attack: 0.01,
+            decay: 0.1,
+            sustain: 0.7,
+            release: 0.3,
+            filterType: 'lowpass',
+            filterFreq: 2000,
+            filterQ: 1,
+            volume: 0.3,
+            octave: 4
+          }
+        : {
+            bpm: 120,
+            pattern: Array(8).fill(null).map(() => Array(16).fill(false))
+          };
+      
+      setInstrumentParams(new Map(instrumentParams.set(nextId, defaultParams)));
+      
+      // Auto-focus new instruments
+      setFocusedInstrument(nextId);
+    }
+
     setWindows([...windows, newWindow]);
     setNextId(nextId + 1);
     setShowAddMenu(false);
@@ -3717,6 +3766,11 @@ function Sandbox({ onBack, dark }) {
 
   const removeWindow = (id) => {
     setWindows(windows.filter(w => w.id !== id));
+    if (focusedInstrument === id) {
+      setFocusedInstrument(null);
+    }
+    instrumentParams.delete(id);
+    setInstrumentParams(new Map(instrumentParams));
   };
 
   const toggleMinimize = (id) => {
@@ -3732,8 +3786,28 @@ function Sandbox({ onBack, dark }) {
     ));
   };
 
+  const focusInstrument = (id) => {
+    const window = windows.find(w => w.id === id);
+    if (window && (window.type === 'pulsewave' || window.type === 'gridseq')) {
+      setFocusedInstrument(id);
+      bringToFront(id);
+    }
+  };
+
+  const updateInstrumentParam = (param, value) => {
+    if (!focusedInstrument) return;
+    
+    const params = instrumentParams.get(focusedInstrument);
+    if (params) {
+      setInstrumentParams(new Map(instrumentParams.set(focusedInstrument, {
+        ...params,
+        [param]: value
+      })));
+    }
+  };
+
   const handleDragStart = (e, id) => {
-    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'CANVAS') return;
     
     const window = windows.find(w => w.id === id);
     setDragging({
@@ -3848,34 +3922,47 @@ function Sandbox({ onBack, dark }) {
                 zIndex: 1000,
                 boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
               }}>
-                {availableModules.map(module => (
-                  <button
-                    key={module.type}
-                    onClick={() => addWindow(module.type)}
-                    style={{
-                      width: '100%',
-                      fontSize: '11px',
-                      letterSpacing: '0.05em',
-                      color: dark ? '#fff' : '#000',
-                      background: 'none',
-                      border: 'none',
-                      borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      padding: '16px',
-                      transition: 'background-color 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.target.style.backgroundColor = dark ? '#0a0a0a' : '#fafafa'}
-                    onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-                  >
-                    <div style={{ marginBottom: '4px' }}>{module.name}</div>
+                {availableModules.map(category => (
+                  <div key={category.category}>
                     <div style={{
-                      fontSize: '9px',
-                      color: dark ? '#666' : '#999'
+                      fontSize: '8px',
+                      letterSpacing: '0.1em',
+                      color: dark ? '#666' : '#999',
+                      padding: '12px 16px 8px',
+                      borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
                     }}>
-                      {module.description}
+                      {category.category}
                     </div>
-                  </button>
+                    {category.items.map(module => (
+                      <button
+                        key={module.type}
+                        onClick={() => addWindow(module.type)}
+                        style={{
+                          width: '100%',
+                          fontSize: '11px',
+                          letterSpacing: '0.05em',
+                          color: dark ? '#fff' : '#000',
+                          background: 'none',
+                          border: 'none',
+                          borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          padding: '16px',
+                          transition: 'background-color 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.target.style.backgroundColor = dark ? '#0a0a0a' : '#fafafa'}
+                        onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                      >
+                        <div style={{ marginBottom: '4px' }}>{module.name}</div>
+                        <div style={{
+                          fontSize: '9px',
+                          color: dark ? '#666' : '#999'
+                        }}>
+                          {module.description}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 ))}
               </div>
             </>
@@ -3904,6 +3991,9 @@ function Sandbox({ onBack, dark }) {
             textAlign: 'center'
           }}>
             CLICK "+ ADD MODULE" TO BEGIN
+            <div style={{ fontSize: '9px', marginTop: '12px', color: dark ? '#222' : '#ddd' }}>
+              ADD INSTRUMENTS • CONTROL BOARDS • VISUALS
+            </div>
           </div>
         )}
 
@@ -3913,10 +4003,14 @@ function Sandbox({ onBack, dark }) {
             key={window.id}
             window={window}
             dark={dark}
+            isFocused={focusedInstrument === window.id}
+            params={instrumentParams.get(window.id)}
+            audioContext={audioContextRef.current}
             onDragStart={(e) => handleDragStart(e, window.id)}
             onClose={() => removeWindow(window.id)}
             onToggleMinimize={() => toggleMinimize(window.id)}
-            onFocus={() => bringToFront(window.id)}
+            onFocus={() => focusInstrument(window.id)}
+            onParamChange={updateInstrumentParam}
           />
         ))}
       </div>
@@ -3928,13 +4022,15 @@ function Sandbox({ onBack, dark }) {
         color: dark ? '#666' : '#999',
         lineHeight: '1.6'
       }}>
-        🎛️ MODULAR PATCHBAY • ADD MULTIPLE INSTRUMENTS • DRAG WINDOWS TO ARRANGE • COMBINE GRIDSEQ + PULSEWAVE
+        🎛️ MODULAR PATCHBAY • CLICK INSTRUMENTS TO FOCUS • CONTROL BOARDS AFFECT FOCUSED INSTRUMENT • ADD VISUALS
       </div>
     </div>
   );
 }
 
-function SandboxWindow({ window, dark, onDragStart, onClose, onToggleMinimize, onFocus }) {
+function SandboxWindow({ window, dark, isFocused, params, audioContext, onDragStart, onClose, onToggleMinimize, onFocus, onParamChange }) {
+  const isInstrument = window.type === 'pulsewave' || window.type === 'gridseq';
+  
   return (
     <div
       onMouseDown={onFocus}
@@ -3942,15 +4038,14 @@ function SandboxWindow({ window, dark, onDragStart, onClose, onToggleMinimize, o
         position: 'absolute',
         left: `${window.x}px`,
         top: `${window.y}px`,
-        width: window.minimized ? '300px' : '600px',
         backgroundColor: dark ? '#000' : '#fff',
-        border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        border: `2px solid ${isFocused ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
+        boxShadow: isFocused ? '0 4px 12px rgba(0,0,0,0.3)' : '0 4px 12px rgba(0,0,0,0.15)',
         zIndex: window.zIndex,
         display: 'flex',
         flexDirection: 'column',
-        maxHeight: window.minimized ? '50px' : '500px',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        transition: 'border-color 0.2s'
       }}
     >
       {/* Window Header */}
@@ -3970,8 +4065,9 @@ function SandboxWindow({ window, dark, onDragStart, onClose, onToggleMinimize, o
         <div style={{
           fontSize: '10px',
           letterSpacing: '0.1em',
-          color: dark ? '#fff' : '#000',
-          fontWeight: '500'
+          color: isFocused ? (dark ? '#fff' : '#000') : (dark ? '#666' : '#999'),
+          fontWeight: isFocused ? '500' : '400',
+          transition: 'color 0.2s'
         }}>
           {window.type.toUpperCase()}
         </div>
@@ -4014,31 +4110,648 @@ function SandboxWindow({ window, dark, onDragStart, onClose, onToggleMinimize, o
 
       {/* Window Content */}
       {!window.minimized && (
-        <div style={{
-          padding: '20px',
-          overflow: 'auto',
-          flex: 1
-        }}>
-          {window.type === 'gridseq' && (
-            <div style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#999' : '#666'
-            }}>
-              GRIDSEQ MODULE (COMPACT VERSION IN DEVELOPMENT)
-            </div>
-          )}
+        <div style={{ padding: '20px' }}>
           {window.type === 'pulsewave' && (
-            <div style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#999' : '#666'
-            }}>
-              PULSEWAVE MODULE (COMPACT VERSION IN DEVELOPMENT)
-            </div>
+            <PulseWaveMinimal 
+              dark={dark} 
+              params={params} 
+              audioContext={audioContext}
+              onParamChange={onParamChange}
+            />
+          )}
+          {window.type === 'gridseq' && (
+            <GridSeqMinimal 
+              dark={dark} 
+              params={params}
+              audioContext={audioContext}
+              onParamChange={onParamChange}
+            />
+          )}
+          {window.type === 'oscillator' && (
+            <OscillatorBoard 
+              dark={dark} 
+              params={params}
+              onParamChange={onParamChange}
+            />
+          )}
+          {window.type === 'envelope' && (
+            <EnvelopeBoard 
+              dark={dark} 
+              params={params}
+              onParamChange={onParamChange}
+            />
+          )}
+          {window.type === 'filter' && (
+            <FilterBoard 
+              dark={dark} 
+              params={params}
+              onParamChange={onParamChange}
+            />
+          )}
+          {window.type === 'oscilloscope' && (
+            <OscilloscopeVisual 
+              dark={dark}
+              audioContext={audioContext}
+            />
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Minimal PulseWave - just keyboard + octave
+function PulseWaveMinimal({ dark, params, audioContext, onParamChange }) {
+  const [activeNotes, setActiveNotes] = useState(new Set());
+  const voicesRef = React.useRef(new Map());
+
+  const notes = [
+    { name: 'C', offset: 0, isBlack: false, key: 'a' },
+    { name: 'C#', offset: 1, isBlack: true, key: 'w' },
+    { name: 'D', offset: 2, isBlack: false, key: 's' },
+    { name: 'D#', offset: 3, isBlack: true, key: 'e' },
+    { name: 'E', offset: 4, isBlack: false, key: 'd' },
+    { name: 'F', offset: 5, isBlack: false, key: 'f' },
+    { name: 'F#', offset: 6, isBlack: true, key: 't' },
+    { name: 'G', offset: 7, isBlack: false, key: 'g' },
+    { name: 'G#', offset: 8, isBlack: true, key: 'y' },
+    { name: 'A', offset: 9, isBlack: false, key: 'h' },
+    { name: 'A#', offset: 10, isBlack: true, key: 'u' },
+    { name: 'B', offset: 11, isBlack: false, key: 'j' },
+    { name: 'C', offset: 12, isBlack: false, key: 'k' }
+  ];
+
+  const getFrequency = (offset, octave) => {
+    return 440 * Math.pow(2, (octave - 4) + (offset - 9) / 12);
+  };
+
+  const playNote = (noteName, offset) => {
+    if (!audioContext || !params) return;
+
+    const freq = getFrequency(offset, params.octave);
+    const now = audioContext.currentTime;
+
+    const osc = audioContext.createOscillator();
+    osc.type = params.oscType;
+    osc.frequency.setValueAtTime(freq, now);
+
+    const gainNode = audioContext.createGain();
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(params.volume, now + params.attack);
+    gainNode.gain.linearRampToValueAtTime(params.volume * params.sustain, now + params.attack + params.decay);
+
+    const filter = audioContext.createBiquadFilter();
+    filter.type = params.filterType;
+    filter.frequency.setValueAtTime(params.filterFreq, now);
+    filter.Q.setValueAtTime(params.filterQ, now);
+
+    osc.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    osc.start(now);
+
+    voicesRef.current.set(noteName, { osc, gainNode, filter });
+    setActiveNotes(new Set([...voicesRef.current.keys()]));
+  };
+
+  const stopNote = (noteName) => {
+    const voice = voicesRef.current.get(noteName);
+    if (!voice || !audioContext || !params) return;
+
+    const now = audioContext.currentTime;
+
+    try {
+      voice.gainNode.gain.cancelScheduledValues(now);
+      voice.gainNode.gain.setValueAtTime(voice.gainNode.gain.value, now);
+      voice.gainNode.gain.linearRampToValueAtTime(0, now + params.release);
+    } catch (e) {}
+
+    setTimeout(() => {
+      try {
+        voice.osc.stop();
+      } catch (e) {}
+      voicesRef.current.delete(noteName);
+      setActiveNotes(new Set([...voicesRef.current.keys()]));
+    }, params.release * 1000 + 100);
+  };
+
+  return (
+    <div style={{ width: '400px' }}>
+      {/* Octave selector */}
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        marginBottom: '20px',
+        alignItems: 'center'
+      }}>
+        <div style={{
+          fontSize: '9px',
+          letterSpacing: '0.1em',
+          color: dark ? '#999' : '#666'
+        }}>
+          OCTAVE:
+        </div>
+        {[2, 3, 4, 5, 6].map(oct => (
+          <button
+            key={oct}
+            onClick={() => onParamChange('octave', oct)}
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              padding: '6px 12px',
+              background: params?.octave === oct ? (dark ? '#fff' : '#000') : 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: params?.octave === oct ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000')
+            }}
+          >
+            {oct}
+          </button>
+        ))}
+      </div>
+
+      {/* Keyboard */}
+      <div style={{
+        display: 'flex',
+        position: 'relative',
+        height: '120px',
+        userSelect: 'none'
+      }}>
+        {notes.filter(n => !n.isBlack).map((note, i) => (
+          <button
+            key={note.name + i + note.offset}
+            onPointerDown={(e) => { e.preventDefault(); playNote(note.name + note.offset, note.offset); }}
+            onPointerUp={(e) => { e.preventDefault(); stopNote(note.name + note.offset); }}
+            onPointerLeave={(e) => { 
+              if (e.buttons === 1) {
+                e.preventDefault(); 
+                stopNote(note.name + note.offset); 
+              }
+            }}
+            style={{
+              flex: 1,
+              background: activeNotes.has(note.name + note.offset)
+                ? (dark ? '#999' : '#ccc') 
+                : (dark ? '#fff' : '#fff'),
+              border: `1px solid ${dark ? '#000' : '#000'}`,
+              cursor: 'pointer',
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+              paddingBottom: '8px',
+              fontSize: '8px',
+              color: '#000',
+              touchAction: 'none'
+            }}
+          >
+            {note.name}
+          </button>
+        ))}
+
+        {notes.filter(n => n.isBlack).map((note, i) => {
+          const whiteKeyIndex = notes.filter(n => !n.isBlack && notes.indexOf(n) < notes.indexOf(note)).length;
+          const offset = whiteKeyIndex * (100 / 8) - 2.5;
+          
+          return (
+            <button
+              key={note.name + i + note.offset}
+              onPointerDown={(e) => { e.preventDefault(); playNote(note.name + note.offset, note.offset); }}
+              onPointerUp={(e) => { e.preventDefault(); stopNote(note.name + note.offset); }}
+              onPointerLeave={(e) => { 
+                if (e.buttons === 1) {
+                  e.preventDefault(); 
+                  stopNote(note.name + note.offset); 
+                }
+              }}
+              style={{
+                position: 'absolute',
+                left: `${offset}%`,
+                width: '5%',
+                height: '60%',
+                background: activeNotes.has(note.name + note.offset)
+                  ? (dark ? '#333' : '#555') 
+                  : (dark ? '#000' : '#000'),
+                border: `1px solid ${dark ? '#fff' : '#fff'}`,
+                cursor: 'pointer',
+                zIndex: 10,
+                touchAction: 'none'
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Minimal GridSeq - just grid + play/bpm
+function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentStep, setCurrentStep] = useState(-1);
+  const intervalRef = React.useRef(null);
+
+  const tracks = [
+    { name: 'KICK', freq: 150, decay: 0.5 },
+    { name: 'SNARE', freq: 200, decay: 0.2 },
+    { name: 'CLAP', freq: 400, decay: 0.15 },
+    { name: 'HAT', freq: 8000, decay: 0.05 }
+  ];
+
+  const playSound = (trackIndex) => {
+    if (!audioContext) return;
+
+    const track = tracks[trackIndex];
+    const now = audioContext.currentTime;
+
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+
+    osc.connect(gain);
+    gain.connect(audioContext.destination);
+
+    if (trackIndex === 0) {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(track.freq, now);
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+    } else if (trackIndex === 1 || trackIndex === 2) {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(track.freq, now);
+    } else {
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(track.freq, now);
+    }
+
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + track.decay);
+
+    osc.start(now);
+    osc.stop(now + track.decay);
+  };
+
+  const toggleCell = (trackIndex, step) => {
+    if (!params) return;
+    
+    const newPattern = params.pattern.map((row, i) =>
+      i === trackIndex ? row.map((cell, j) => (j === step ? !cell : cell)) : row
+    );
+    onParamChange('pattern', newPattern);
+    
+    if (!params.pattern[trackIndex][step]) {
+      playSound(trackIndex);
+    }
+  };
+
+  const handlePlayPause = () => {
+    if (isPlaying) {
+      clearInterval(intervalRef.current);
+      setCurrentStep(-1);
+      setIsPlaying(false);
+    } else {
+      setIsPlaying(true);
+      let step = 0;
+      const stepTime = (60 / params.bpm) * 250;
+
+      intervalRef.current = setInterval(() => {
+        setCurrentStep(step);
+        
+        params.pattern.forEach((row, trackIndex) => {
+          if (row[step]) {
+            playSound(trackIndex);
+          }
+        });
+
+        step = (step + 1) % 16;
+      }, stepTime);
+    }
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <div style={{ width: '500px' }}>
+      {/* Controls */}
+      <div style={{
+        display: 'flex',
+        gap: '12px',
+        marginBottom: '16px',
+        alignItems: 'center'
+      }}>
+        <button
+          onClick={handlePlayPause}
+          style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            padding: '8px 16px',
+            background: isPlaying ? (dark ? '#fff' : '#000') : 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: 'pointer',
+            color: isPlaying ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000')
+          }}
+        >
+          {isPlaying ? 'STOP' : 'PLAY'}
+        </button>
+
+        <div style={{ fontSize: '9px', letterSpacing: '0.1em', color: dark ? '#999' : '#666' }}>
+          BPM
+        </div>
+        <input
+          type="number"
+          value={params?.bpm || 120}
+          onChange={(e) => onParamChange('bpm', parseInt(e.target.value) || 120)}
+          style={{
+            width: '60px',
+            fontSize: '10px',
+            padding: '6px',
+            background: 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            color: dark ? '#fff' : '#000'
+          }}
+        />
+      </div>
+
+      {/* Grid */}
+      <div>
+        {tracks.map((track, trackIndex) => (
+          <div key={trackIndex} style={{ display: 'flex', marginBottom: '4px', alignItems: 'center' }}>
+            <div style={{
+              width: '50px',
+              fontSize: '8px',
+              letterSpacing: '0.1em',
+              color: dark ? '#999' : '#666',
+              paddingRight: '8px'
+            }}>
+              {track.name}
+            </div>
+            {Array(16).fill(0).map((_, step) => (
+              <button
+                key={step}
+                onClick={() => toggleCell(trackIndex, step)}
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  background: params?.pattern[trackIndex][step] 
+                    ? (dark ? '#fff' : '#000')
+                    : 'none',
+                  border: `1px solid ${
+                    currentStep === step 
+                      ? (dark ? '#666' : '#999')
+                      : (dark ? '#1a1a1a' : '#f5f5f5')
+                  }`,
+                  cursor: 'pointer',
+                  marginRight: '2px',
+                  padding: 0
+                }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Oscillator Control Board
+function OscillatorBoard({ dark, params, onParamChange }) {
+  if (!params) {
+    return (
+      <div style={{ width: '200px', fontSize: '9px', color: dark ? '#666' : '#999' }}>
+        SELECT AN INSTRUMENT
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width: '200px' }}>
+      <div style={{
+        fontSize: '9px',
+        letterSpacing: '0.1em',
+        color: dark ? '#999' : '#666',
+        marginBottom: '12px'
+      }}>
+        WAVE TYPE
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {['sine', 'square', 'sawtooth', 'triangle'].map(type => (
+          <button
+            key={type}
+            onClick={() => onParamChange('oscType', type)}
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              padding: '10px',
+              background: params.oscType === type ? (dark ? '#fff' : '#000') : 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: params.oscType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+              textTransform: 'uppercase'
+            }}
+          >
+            {type}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Envelope Control Board
+function EnvelopeBoard({ dark, params, onParamChange }) {
+  if (!params) {
+    return (
+      <div style={{ width: '200px', fontSize: '9px', color: dark ? '#666' : '#999' }}>
+        SELECT AN INSTRUMENT
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width: '200px' }}>
+      {[
+        { label: 'ATTACK', param: 'attack', min: 0, max: 2, step: 0.01 },
+        { label: 'DECAY', param: 'decay', min: 0, max: 2, step: 0.01 },
+        { label: 'SUSTAIN', param: 'sustain', min: 0, max: 1, step: 0.01 },
+        { label: 'RELEASE', param: 'release', min: 0, max: 3, step: 0.01 }
+      ].map(control => (
+        <div key={control.param} style={{ marginBottom: '16px' }}>
+          <div style={{
+            fontSize: '8px',
+            letterSpacing: '0.1em',
+            color: dark ? '#666' : '#999',
+            marginBottom: '6px'
+          }}>
+            {control.label}: {params[control.param]?.toFixed(2)}
+          </div>
+          <input
+            type="range"
+            min={control.min}
+            max={control.max}
+            step={control.step}
+            value={params[control.param] || 0}
+            onChange={(e) => onParamChange(control.param, parseFloat(e.target.value))}
+            style={{ width: '100%' }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Filter Control Board
+function FilterBoard({ dark, params, onParamChange }) {
+  if (!params) {
+    return (
+      <div style={{ width: '200px', fontSize: '9px', color: dark ? '#666' : '#999' }}>
+        SELECT AN INSTRUMENT
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ width: '220px' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
+        {['lowpass', 'highpass', 'bandpass'].map(type => (
+          <button
+            key={type}
+            onClick={() => onParamChange('filterType', type)}
+            style={{
+              fontSize: '8px',
+              letterSpacing: '0.1em',
+              padding: '8px',
+              background: params.filterType === type ? (dark ? '#fff' : '#000') : 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: params.filterType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+              flex: 1
+            }}
+          >
+            {type.slice(0, 2).toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ marginBottom: '16px' }}>
+        <div style={{
+          fontSize: '8px',
+          letterSpacing: '0.1em',
+          color: dark ? '#666' : '#999',
+          marginBottom: '6px'
+        }}>
+          CUTOFF: {params.filterFreq}Hz
+        </div>
+        <input
+          type="range"
+          min="20"
+          max="20000"
+          step="10"
+          value={params.filterFreq || 2000}
+          onChange={(e) => onParamChange('filterFreq', parseInt(e.target.value))}
+          style={{ width: '100%' }}
+        />
+      </div>
+
+      <div>
+        <div style={{
+          fontSize: '8px',
+          letterSpacing: '0.1em',
+          color: dark ? '#666' : '#999',
+          marginBottom: '6px'
+        }}>
+          RESONANCE: {params.filterQ?.toFixed(1)}
+        </div>
+        <input
+          type="range"
+          min="0.1"
+          max="30"
+          step="0.1"
+          value={params.filterQ || 1}
+          onChange={(e) => onParamChange('filterQ', parseFloat(e.target.value))}
+          style={{ width: '100%' }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Oscilloscope Visual
+function OscilloscopeVisual({ dark, audioContext }) {
+  const canvasRef = React.useRef(null);
+  const analyserRef = React.useRef(null);
+  const animationRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!audioContext || !canvasRef.current) return;
+
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.connect(audioContext.destination);
+    analyserRef.current = analyser;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const draw = () => {
+      animationRef.current = requestAnimationFrame(draw);
+
+      analyser.getByteTimeDomainData(dataArray);
+
+      ctx.fillStyle = dark ? '#000' : '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = dark ? '#fff' : '#000';
+      ctx.beginPath();
+
+      const sliceWidth = canvas.width / bufferLength;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * canvas.height) / 2;
+
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+
+        x += sliceWidth;
+      }
+
+      ctx.lineTo(canvas.width, canvas.height / 2);
+      ctx.stroke();
+    };
+
+    draw();
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [audioContext, dark]);
+
+  return (
+    <div style={{ width: '300px', height: '150px' }}>
+      <canvas
+        ref={canvasRef}
+        width={300}
+        height={150}
+        style={{
+          width: '100%',
+          height: '100%',
+          border: `1px solid ${dark ? '#333' : '#e5e5e5'}`
+        }}
+      />
     </div>
   );
 }
