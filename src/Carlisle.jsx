@@ -3823,14 +3823,11 @@ function PulseWave({ onBack, dark }) {
   const [filterFreq, setFilterFreq] = useState(2000);
   const [filterQ, setFilterQ] = useState(1);
   const [volume, setVolume] = useState(0.3);
-  const [activeNote, setActiveNote] = useState(null);
+  const [activeNotes, setActiveNotes] = useState(new Set());
   const [activeKeys, setActiveKeys] = useState(new Set());
 
   const audioContextRef = React.useRef(null);
-  const oscillatorRef = React.useRef(null);
-  const gainNodeRef = React.useRef(null);
-  const filterNodeRef = React.useRef(null);
-  const currentNoteRef = React.useRef(null);
+  const voicesRef = React.useRef(new Map()); // Map of note -> {osc, gain, filter}
   const activeKeysRef = React.useRef(new Set());
   
   // Refs for current parameter values
@@ -3872,7 +3869,7 @@ function PulseWave({ onBack, dark }) {
     { name: 'C', freq: 523.25, isBlack: false, key: 'k' }
   ];
 
-  const playNoteInternal = React.useCallback((freq, noteName) => {
+  const playNoteInternal = React.useCallback((freq, noteName, isHeld = false) => {
     const ctx = audioContextRef.current;
     if (!ctx) return;
 
@@ -3886,14 +3883,30 @@ function PulseWave({ onBack, dark }) {
     osc.frequency.setValueAtTime(freq, now);
 
     const gainNode = ctx.createGain();
-    const totalDuration = attackRef.current + decayRef.current + 1.5; // sustain for 1.5s then release
     
-    // Full ADSR envelope
-    gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(volumeRef.current, now + attackRef.current);
-    gainNode.gain.linearRampToValueAtTime(volumeRef.current * sustainRef.current, now + attackRef.current + decayRef.current);
-    gainNode.gain.setValueAtTime(volumeRef.current * sustainRef.current, now + attackRef.current + decayRef.current + 1.5);
-    gainNode.gain.linearRampToValueAtTime(0, now + totalDuration + releaseRef.current);
+    if (isHeld) {
+      // For held notes (mouse), start attack/decay and hold at sustain
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(volumeRef.current, now + attackRef.current);
+      gainNode.gain.linearRampToValueAtTime(volumeRef.current * sustainRef.current, now + attackRef.current + decayRef.current);
+    } else {
+      // For triggered notes (keyboard), play full ADSR
+      const totalDuration = attackRef.current + decayRef.current + 1.5;
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(volumeRef.current, now + attackRef.current);
+      gainNode.gain.linearRampToValueAtTime(volumeRef.current * sustainRef.current, now + attackRef.current + decayRef.current);
+      gainNode.gain.setValueAtTime(volumeRef.current * sustainRef.current, now + attackRef.current + decayRef.current + 1.5);
+      gainNode.gain.linearRampToValueAtTime(0, now + totalDuration + releaseRef.current);
+      
+      // Auto-cleanup after note finishes
+      setTimeout(() => {
+        try {
+          osc.stop();
+        } catch (e) {}
+        voicesRef.current.delete(noteName + '_trig_' + now);
+        setActiveNotes(new Set([...voicesRef.current.keys()].map(k => k.split('_')[0])));
+      }, (totalDuration + releaseRef.current + 0.1) * 1000);
+    }
 
     const filter = ctx.createBiquadFilter();
     filter.type = filterTypeRef.current;
@@ -3905,36 +3918,39 @@ function PulseWave({ onBack, dark }) {
     gainNode.connect(ctx.destination);
 
     osc.start(now);
-    osc.stop(now + totalDuration + releaseRef.current + 0.1);
+    
+    if (!isHeld) {
+      osc.stop(now + attackRef.current + decayRef.current + 1.5 + releaseRef.current + 0.1);
+    }
 
-    // Visual feedback
-    setActiveNote(noteName);
-    setTimeout(() => setActiveNote(null), 100);
+    // Store voice
+    const voiceKey = isHeld ? noteName : (noteName + '_trig_' + now);
+    voicesRef.current.set(voiceKey, { osc, gainNode, filter });
+    setActiveNotes(new Set([...voicesRef.current.keys()].map(k => k.split('_')[0])));
+
+    return voiceKey;
   }, []);
 
-  const stopNoteInternal = React.useCallback(() => {
-    // Not used in trigger mode, but keep for mouse hold compatibility
-    if (!oscillatorRef.current || !gainNodeRef.current) return;
+  const stopNoteInternal = React.useCallback((noteName) => {
+    const voice = voicesRef.current.get(noteName);
+    if (!voice) return;
 
     const ctx = audioContextRef.current;
     const now = ctx.currentTime;
 
     try {
-      gainNodeRef.current.gain.cancelScheduledValues(now);
-      gainNodeRef.current.gain.setValueAtTime(gainNodeRef.current.gain.value, now);
-      gainNodeRef.current.gain.linearRampToValueAtTime(0, now + releaseRef.current);
+      voice.gainNode.gain.cancelScheduledValues(now);
+      voice.gainNode.gain.setValueAtTime(voice.gainNode.gain.value, now);
+      voice.gainNode.gain.linearRampToValueAtTime(0, now + releaseRef.current);
     } catch (e) {}
 
-    const oscToStop = oscillatorRef.current;
     setTimeout(() => {
       try {
-        oscToStop.stop();
+        voice.osc.stop();
       } catch (e) {}
+      voicesRef.current.delete(noteName);
+      setActiveNotes(new Set([...voicesRef.current.keys()].map(k => k.split('_')[0])));
     }, releaseRef.current * 1000 + 100);
-
-    oscillatorRef.current = null;
-    gainNodeRef.current = null;
-    currentNoteRef.current = null;
   }, []);
 
   React.useEffect(() => {
@@ -3943,7 +3959,6 @@ function PulseWave({ onBack, dark }) {
     const handleKeyDown = (e) => {
       const key = e.key.toLowerCase();
       
-      // Ignore if key is repeating (held down)
       if (e.repeat) return;
       
       const note = notes.find(n => n.key === key);
@@ -3951,7 +3966,7 @@ function PulseWave({ onBack, dark }) {
         e.preventDefault();
         activeKeysRef.current.add(key);
         setActiveKeys(new Set(activeKeysRef.current));
-        playNoteInternal(note.freq, note.name);
+        playNoteInternal(note.freq, note.name, false);
       }
     };
 
@@ -3962,7 +3977,6 @@ function PulseWave({ onBack, dark }) {
         e.preventDefault();
         activeKeysRef.current.delete(key);
         setActiveKeys(new Set(activeKeysRef.current));
-        // Don't stop note - let it play out naturally
       }
     };
 
@@ -3970,28 +3984,392 @@ function PulseWave({ onBack, dark }) {
     window.addEventListener('keyup', handleKeyUp);
 
     return () => {
-      if (oscillatorRef.current) {
+      // Clean up all voices
+      voicesRef.current.forEach(voice => {
         try {
-          oscillatorRef.current.stop();
+          voice.osc.stop();
         } catch (e) {}
-      }
+      });
+      voicesRef.current.clear();
+      
       if (audioContextRef.current) {
         audioContextRef.current.close();
       }
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [playNoteInternal, stopNoteInternal]);
+  }, [playNoteInternal]);
 
   const handleNoteDown = (note) => {
-    setActiveNote(note.name);
-    playNoteInternal(note.freq, note.name);
+    playNoteInternal(note.freq, note.name, true);
   };
 
-  const handleNoteUp = () => {
-    setActiveNote(null);
-    stopNoteInternal();
+  const handleNoteUp = (note) => {
+    stopNoteInternal(note.name);
   };
+
+  const exportSettings = () => {
+    const settings = {
+      oscType,
+      envelope: { attack, decay, sustain, release },
+      filter: { type: filterType, frequency: filterFreq, q: filterQ },
+      volume
+    };
+    const data = JSON.stringify(settings, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pulsewave-preset-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        style={{
+          fontSize: '10px',
+          letterSpacing: '0.15em',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: dark ? '#999' : '#666',
+          marginBottom: '40px',
+          transition: 'opacity 0.2s'
+        }}
+        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+        onMouseLeave={(e) => e.target.style.opacity = '1'}
+      >
+        ← BACK TO SOUNDS
+      </button>
+
+      <div style={{
+        fontSize: '24px',
+        fontWeight: '300',
+        letterSpacing: '0.15em',
+        marginBottom: '40px',
+        color: dark ? '#fff' : '#000'
+      }}>
+        PULSEWAVE
+      </div>
+
+      {/* Controls */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+        gap: '30px',
+        marginBottom: '40px'
+      }}>
+        {/* Oscillator */}
+        <div>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            OSCILLATOR
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {['sine', 'square', 'sawtooth', 'triangle'].map(type => (
+              <button
+                key={type}
+                onClick={() => setOscType(type)}
+                style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.1em',
+                  padding: '8px 12px',
+                  background: oscType === type ? (dark ? '#fff' : '#000') : 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: oscType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+                  transition: 'all 0.2s',
+                  textTransform: 'uppercase'
+                }}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Envelope */}
+        <div>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            ENVELOPE (ADSR)
+          </div>
+          {[
+            { label: 'ATTACK', value: attack, set: setAttack, min: 0, max: 2, step: 0.01 },
+            { label: 'DECAY', value: decay, set: setDecay, min: 0, max: 2, step: 0.01 },
+            { label: 'SUSTAIN', value: sustain, set: setSustain, min: 0, max: 1, step: 0.01 },
+            { label: 'RELEASE', value: release, set: setRelease, min: 0, max: 3, step: 0.01 }
+          ].map(param => (
+            <div key={param.label} style={{ marginBottom: '8px' }}>
+              <div style={{
+                fontSize: '8px',
+                letterSpacing: '0.1em',
+                color: dark ? '#666' : '#999',
+                marginBottom: '4px'
+              }}>
+                {param.label}: {param.value.toFixed(2)}
+              </div>
+              <input
+                type="range"
+                min={param.min}
+                max={param.max}
+                step={param.step}
+                value={param.value}
+                onChange={(e) => param.set(parseFloat(e.target.value))}
+                style={{ width: '100%' }}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Filter */}
+        <div>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            FILTER
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+            {['lowpass', 'highpass', 'bandpass'].map(type => (
+              <button
+                key={type}
+                onClick={() => setFilterType(type)}
+                style={{
+                  fontSize: '8px',
+                  letterSpacing: '0.1em',
+                  padding: '6px 10px',
+                  background: filterType === type ? (dark ? '#fff' : '#000') : 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: filterType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+                  transition: 'all 0.2s',
+                  textTransform: 'uppercase'
+                }}
+              >
+                {type.slice(0, 2)}
+              </button>
+            ))}
+          </div>
+          <div style={{ marginBottom: '8px' }}>
+            <div style={{
+              fontSize: '8px',
+              letterSpacing: '0.1em',
+              color: dark ? '#666' : '#999',
+              marginBottom: '4px'
+            }}>
+              CUTOFF: {filterFreq}Hz
+            </div>
+            <input
+              type="range"
+              min="20"
+              max="20000"
+              step="10"
+              value={filterFreq}
+              onChange={(e) => setFilterFreq(parseInt(e.target.value))}
+              style={{ width: '100%' }}
+            />
+          </div>
+          <div>
+            <div style={{
+              fontSize: '8px',
+              letterSpacing: '0.1em',
+              color: dark ? '#666' : '#999',
+              marginBottom: '4px'
+            }}>
+              RESONANCE: {filterQ.toFixed(1)}
+            </div>
+            <input
+              type="range"
+              min="0.1"
+              max="30"
+              step="0.1"
+              value={filterQ}
+              onChange={(e) => setFilterQ(parseFloat(e.target.value))}
+              style={{ width: '100%' }}
+            />
+          </div>
+        </div>
+
+        {/* Output */}
+        <div>
+          <div style={{
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px'
+          }}>
+            OUTPUT
+          </div>
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{
+              fontSize: '8px',
+              letterSpacing: '0.1em',
+              color: dark ? '#666' : '#999',
+              marginBottom: '4px'
+            }}>
+              VOLUME: {(volume * 100).toFixed(0)}%
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              style={{ width: '100%' }}
+            />
+          </div>
+          <button
+            onClick={exportSettings}
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              padding: '8px 16px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: dark ? '#fff' : '#000',
+              transition: 'border-color 0.2s',
+              width: '100%'
+            }}
+            onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
+            onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+          >
+            EXPORT PRESET
+          </button>
+        </div>
+      </div>
+
+      {/* Keyboard */}
+      <div style={{
+        marginTop: '60px',
+        marginBottom: '20px'
+      }}>
+        <div style={{
+          fontSize: '10px',
+          letterSpacing: '0.1em',
+          color: dark ? '#999' : '#666',
+          marginBottom: '20px'
+        }}>
+          POLYPHONIC KEYBOARD (C4 - C5) • PRESS COMPUTER KEYS TO TRIGGER: A W S E D F T G Y H U J K
+        </div>
+        
+        <div style={{
+          display: 'flex',
+          position: 'relative',
+          height: '180px',
+          userSelect: 'none'
+        }}>
+          {/* White keys */}
+          {notes.filter(n => !n.isBlack).map((note, i) => (
+            <button
+              key={note.name + i + note.freq}
+              onPointerDown={(e) => { e.preventDefault(); handleNoteDown(note); }}
+              onPointerUp={(e) => { e.preventDefault(); handleNoteUp(note); }}
+              onPointerLeave={(e) => { 
+                if (e.buttons === 1) {
+                  e.preventDefault(); 
+                  handleNoteUp(note); 
+                }
+              }}
+              style={{
+                flex: 1,
+                background: (activeNotes.has(note.name) || activeKeys.has(note.key)) 
+                  ? (dark ? '#999' : '#ccc') 
+                  : (dark ? '#fff' : '#fff'),
+                border: `1px solid ${dark ? '#000' : '#000'}`,
+                cursor: 'pointer',
+                position: 'relative',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                paddingBottom: '12px',
+                fontSize: '10px',
+                letterSpacing: '0.1em',
+                color: '#000',
+                transition: 'background 0.05s',
+                touchAction: 'none'
+              }}
+            >
+              <div style={{ fontSize: '8px', color: '#666', marginBottom: '4px' }}>
+                {note.key.toUpperCase()}
+              </div>
+              {note.name}
+            </button>
+          ))}
+
+          {/* Black keys */}
+          {notes.filter(n => n.isBlack).map((note, i) => {
+            const whiteKeyIndex = notes.filter(n => !n.isBlack && notes.indexOf(n) < notes.indexOf(note)).length;
+            const offset = whiteKeyIndex * (100 / 8) - 2.5;
+            
+            return (
+              <button
+                key={note.name + i + note.freq}
+                onPointerDown={(e) => { e.preventDefault(); handleNoteDown(note); }}
+                onPointerUp={(e) => { e.preventDefault(); handleNoteUp(note); }}
+                onPointerLeave={(e) => { 
+                  if (e.buttons === 1) {
+                    e.preventDefault(); 
+                    handleNoteUp(note); 
+                  }
+                }}
+                style={{
+                  position: 'absolute',
+                  left: `${offset}%`,
+                  width: '5%',
+                  height: '60%',
+                  background: (activeNotes.has(note.name) || activeKeys.has(note.key))
+                    ? (dark ? '#333' : '#555') 
+                    : (dark ? '#000' : '#000'),
+                  border: `1px solid ${dark ? '#fff' : '#fff'}`,
+                  cursor: 'pointer',
+                  zIndex: 10,
+                  transition: 'background 0.05s',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'center',
+                  paddingTop: '8px',
+                  fontSize: '7px',
+                  color: '#fff',
+                  letterSpacing: '0.1em',
+                  touchAction: 'none'
+                }}
+              >
+                {note.key.toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{
+        marginTop: '40px',
+        fontSize: '10px',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999',
+        lineHeight: '1.6'
+      }}>
+        🎹 POLYPHONIC SYNTH • PLAY CHORDS WITH MOUSE • TAP KEYBOARD FOR MELODIES • ADJUST PARAMETERS IN REAL-TIME
+      </div>
+    </div>
+  );
+}
 
   const exportSettings = () => {
     const settings = {
@@ -4354,7 +4732,7 @@ function PulseWave({ onBack, dark }) {
       </div>
     </div>
   );
-}
+
 
 function GridSeq({ onBack, dark }) {
   const [isPlaying, setIsPlaying] = useState(false);
