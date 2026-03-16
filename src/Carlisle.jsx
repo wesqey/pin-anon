@@ -3789,6 +3789,7 @@ function Sandbox({ onBack, dark }) {
           }
         : {
             bpm: 120,
+            isPlaying: false,
             pattern: Array(5).fill(null).map(() => Array(16).fill(false)),
             selectedTrack: 0,
             kickPreset: 0,
@@ -3949,7 +3950,7 @@ function Sandbox({ onBack, dark }) {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: '40px',
+        marginBottom: '20px',
         flexWrap: 'wrap',
         gap: '20px'
       }}>
@@ -3977,6 +3978,75 @@ function Sandbox({ onBack, dark }) {
           color: dark ? '#fff' : '#000'
         }}>
           SANDBOX
+        </div>
+
+        {/* Global Transport Controls */}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <button
+            onClick={() => {
+              // Find GridSeq window and toggle its play state
+              const gridSeqWindow = windows.find(w => w.type === 'gridseq');
+              if (gridSeqWindow) {
+                const params = instrumentParams.get(gridSeqWindow.id);
+                if (params) {
+                  const newParams = { ...params, isPlaying: !params.isPlaying };
+                  setInstrumentParams(new Map(instrumentParams.set(gridSeqWindow.id, newParams)));
+                }
+              }
+            }}
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              padding: '8px 14px',
+              background: (() => {
+                const gridSeqWindow = windows.find(w => w.type === 'gridseq');
+                const isPlaying = gridSeqWindow ? instrumentParams.get(gridSeqWindow.id)?.isPlaying : false;
+                return isPlaying ? (dark ? '#fff' : '#000') : 'none';
+              })(),
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: (() => {
+                const gridSeqWindow = windows.find(w => w.type === 'gridseq');
+                const isPlaying = gridSeqWindow ? instrumentParams.get(gridSeqWindow.id)?.isPlaying : false;
+                return isPlaying ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000');
+              })()
+            }}
+          >
+            {(() => {
+              const gridSeqWindow = windows.find(w => w.type === 'gridseq');
+              const isPlaying = gridSeqWindow ? instrumentParams.get(gridSeqWindow.id)?.isPlaying : false;
+              return isPlaying ? 'STOP' : 'PLAY';
+            })()}
+          </button>
+
+          <div style={{ fontSize: '8px', letterSpacing: '0.1em', color: dark ? '#999' : '#666' }}>
+            BPM
+          </div>
+          <input
+            type="number"
+            value={(() => {
+              const gridSeqWindow = windows.find(w => w.type === 'gridseq');
+              return gridSeqWindow ? instrumentParams.get(gridSeqWindow.id)?.bpm || 120 : 120;
+            })()}
+            onChange={(e) => {
+              const gridSeqWindow = windows.find(w => w.type === 'gridseq');
+              if (gridSeqWindow) {
+                const params = instrumentParams.get(gridSeqWindow.id);
+                if (params) {
+                  const newParams = { ...params, bpm: parseInt(e.target.value) || 120 };
+                  setInstrumentParams(new Map(instrumentParams.set(gridSeqWindow.id, newParams)));
+                }
+              }
+            }}
+            style={{
+              width: '55px',
+              fontSize: '9px',
+              padding: '6px',
+              background: 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              color: dark ? '#fff' : '#000'
+            }}
+          />
         </div>
 
         <div style={{ position: 'relative' }}>
@@ -4444,9 +4514,10 @@ function PulseWaveMinimal({ dark, params, audioContext, onParamChange }) {
 
 // Minimal GridSeq - 5 tracks with 10 presets each
 function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
-  const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
   const intervalRef = React.useRef(null);
+
+  const isPlaying = params?.isPlaying || false;
 
   const presetLibrary = {
     kick: [
@@ -4639,13 +4710,9 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
     playSound(trackIndex);
   };
 
-  const handlePlayPause = () => {
+  // Play loop controlled by params.isPlaying
+  React.useEffect(() => {
     if (isPlaying) {
-      clearInterval(intervalRef.current);
-      setCurrentStep(-1);
-      setIsPlaying(false);
-    } else {
-      setIsPlaying(true);
       let step = 0;
       const stepTime = (60 / (params?.bpm || 120)) * 250;
 
@@ -4660,85 +4727,50 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
 
         step = (step + 1) % 16;
       }, stepTime);
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+      setCurrentStep(-1);
     }
-  };
 
-  React.useEffect(() => {
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [params?.bpm]);
+  }, [isPlaying, params?.bpm]);
 
   return (
-    <div style={{ width: '580px' }}>
-      {/* Controls */}
-      <div style={{
-        display: 'flex',
-        gap: '12px',
-        marginBottom: '12px',
-        alignItems: 'center'
+    <div style={{ width: '520px' }}>
+      {/* Just show selected track */}
+      <div style={{ 
+        fontSize: '6px', 
+        letterSpacing: '0.1em', 
+        color: dark ? '#666' : '#999',
+        marginBottom: '6px',
+        textAlign: 'center'
       }}>
-        <button
-          onClick={handlePlayPause}
-          style={{
-            fontSize: '9px',
-            letterSpacing: '0.1em',
-            padding: '8px 14px',
-            background: isPlaying ? (dark ? '#fff' : '#000') : 'none',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            cursor: 'pointer',
-            color: isPlaying ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000')
-          }}
-        >
-          {isPlaying ? 'STOP' : 'PLAY'}
-        </button>
-
-        <div style={{ fontSize: '8px', letterSpacing: '0.1em', color: dark ? '#999' : '#666' }}>
-          BPM
-        </div>
-        <input
-          type="number"
-          value={params?.bpm || 120}
-          onChange={(e) => onParamChange('bpm', parseInt(e.target.value) || 120)}
-          style={{
-            width: '55px',
-            fontSize: '9px',
-            padding: '6px',
-            background: 'none',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            color: dark ? '#fff' : '#000'
-          }}
-        />
-
-        <div style={{ 
-          fontSize: '7px', 
-          letterSpacing: '0.1em', 
-          color: dark ? '#666' : '#999',
-          marginLeft: 'auto'
-        }}>
-          SELECTED: {tracks[params?.selectedTrack || 0].name}
-        </div>
+        SELECTED: {tracks[params?.selectedTrack || 0].name}
       </div>
 
-      {/* Grid */}
+      {/* Ultra compact grid */}
       <div>
         {tracks.map((track, trackIndex) => (
-          <div key={trackIndex} style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+          <div key={trackIndex} style={{ display: 'flex', alignItems: 'center', marginBottom: '3px' }}>
             {/* Track name + preset selector */}
             <div style={{ 
               display: 'flex', 
               alignItems: 'center', 
-              gap: '4px',
-              width: '140px',
-              marginRight: '6px'
+              gap: '2px',
+              width: '100px',
+              marginRight: '4px'
             }}>
               <button
                 onClick={() => changePreset(trackIndex, 'prev')}
                 style={{
-                  fontSize: '10px',
-                  padding: '4px 6px',
+                  fontSize: '8px',
+                  padding: '2px 4px',
                   background: 'none',
                   border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
                   cursor: 'pointer',
@@ -4751,25 +4783,25 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
                 onClick={() => onParamChange('selectedTrack', trackIndex)}
                 style={{
                   flex: 1,
-                  fontSize: '7px',
+                  fontSize: '6px',
                   letterSpacing: '0.05em',
                   color: params?.selectedTrack === trackIndex ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
                   background: params?.selectedTrack === trackIndex ? (dark ? '#fff' : '#000') : 'none',
                   border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
                   cursor: 'pointer',
-                  padding: '8px 4px',
+                  padding: '4px 2px',
                   textAlign: 'center',
                   transition: 'all 0.2s'
                 }}
               >
-                <div style={{ fontWeight: '500', marginBottom: '2px' }}>{track.name}</div>
-                <div style={{ fontSize: '6px' }}>{presetLibrary[track.type][track.preset].name}</div>
+                <div style={{ fontWeight: '500', marginBottom: '1px' }}>{track.name}</div>
+                <div style={{ fontSize: '5px' }}>{presetLibrary[track.type][track.preset].name}</div>
               </button>
               <button
                 onClick={() => changePreset(trackIndex, 'next')}
                 style={{
-                  fontSize: '10px',
-                  padding: '4px 6px',
+                  fontSize: '8px',
+                  padding: '2px 4px',
                   background: 'none',
                   border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
                   cursor: 'pointer',
@@ -4780,14 +4812,14 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
               </button>
             </div>
 
-            {/* Step grid */}
+            {/* Step grid - ultra compact */}
             {Array(16).fill(0).map((_, step) => (
               <button
                 key={step}
                 onClick={() => toggleCell(trackIndex, step)}
                 style={{
-                  width: '20px',
-                  height: '20px',
+                  width: '18px',
+                  height: '18px',
                   background: params?.pattern?.[trackIndex]?.[step] 
                     ? (dark ? '#fff' : '#000')
                     : 'none',
@@ -4797,7 +4829,7 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
                       : (dark ? '#1a1a1a' : '#f5f5f5')
                   }`,
                   cursor: 'pointer',
-                  marginRight: '2px',
+                  marginRight: '1px',
                   padding: 0
                 }}
               />
@@ -4807,12 +4839,111 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
       </div>
 
       <div style={{
-        marginTop: '10px',
+        marginTop: '6px',
+        fontSize: '5px',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999',
+        textAlign: 'center'
+      }}>
+        ARROWS CHANGE SOUND • CLICK NAME TO SELECT • CLICK GRID TO TRIGGER
+      </div>
+    </div>
+  );
+}
+
+// Drag Knob Component - click and drag up/down to adjust
+function DragKnob({ label, value, min, max, step, onChange, unit = '', dark }) {
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [startY, setStartY] = React.useState(0);
+  const [startValue, setStartValue] = React.useState(0);
+
+  const handleMouseDown = (e) => {
+    setIsDragging(true);
+    setStartY(e.clientY);
+    setStartValue(value);
+    e.preventDefault();
+  };
+
+  React.useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e) => {
+      const deltaY = startY - e.clientY; // Inverted: drag up = increase
+      const range = max - min;
+      const sensitivity = range / 100; // 100px = full range
+      const newValue = Math.max(min, Math.min(max, startValue + (deltaY * sensitivity)));
+      
+      // Round to step
+      const steppedValue = Math.round(newValue / step) * step;
+      onChange(steppedValue);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, startY, startValue, min, max, step, onChange]);
+
+  // Calculate rotation for visual knob (0-270 degrees)
+  const percentage = ((value - min) / (max - min));
+  const rotation = -135 + (percentage * 270);
+
+  return (
+    <div style={{ marginBottom: '8px', textAlign: 'center' }}>
+      <div style={{
+        fontSize: '6px',
+        letterSpacing: '0.1em',
+        color: dark ? '#666' : '#999',
+        marginBottom: '4px'
+      }}>
+        {label}
+      </div>
+      
+      {/* Visual Knob */}
+      <div
+        onMouseDown={handleMouseDown}
+        style={{
+          width: '40px',
+          height: '40px',
+          margin: '0 auto 4px',
+          borderRadius: '50%',
+          background: dark ? '#1a1a1a' : '#f5f5f5',
+          border: `2px solid ${isDragging ? (dark ? '#fff' : '#000') : (dark ? '#333' : '#e5e5e5')}`,
+          position: 'relative',
+          cursor: 'ns-resize',
+          transition: isDragging ? 'none' : 'border-color 0.2s',
+          userSelect: 'none'
+        }}
+      >
+        {/* Knob indicator */}
+        <div style={{
+          position: 'absolute',
+          top: '4px',
+          left: '50%',
+          width: '2px',
+          height: '14px',
+          background: dark ? '#fff' : '#000',
+          transformOrigin: 'bottom center',
+          transform: `translateX(-50%) rotate(${rotation}deg)`,
+          transition: isDragging ? 'none' : 'transform 0.1s'
+        }} />
+      </div>
+      
+      {/* Value display */}
+      <div style={{
         fontSize: '7px',
         letterSpacing: '0.05em',
-        color: dark ? '#666' : '#999'
+        color: dark ? '#999' : '#666',
+        fontFamily: 'monospace'
       }}>
-        USE ARROWS TO CHANGE SOUNDS • CLICK TRACK NAME TO SELECT FOR CONTROL BOARD
+        {step >= 1 ? value.toFixed(0) : value.toFixed(2)}{unit}
       </div>
     </div>
   );
@@ -4855,234 +4986,235 @@ function GridSeqMixerControls({ dark, params, onParamChange }) {
     onParamChange('tracks', newTracks);
   };
 
-  const Knob = ({ label, value, min, max, step, param, unit = '' }) => (
-    <div style={{ marginBottom: '12px' }}>
-      <div style={{
-        fontSize: '7px',
-        letterSpacing: '0.1em',
-        color: dark ? '#666' : '#999',
-        marginBottom: '4px'
-      }}>
-        {label}: {value.toFixed(step >= 1 ? 0 : 2)}{unit}
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => updateTrackParam(param, parseFloat(e.target.value))}
-        style={{ width: '100%' }}
-      />
-    </div>
-  );
-
   return (
-    <div style={{ width: '600px' }}>
+    <div style={{ width: '500px' }}>
       {/* Track Header */}
       <div style={{
-        marginBottom: '20px',
-        padding: '12px',
+        marginBottom: '16px',
+        padding: '10px',
         background: dark ? '#0a0a0a' : '#fafafa',
         border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
         textAlign: 'center'
       }}>
         <div style={{
-          fontSize: '11px',
+          fontSize: '10px',
           letterSpacing: '0.15em',
           color: dark ? '#fff' : '#000',
           fontWeight: '500'
         }}>
           {selectedTrack.name} CHANNEL
         </div>
-        <div style={{
-          fontSize: '7px',
-          letterSpacing: '0.05em',
-          color: dark ? '#666' : '#999',
-          marginTop: '4px'
-        }}>
-          PROFESSIONAL MIXING CONSOLE
-        </div>
       </div>
 
-      {/* 3-Column Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+      {/* 4-Column Layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '12px' }}>
         
         {/* COLUMN 1: DYNAMICS */}
         <div>
           <div style={{
-            fontSize: '8px',
+            fontSize: '7px',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
-            marginBottom: '12px',
-            paddingBottom: '6px',
-            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+            marginBottom: '10px',
+            paddingBottom: '4px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            textAlign: 'center'
           }}>
             DYNAMICS
           </div>
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="GAIN"
             value={selectedTrack.gain}
             min={0}
             max={2}
             step={0.1}
-            param="gain"
+            onChange={(v) => updateTrackParam('gain', v)}
             unit="x"
           />
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="COMP"
             value={selectedTrack.compression}
             min={0}
             max={1}
             step={0.01}
-            param="compression"
+            onChange={(v) => updateTrackParam('compression', v)}
           />
           
-          <Knob 
-            label="VOLUME"
+          <DragKnob 
+            dark={dark}
+            label="VOL"
             value={selectedTrack.volume}
             min={0}
             max={1}
             step={0.01}
-            param="volume"
+            onChange={(v) => updateTrackParam('volume', v)}
           />
         </div>
 
         {/* COLUMN 2: EQ */}
         <div>
           <div style={{
-            fontSize: '8px',
+            fontSize: '7px',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
-            marginBottom: '12px',
-            paddingBottom: '6px',
-            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+            marginBottom: '10px',
+            paddingBottom: '4px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            textAlign: 'center'
           }}>
-            EQUALIZER
+            EQ
           </div>
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="HPF"
             value={selectedTrack.highpass}
             min={0}
             max={500}
             step={10}
-            param="highpass"
+            onChange={(v) => updateTrackParam('highpass', v)}
             unit="Hz"
           />
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="LOW"
             value={selectedTrack.eqLow}
             min={-12}
             max={12}
             step={0.5}
-            param="eqLow"
+            onChange={(v) => updateTrackParam('eqLow', v)}
             unit="dB"
           />
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="MID"
             value={selectedTrack.eqMid}
             min={-12}
             max={12}
             step={0.5}
-            param="eqMid"
+            onChange={(v) => updateTrackParam('eqMid', v)}
             unit="dB"
           />
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="HIGH"
             value={selectedTrack.eqHigh}
             min={-12}
             max={12}
             step={0.5}
-            param="eqHigh"
+            onChange={(v) => updateTrackParam('eqHigh', v)}
             unit="dB"
           />
         </div>
 
-        {/* COLUMN 3: FX & MODULATION */}
+        {/* COLUMN 3: FX */}
         <div>
           <div style={{
-            fontSize: '8px',
+            fontSize: '7px',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
-            marginBottom: '12px',
-            paddingBottom: '6px',
-            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+            marginBottom: '10px',
+            paddingBottom: '4px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            textAlign: 'center'
           }}>
-            FX & MODULATION
+            FX
           </div>
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="REVERB"
             value={selectedTrack.reverbDecay}
             min={0}
             max={1}
             step={0.01}
-            param="reverbDecay"
+            onChange={(v) => updateTrackParam('reverbDecay', v)}
           />
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="DELAY"
             value={selectedTrack.delayTime}
             min={0}
             max={1}
             step={0.01}
-            param="delayTime"
+            onChange={(v) => updateTrackParam('delayTime', v)}
             unit="s"
           />
           
-          <Knob 
-            label="FEEDBACK"
+          <DragKnob 
+            dark={dark}
+            label="FDBK"
             value={selectedTrack.delayFeedback}
             min={0}
             max={0.9}
             step={0.01}
-            param="delayFeedback"
+            onChange={(v) => updateTrackParam('delayFeedback', v)}
           />
+        </div>
+
+        {/* COLUMN 4: MODULATION */}
+        <div>
+          <div style={{
+            fontSize: '7px',
+            letterSpacing: '0.12em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '10px',
+            paddingBottom: '4px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+            textAlign: 'center'
+          }}>
+            MOD
+          </div>
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="PAN"
             value={selectedTrack.pan}
             min={-1}
             max={1}
             step={0.01}
-            param="pan"
+            onChange={(v) => updateTrackParam('pan', v)}
           />
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="CHORUS"
             value={selectedTrack.chorusDepth}
             min={0}
             max={1}
             step={0.01}
-            param="chorusDepth"
+            onChange={(v) => updateTrackParam('chorusDepth', v)}
           />
           
-          <Knob 
+          <DragKnob 
+            dark={dark}
             label="DRIVE"
             value={selectedTrack.drive}
             min={0}
             max={1}
             step={0.01}
-            param="drive"
+            onChange={(v) => updateTrackParam('drive', v)}
           />
         </div>
       </div>
 
       {/* Footer */}
       <div style={{
-        marginTop: '20px',
-        fontSize: '7px',
+        marginTop: '12px',
+        fontSize: '6px',
         letterSpacing: '0.05em',
         color: dark ? '#666' : '#999',
         textAlign: 'center'
       }}>
-        CLICK TRACK NAME ON GRIDSEQ TO SWITCH CHANNEL
+        CLICK + DRAG KNOBS UP/DOWN • SELECT TRACK ON GRIDSEQ
       </div>
     </div>
   );
