@@ -4002,21 +4002,29 @@ function Sandbox({ onBack, dark }) {
         )}
 
         {/* Module Windows */}
-        {windows.map(window => (
-          <SandboxWindow
-            key={window.id}
-            window={window}
-            dark={dark}
-            isFocused={focusedInstrument === window.id}
-            params={instrumentParams.get(window.id)}
-            audioContext={audioContextRef.current}
-            onDragStart={(e) => handleDragStart(e, window.id)}
-            onClose={() => removeWindow(window.id)}
-            onToggleMinimize={() => toggleMinimize(window.id)}
-            onFocus={() => focusInstrument(window.id)}
-            onParamChange={updateInstrumentParam}
-          />
-        ))}
+        {windows.map(window => {
+          // Control boards and visuals use focused instrument's params
+          const isControlBoard = ['oscillator', 'envelope', 'filter', 'oscilloscope'].includes(window.type);
+          const windowParams = isControlBoard 
+            ? instrumentParams.get(focusedInstrument)
+            : instrumentParams.get(window.id);
+          
+          return (
+            <SandboxWindow
+              key={window.id}
+              window={window}
+              dark={dark}
+              isFocused={focusedInstrument === window.id}
+              params={windowParams}
+              audioContext={audioContextRef.current}
+              onDragStart={(e) => handleDragStart(e, window.id)}
+              onClose={() => removeWindow(window.id)}
+              onToggleMinimize={() => toggleMinimize(window.id)}
+              onFocus={() => focusInstrument(window.id)}
+              onParamChange={updateInstrumentParam}
+            />
+          );
+        })}
       </div>
 
       <div style={{
