@@ -4405,7 +4405,23 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
     const gainNode = audioContext.createGain();
     gainNode.gain.setValueAtTime(0, now);
     gainNode.gain.linearRampToValueAtTime(params.volume, now + params.attack);
-    gainNode.gain.linearRampToValueAtTime(params.volume * params.sustain, now + params.attack + params.decay);
+    
+    // Only sustain indefinitely if sustain is maxed (>= 0.99)
+    const sustainLevel = params.volume * params.sustain;
+    gainNode.gain.linearRampToValueAtTime(sustainLevel, now + params.attack + params.decay);
+    
+    // Auto-release after max time if sustain isn't maxed
+    if (params.sustain < 0.99) {
+      const maxNoteTime = params.attack + params.decay + 10; // Max 10 seconds
+      gainNode.gain.linearRampToValueAtTime(0, now + maxNoteTime);
+      setTimeout(() => {
+        try {
+          osc.stop();
+          voicesRef.current.delete(noteName);
+          setActiveNotes(new Set([...voicesRef.current.keys()]));
+        } catch (e) {}
+      }, maxNoteTime * 1000);
+    }
 
     const filter = audioContext.createBiquadFilter();
     filter.type = params.filterType;
@@ -4421,20 +4437,27 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
 
     osc.start(now);
 
-    voicesRef.current.set(noteName, { osc, gainNode, filter });
+    // Store params with voice for proper release
+    voicesRef.current.set(noteName, { 
+      osc, 
+      gainNode, 
+      filter, 
+      params: { ...params } // Store snapshot of params
+    });
     setActiveNotes(new Set([...voicesRef.current.keys()]));
   };
 
   const stopNote = (noteName) => {
     const voice = voicesRef.current.get(noteName);
-    if (!voice || !audioContext || !params) return;
+    if (!voice || !audioContext) return;
 
     const now = audioContext.currentTime;
+    const releaseTime = voice.params?.release || 0.3; // Use stored params
 
     try {
       voice.gainNode.gain.cancelScheduledValues(now);
       voice.gainNode.gain.setValueAtTime(voice.gainNode.gain.value, now);
-      voice.gainNode.gain.linearRampToValueAtTime(0, now + params.release);
+      voice.gainNode.gain.linearRampToValueAtTime(0, now + releaseTime);
     } catch (e) {}
 
     setTimeout(() => {
@@ -4443,7 +4466,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
       } catch (e) {}
       voicesRef.current.delete(noteName);
       setActiveNotes(new Set([...voicesRef.current.keys()]));
-    }, params.release * 1000 + 100);
+    }, releaseTime * 1000 + 100);
   };
 
   // Add keyboard support
@@ -4754,9 +4777,41 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
     driveGain.connect(volumeGain);
     volumeGain.connect(panner);
     
-    // Route through masterGain for oscilloscope, or directly to destination
+    // Implement delay if enabled
     const finalDestination = masterGain || audioContext.destination;
-    panner.connect(finalDestination);
+    
+    if (mixerTrack.delayTime > 0 && mixerTrack.delaySend > 0) {
+      // Create delay line
+      const delayNode = audioContext.createDelay(5.0); // Max 5 seconds
+      delayNode.delayTime.value = mixerTrack.delayTime;
+      
+      // Create delay gain (wet signal)
+      const delayGain = audioContext.createGain();
+      delayGain.gain.value = mixerTrack.delaySend;
+      
+      // Create feedback if needed
+      const feedbackGain = audioContext.createGain();
+      feedbackGain.gain.value = mixerTrack.delayFeedback;
+      
+      // Route: panner -> delay -> delayGain -> destination
+      //        panner -> destination (dry)
+      //        delay -> feedback -> delay (feedback loop)
+      panner.connect(delayNode);
+      delayNode.connect(delayGain);
+      delayGain.connect(finalDestination);
+      
+      // Feedback loop
+      if (mixerTrack.delayFeedback > 0) {
+        delayNode.connect(feedbackGain);
+        feedbackGain.connect(delayNode);
+      }
+      
+      // Dry signal
+      panner.connect(finalDestination);
+    } else {
+      // No delay, just route directly
+      panner.connect(finalDestination);
+    }
 
     // Apply shape to oscillator type
     let oscType = preset.type;
