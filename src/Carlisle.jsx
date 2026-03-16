@@ -4516,6 +4516,7 @@ function PulseWaveMinimal({ dark, params, audioContext, onParamChange }) {
 function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
   const [currentStep, setCurrentStep] = useState(-1);
   const intervalRef = React.useRef(null);
+  const stepRef = React.useRef(0); // Track current step position
 
   const isPlaying = params?.isPlaying || false;
 
@@ -4713,25 +4714,31 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
   // Play loop controlled by params.isPlaying
   React.useEffect(() => {
     if (isPlaying) {
-      let step = 0;
+      // Preserve current step position when recreating interval
+      if (!intervalRef.current) {
+        stepRef.current = 0; // Only reset to 0 when first starting
+      }
+      
       const stepTime = (60 / (params?.bpm || 120)) * 250;
 
       intervalRef.current = setInterval(() => {
-        setCurrentStep(step);
+        setCurrentStep(stepRef.current);
         
         (params?.pattern || []).forEach((row, trackIndex) => {
-          if (row[step]) {
+          if (row[stepRef.current]) {
             playSound(trackIndex);
           }
         });
 
-        step = (step + 1) % 16;
+        stepRef.current = (stepRef.current + 1) % 16;
       }, stepTime);
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
       setCurrentStep(-1);
+      stepRef.current = 0; // Reset step when stopped
     }
 
     return () => {
@@ -4739,7 +4746,7 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isPlaying, params?.bpm]);
+  }, [isPlaying, params?.bpm, params?.tracks]); // Re-create when mixer params change
 
   return (
     <div style={{ width: '520px' }}>
