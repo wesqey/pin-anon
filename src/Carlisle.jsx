@@ -3880,34 +3880,20 @@ function PulseWave({ onBack, dark }) {
       ctx.resume();
     }
 
-    if (oscillatorRef.current) {
-      try {
-        const oldGain = gainNodeRef.current;
-        const oldOsc = oscillatorRef.current;
-        
-        if (oldGain) {
-          oldGain.gain.cancelScheduledValues(ctx.currentTime);
-          oldGain.gain.setValueAtTime(oldGain.gain.value, ctx.currentTime);
-          oldGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.01);
-        }
-        
-        setTimeout(() => {
-          try {
-            oldOsc.stop();
-          } catch (e) {}
-        }, 20);
-      } catch (e) {}
-    }
-
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     osc.type = oscTypeRef.current;
     osc.frequency.setValueAtTime(freq, now);
 
     const gainNode = ctx.createGain();
+    const totalDuration = attackRef.current + decayRef.current + 1.5; // sustain for 1.5s then release
+    
+    // Full ADSR envelope
     gainNode.gain.setValueAtTime(0, now);
     gainNode.gain.linearRampToValueAtTime(volumeRef.current, now + attackRef.current);
     gainNode.gain.linearRampToValueAtTime(volumeRef.current * sustainRef.current, now + attackRef.current + decayRef.current);
+    gainNode.gain.setValueAtTime(volumeRef.current * sustainRef.current, now + attackRef.current + decayRef.current + 1.5);
+    gainNode.gain.linearRampToValueAtTime(0, now + totalDuration + releaseRef.current);
 
     const filter = ctx.createBiquadFilter();
     filter.type = filterTypeRef.current;
@@ -3919,14 +3905,15 @@ function PulseWave({ onBack, dark }) {
     gainNode.connect(ctx.destination);
 
     osc.start(now);
+    osc.stop(now + totalDuration + releaseRef.current + 0.1);
 
-    oscillatorRef.current = osc;
-    gainNodeRef.current = gainNode;
-    filterNodeRef.current = filter;
-    currentNoteRef.current = noteName;
+    // Visual feedback
+    setActiveNote(noteName);
+    setTimeout(() => setActiveNote(null), 100);
   }, []);
 
   const stopNoteInternal = React.useCallback(() => {
+    // Not used in trigger mode, but keep for mouse hold compatibility
     if (!oscillatorRef.current || !gainNodeRef.current) return;
 
     const ctx = audioContextRef.current;
@@ -3955,14 +3942,15 @@ function PulseWave({ onBack, dark }) {
     
     const handleKeyDown = (e) => {
       const key = e.key.toLowerCase();
-      if (activeKeysRef.current.has(key)) return;
+      
+      // Ignore if key is repeating (held down)
+      if (e.repeat) return;
       
       const note = notes.find(n => n.key === key);
       if (note) {
         e.preventDefault();
         activeKeysRef.current.add(key);
         setActiveKeys(new Set(activeKeysRef.current));
-        setActiveNote(note.name);
         playNoteInternal(note.freq, note.name);
       }
     };
@@ -3974,8 +3962,7 @@ function PulseWave({ onBack, dark }) {
         e.preventDefault();
         activeKeysRef.current.delete(key);
         setActiveKeys(new Set(activeKeysRef.current));
-        setActiveNote(null);
-        stopNoteInternal();
+        // Don't stop note - let it play out naturally
       }
     };
 
@@ -4263,7 +4250,7 @@ function PulseWave({ onBack, dark }) {
           color: dark ? '#999' : '#666',
           marginBottom: '20px'
         }}>
-          KEYBOARD (C4 - C5) • USE COMPUTER KEYS: A W S E D F T G Y H U J K
+          KEYBOARD (C4 - C5) • PRESS COMPUTER KEYS TO TRIGGER: A W S E D F T G Y H U J K
         </div>
         
         <div style={{
@@ -4363,7 +4350,7 @@ function PulseWave({ onBack, dark }) {
         color: dark ? '#666' : '#999',
         lineHeight: '1.6'
       }}>
-        CLICK/HOLD KEYS OR USE COMPUTER KEYBOARD • ADJUST PARAMETERS IN REAL-TIME • EXPORT PRESET
+        PRESS KEYS TO TRIGGER NOTES • MOUSE: CLICK/HOLD • KEYBOARD: TAP TO PLAY FULL NOTE • ADJUST PARAMETERS IN REAL-TIME
       </div>
     </div>
   );
