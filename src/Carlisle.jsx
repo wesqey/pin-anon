@@ -3789,14 +3789,12 @@ function Sandbox({ onBack, dark }) {
           }
         : {
             bpm: 120,
-            pattern: Array(4).fill(null).map(() => Array(16).fill(false)),
-            selectedTrack: 0,
-            tracks: [
-              { name: 'KICK', freq: 150, decay: 0.5, type: 'sine', pitch: 0 },
-              { name: 'SNARE', freq: 200, decay: 0.2, type: 'triangle', pitch: 0 },
-              { name: 'HAT', freq: 8000, decay: 0.05, type: 'square', pitch: 0 },
-              { name: 'PERC', freq: 800, decay: 0.15, type: 'sine', pitch: 0 }
-            ]
+            pattern: Array(5).fill(null).map(() => Array(16).fill(false)),
+            kickPreset: 0,
+            snarePreset: 0,
+            hatPreset: 0,
+            percPreset: 0,
+            fxPreset: 0
           };
       
       setInstrumentParams(new Map(instrumentParams.set(nextId, defaultParams)));
@@ -4393,48 +4391,114 @@ function PulseWaveMinimal({ dark, params, audioContext, onParamChange }) {
   );
 }
 
-// Minimal GridSeq - just grid + play/bpm
+// Minimal GridSeq - 5 tracks with 10 presets each
 function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
   const intervalRef = React.useRef(null);
 
-  const tracks = params?.tracks || [
-    { name: 'KICK', freq: 150, decay: 0.5, type: 'sine', pitch: 0 },
-    { name: 'SNARE', freq: 200, decay: 0.2, type: 'triangle', pitch: 0 },
-    { name: 'HAT', freq: 8000, decay: 0.05, type: 'square', pitch: 0 },
-    { name: 'PERC', freq: 800, decay: 0.15, type: 'sine', pitch: 0 }
+  const presetLibrary = {
+    kick: [
+      { name: 'DEEP', freq: 120, decay: 0.6, type: 'sine' },
+      { name: 'PUNCH', freq: 150, decay: 0.4, type: 'sine' },
+      { name: '808', freq: 100, decay: 0.8, type: 'sine' },
+      { name: 'SUB', freq: 80, decay: 0.5, type: 'sine' },
+      { name: 'TIGHT', freq: 180, decay: 0.3, type: 'sine' },
+      { name: 'BOOM', freq: 110, decay: 0.7, type: 'sine' },
+      { name: 'THUD', freq: 140, decay: 0.35, type: 'triangle' },
+      { name: 'KNOCK', freq: 200, decay: 0.25, type: 'sine' },
+      { name: 'FLOOR', freq: 90, decay: 0.9, type: 'sine' },
+      { name: 'SNAP', freq: 170, decay: 0.2, type: 'square' }
+    ],
+    snare: [
+      { name: 'CLASSIC', freq: 200, decay: 0.2, type: 'triangle' },
+      { name: 'CRISP', freq: 250, decay: 0.15, type: 'triangle' },
+      { name: 'RIM', freq: 300, decay: 0.1, type: 'square' },
+      { name: 'CLAP', freq: 400, decay: 0.15, type: 'triangle' },
+      { name: 'POP', freq: 350, decay: 0.12, type: 'square' },
+      { name: 'CRACK', freq: 280, decay: 0.18, type: 'sawtooth' },
+      { name: 'SLAP', freq: 320, decay: 0.13, type: 'triangle' },
+      { name: 'WHIP', freq: 450, decay: 0.08, type: 'square' },
+      { name: 'TIGHT', freq: 380, decay: 0.09, type: 'square' },
+      { name: 'FAT', freq: 180, decay: 0.25, type: 'triangle' }
+    ],
+    hat: [
+      { name: 'CLOSED', freq: 8000, decay: 0.05, type: 'square' },
+      { name: 'OPEN', freq: 10000, decay: 0.15, type: 'square' },
+      { name: 'SHAKER', freq: 12000, decay: 0.08, type: 'square' },
+      { name: 'RIDE', freq: 6000, decay: 0.2, type: 'square' },
+      { name: 'BELL', freq: 5000, decay: 0.3, type: 'sine' },
+      { name: 'PEDAL', freq: 9000, decay: 0.04, type: 'square' },
+      { name: 'SIZZLE', freq: 11000, decay: 0.12, type: 'sawtooth' },
+      { name: 'CRASH', freq: 7000, decay: 0.4, type: 'square' },
+      { name: 'SPLASH', freq: 8500, decay: 0.18, type: 'square' },
+      { name: 'TICK', freq: 13000, decay: 0.03, type: 'square' }
+    ],
+    perc: [
+      { name: 'TOM', freq: 180, decay: 0.4, type: 'sine' },
+      { name: 'CONGA', freq: 220, decay: 0.3, type: 'sine' },
+      { name: 'COWBELL', freq: 800, decay: 0.15, type: 'square' },
+      { name: 'WOOD', freq: 1200, decay: 0.08, type: 'square' },
+      { name: 'CLICK', freq: 2000, decay: 0.05, type: 'square' },
+      { name: 'BONGO', freq: 300, decay: 0.25, type: 'sine' },
+      { name: 'TABLA', freq: 350, decay: 0.2, type: 'triangle' },
+      { name: 'AGOGO', freq: 1000, decay: 0.3, type: 'sine' },
+      { name: 'CLAVES', freq: 1500, decay: 0.06, type: 'square' },
+      { name: 'TIMP', freq: 150, decay: 0.5, type: 'sine' }
+    ],
+    fx: [
+      { name: 'ZAP', freq: 500, decay: 0.1, type: 'sawtooth' },
+      { name: 'BLIP', freq: 1000, decay: 0.05, type: 'square' },
+      { name: 'SWOOSH', freq: 2000, decay: 0.3, type: 'triangle' },
+      { name: 'LASER', freq: 3000, decay: 0.15, type: 'sawtooth' },
+      { name: 'DING', freq: 2500, decay: 0.4, type: 'sine' },
+      { name: 'WOOP', freq: 600, decay: 0.2, type: 'triangle' },
+      { name: 'BEEP', freq: 1800, decay: 0.08, type: 'square' },
+      { name: 'CHIRP', freq: 4000, decay: 0.12, type: 'sine' },
+      { name: 'PEW', freq: 1200, decay: 0.1, type: 'sawtooth' },
+      { name: 'GLITCH', freq: 800, decay: 0.06, type: 'square' }
+    ]
+  };
+
+  const trackTypes = [
+    { name: 'KICK', type: 'kick' },
+    { name: 'SNARE', type: 'snare' },
+    { name: 'HAT', type: 'hat' },
+    { name: 'PERC', type: 'perc' },
+    { name: 'FX', type: 'fx' }
   ];
+
+  const tracks = trackTypes.map((t, i) => ({
+    ...t,
+    preset: (params?.[`${t.type}Preset`] !== undefined) ? params[`${t.type}Preset`] : 0
+  }));
 
   const playSound = (trackIndex) => {
     if (!audioContext) return;
 
     const track = tracks[trackIndex];
+    const preset = presetLibrary[track.type][track.preset];
     const now = audioContext.currentTime;
-
-    // Calculate pitch-shifted frequency
-    const pitchMult = Math.pow(2, track.pitch / 12);
-    const freq = track.freq * pitchMult;
 
     const osc = audioContext.createOscillator();
     const gain = audioContext.createGain();
 
-    osc.type = track.type;
+    osc.type = preset.type;
     osc.connect(gain);
     gain.connect(audioContext.destination);
 
-    if (track.name === 'KICK') {
-      osc.frequency.setValueAtTime(freq, now);
-      osc.frequency.exponentialRampToValueAtTime(Math.max(50, freq * 0.3), now + 0.1);
+    if (track.type === 'kick') {
+      osc.frequency.setValueAtTime(preset.freq, now);
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
     } else {
-      osc.frequency.setValueAtTime(freq, now);
+      osc.frequency.setValueAtTime(preset.freq, now);
     }
 
     gain.gain.setValueAtTime(0.3, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + track.decay);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + preset.decay);
 
     osc.start(now);
-    osc.stop(now + track.decay);
+    osc.stop(now + preset.decay);
   };
 
   const toggleCell = (trackIndex, step) => {
@@ -4445,14 +4509,22 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
     );
     onParamChange('pattern', newPattern);
     
-    // Always play sound when activating a cell (whether playing or not)
+    // Always trigger sound
     if (!params.pattern[trackIndex][step]) {
       playSound(trackIndex);
     }
   };
 
-  const selectTrack = (trackIndex) => {
-    onParamChange('selectedTrack', trackIndex);
+  const changePreset = (trackIndex, direction) => {
+    const track = tracks[trackIndex];
+    const currentPreset = track.preset;
+    const maxPresets = presetLibrary[track.type].length;
+    const newPreset = direction === 'next' 
+      ? (currentPreset + 1) % maxPresets
+      : (currentPreset - 1 + maxPresets) % maxPresets;
+    
+    onParamChange(`${track.type}Preset`, newPreset);
+    playSound(trackIndex);
   };
 
   const handlePlayPause = () => {
@@ -4463,12 +4535,12 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
     } else {
       setIsPlaying(true);
       let step = 0;
-      const stepTime = (60 / params.bpm) * 250;
+      const stepTime = (60 / (params?.bpm || 120)) * 250;
 
       intervalRef.current = setInterval(() => {
         setCurrentStep(step);
         
-        params.pattern.forEach((row, trackIndex) => {
+        (params?.pattern || []).forEach((row, trackIndex) => {
           if (row[step]) {
             playSound(trackIndex);
           }
@@ -4485,23 +4557,23 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
         clearInterval(intervalRef.current);
       }
     };
-  }, []);
+  }, [params?.bpm]);
 
   return (
-    <div style={{ width: '600px' }}>
+    <div style={{ width: '580px' }}>
       {/* Controls */}
       <div style={{
         display: 'flex',
         gap: '12px',
-        marginBottom: '16px',
+        marginBottom: '12px',
         alignItems: 'center'
       }}>
         <button
           onClick={handlePlayPause}
           style={{
-            fontSize: '10px',
+            fontSize: '9px',
             letterSpacing: '0.1em',
-            padding: '8px 16px',
+            padding: '8px 14px',
             background: isPlaying ? (dark ? '#fff' : '#000') : 'none',
             border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
             cursor: 'pointer',
@@ -4511,7 +4583,7 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
           {isPlaying ? 'STOP' : 'PLAY'}
         </button>
 
-        <div style={{ fontSize: '9px', letterSpacing: '0.1em', color: dark ? '#999' : '#666' }}>
+        <div style={{ fontSize: '8px', letterSpacing: '0.1em', color: dark ? '#999' : '#666' }}>
           BPM
         </div>
         <input
@@ -4519,8 +4591,8 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
           value={params?.bpm || 120}
           onChange={(e) => onParamChange('bpm', parseInt(e.target.value) || 120)}
           style={{
-            width: '60px',
-            fontSize: '10px',
+            width: '55px',
+            fontSize: '9px',
             padding: '6px',
             background: 'none',
             border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
@@ -4532,64 +4604,86 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
       {/* Grid */}
       <div>
         {tracks.map((track, trackIndex) => (
-          <div key={trackIndex} style={{ marginBottom: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+          <div key={trackIndex} style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+            {/* Track name + preset selector */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '4px',
+              width: '140px',
+              marginRight: '6px'
+            }}>
               <button
-                onClick={() => selectTrack(trackIndex)}
+                onClick={() => changePreset(trackIndex, 'prev')}
                 style={{
-                  width: '60px',
-                  fontSize: '8px',
-                  letterSpacing: '0.1em',
-                  color: params?.selectedTrack === trackIndex ? (dark ? '#fff' : '#000') : (dark ? '#666' : '#999'),
-                  background: params?.selectedTrack === trackIndex ? (dark ? '#333' : '#e5e5e5') : 'none',
+                  fontSize: '10px',
+                  padding: '4px 6px',
+                  background: 'none',
                   border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
                   cursor: 'pointer',
-                  padding: '6px 4px',
-                  marginRight: '8px',
-                  fontWeight: params?.selectedTrack === trackIndex ? '500' : '400'
+                  color: dark ? '#fff' : '#000'
                 }}
               >
-                {track.name}
+                ←
+              </button>
+              <div style={{
+                flex: 1,
+                fontSize: '7px',
+                letterSpacing: '0.05em',
+                color: dark ? '#999' : '#666',
+                textAlign: 'center'
+              }}>
+                <div style={{ fontWeight: '500', marginBottom: '2px' }}>{track.name}</div>
+                <div style={{ fontSize: '6px' }}>{presetLibrary[track.type][track.preset].name}</div>
+              </div>
+              <button
+                onClick={() => changePreset(trackIndex, 'next')}
+                style={{
+                  fontSize: '10px',
+                  padding: '4px 6px',
+                  background: 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: dark ? '#fff' : '#000'
+                }}
+              >
+                →
               </button>
             </div>
-            
+
             {/* Step grid */}
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <div style={{ width: '68px' }} />
-              {Array(16).fill(0).map((_, step) => (
-                <button
-                  key={step}
-                  onClick={() => toggleCell(trackIndex, step)}
-                  style={{
-                    width: '24px',
-                    height: '24px',
-                    background: params?.pattern[trackIndex][step] 
-                      ? (dark ? '#fff' : '#000')
-                      : 'none',
-                    border: `1px solid ${
-                      currentStep === step 
-                        ? (dark ? '#666' : '#999')
-                        : (dark ? '#1a1a1a' : '#f5f5f5')
-                    }`,
-                    cursor: 'pointer',
-                    marginRight: '2px',
-                    padding: 0,
-                    transition: 'all 0.05s'
-                  }}
-                />
-              ))}
-            </div>
+            {Array(16).fill(0).map((_, step) => (
+              <button
+                key={step}
+                onClick={() => toggleCell(trackIndex, step)}
+                style={{
+                  width: '20px',
+                  height: '20px',
+                  background: params?.pattern?.[trackIndex]?.[step] 
+                    ? (dark ? '#fff' : '#000')
+                    : 'none',
+                  border: `1px solid ${
+                    currentStep === step 
+                      ? (dark ? '#666' : '#999')
+                      : (dark ? '#1a1a1a' : '#f5f5f5')
+                  }`,
+                  cursor: 'pointer',
+                  marginRight: '2px',
+                  padding: 0
+                }}
+              />
+            ))}
           </div>
         ))}
       </div>
 
       <div style={{
-        marginTop: '12px',
-        fontSize: '8px',
+        marginTop: '10px',
+        fontSize: '7px',
         letterSpacing: '0.05em',
         color: dark ? '#666' : '#999'
       }}>
-        CLICK TRACK NAME TO SELECT FOR EDITING • CLICK GRID TO TRIGGER
+        USE ARROWS TO CHANGE SOUNDS • CLICK GRID TO TRIGGER
       </div>
     </div>
   );
@@ -4599,7 +4693,7 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
 function UnifiedControlBoard({ dark, params, instrumentType, onParamChange }) {
   if (!params || !instrumentType) {
     return (
-      <div style={{ width: '300px', fontSize: '9px', color: dark ? '#666' : '#999', textAlign: 'center', padding: '40px 20px' }}>
+      <div style={{ width: '450px', fontSize: '10px', color: dark ? '#666' : '#999', textAlign: 'center', padding: '60px 20px' }}>
         SELECT AN INSTRUMENT TO CONTROL
       </div>
     );
@@ -4610,7 +4704,11 @@ function UnifiedControlBoard({ dark, params, instrumentType, onParamChange }) {
   }
 
   if (instrumentType === 'gridseq') {
-    return <GridSeqTrackControls dark={dark} params={params} onParamChange={onParamChange} />;
+    return (
+      <div style={{ width: '450px', fontSize: '10px', color: dark ? '#999' : '#666', textAlign: 'center', padding: '60px 20px' }}>
+        USE ARROWS ON GRIDSEQ TO CHANGE SOUNDS
+      </div>
+    );
   }
 
   return null;
@@ -4619,62 +4717,63 @@ function UnifiedControlBoard({ dark, params, instrumentType, onParamChange }) {
 // PulseWave unified controls
 function PulseWaveControls({ dark, params, onParamChange }) {
   return (
-    <div style={{ width: '320px' }}>
+    <div style={{ width: '450px' }}>
       {/* Oscillator */}
-      <div style={{ marginBottom: '20px' }}>
+      <div style={{ marginBottom: '24px' }}>
         <div style={{
-          fontSize: '8px',
+          fontSize: '9px',
           letterSpacing: '0.1em',
           color: dark ? '#666' : '#999',
-          marginBottom: '8px'
+          marginBottom: '10px'
         }}>
           OSCILLATOR
         </div>
-        <div style={{ display: 'flex', gap: '4px' }}>
+        <div style={{ display: 'flex', gap: '6px' }}>
           {['sine', 'square', 'sawtooth', 'triangle'].map(type => (
             <button
               key={type}
               onClick={() => onParamChange('oscType', type)}
               style={{
                 flex: 1,
-                fontSize: '8px',
+                fontSize: '10px',
                 letterSpacing: '0.05em',
-                padding: '8px 4px',
+                padding: '12px 6px',
                 background: params.oscType === type ? (dark ? '#fff' : '#000') : 'none',
                 border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
                 cursor: 'pointer',
-                color: params.oscType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000')
+                color: params.oscType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+                transition: 'all 0.2s'
               }}
             >
-              {type.slice(0, 3).toUpperCase()}
+              {type.toUpperCase()}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Envelope (compact knobs) */}
-      <div style={{ marginBottom: '20px' }}>
+      {/* Envelope (2 column layout) */}
+      <div style={{ marginBottom: '24px' }}>
         <div style={{
-          fontSize: '8px',
+          fontSize: '9px',
           letterSpacing: '0.1em',
           color: dark ? '#666' : '#999',
-          marginBottom: '8px'
+          marginBottom: '10px'
         }}>
           ENVELOPE
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           {[
-            { label: 'ATK', param: 'attack', min: 0, max: 2, step: 0.01 },
-            { label: 'DEC', param: 'decay', min: 0, max: 2, step: 0.01 },
-            { label: 'SUS', param: 'sustain', min: 0, max: 1, step: 0.01 },
-            { label: 'REL', param: 'release', min: 0, max: 3, step: 0.01 }
+            { label: 'ATTACK', param: 'attack', min: 0, max: 2, step: 0.01 },
+            { label: 'DECAY', param: 'decay', min: 0, max: 2, step: 0.01 },
+            { label: 'SUSTAIN', param: 'sustain', min: 0, max: 1, step: 0.01 },
+            { label: 'RELEASE', param: 'release', min: 0, max: 3, step: 0.01 }
           ].map(control => (
             <div key={control.param}>
               <div style={{
-                fontSize: '7px',
+                fontSize: '8px',
                 letterSpacing: '0.1em',
                 color: dark ? '#666' : '#999',
-                marginBottom: '4px'
+                marginBottom: '6px'
               }}>
                 {control.label}: {params[control.param]?.toFixed(2)}
               </div>
@@ -4695,40 +4794,41 @@ function PulseWaveControls({ dark, params, onParamChange }) {
       {/* Filter */}
       <div>
         <div style={{
-          fontSize: '8px',
+          fontSize: '9px',
           letterSpacing: '0.1em',
           color: dark ? '#666' : '#999',
-          marginBottom: '8px'
+          marginBottom: '10px'
         }}>
           FILTER
         </div>
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
           {['lowpass', 'highpass', 'bandpass'].map(type => (
             <button
               key={type}
               onClick={() => onParamChange('filterType', type)}
               style={{
                 flex: 1,
-                fontSize: '7px',
+                fontSize: '9px',
                 letterSpacing: '0.05em',
-                padding: '6px 4px',
+                padding: '10px 6px',
                 background: params.filterType === type ? (dark ? '#fff' : '#000') : 'none',
                 border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
                 cursor: 'pointer',
-                color: params.filterType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000')
+                color: params.filterType === type ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000'),
+                transition: 'all 0.2s'
               }}
             >
-              {type.slice(0, 2).toUpperCase()}
+              {type.toUpperCase()}
             </button>
           ))}
         </div>
 
-        <div style={{ marginBottom: '12px' }}>
+        <div style={{ marginBottom: '16px' }}>
           <div style={{
-            fontSize: '7px',
+            fontSize: '8px',
             letterSpacing: '0.1em',
             color: dark ? '#666' : '#999',
-            marginBottom: '4px'
+            marginBottom: '6px'
           }}>
             CUTOFF: {params.filterFreq}Hz
           </div>
@@ -4745,12 +4845,12 @@ function PulseWaveControls({ dark, params, onParamChange }) {
 
         <div>
           <div style={{
-            fontSize: '7px',
+            fontSize: '8px',
             letterSpacing: '0.1em',
             color: dark ? '#666' : '#999',
-            marginBottom: '4px'
+            marginBottom: '6px'
           }}>
-            RES: {params.filterQ?.toFixed(1)}
+            RESONANCE: {params.filterQ?.toFixed(1)}
           </div>
           <input
             type="range"
@@ -4767,195 +4867,33 @@ function PulseWaveControls({ dark, params, onParamChange }) {
   );
 }
 
-// GridSeq track-specific controls
-function GridSeqTrackControls({ dark, params, onParamChange }) {
-  if (!params || !params.tracks) return null;
-
-  const selectedTrack = params.tracks[params.selectedTrack || 0];
-
-  const updateTrackParam = (paramName, value) => {
-    const newTracks = [...params.tracks];
-    newTracks[params.selectedTrack] = {
-      ...newTracks[params.selectedTrack],
-      [paramName]: value
-    };
-    onParamChange('tracks', newTracks);
-  };
-
-  return (
-    <div style={{ width: '320px' }}>
-      {/* Track selector */}
-      <div style={{ marginBottom: '20px' }}>
-        <div style={{
-          fontSize: '8px',
-          letterSpacing: '0.1em',
-          color: dark ? '#666' : '#999',
-          marginBottom: '8px'
-        }}>
-          SELECT TRACK
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-          {params.tracks.map((track, idx) => (
-            <button
-              key={idx}
-              onClick={() => onParamChange('selectedTrack', idx)}
-              style={{
-                fontSize: '9px',
-                letterSpacing: '0.05em',
-                padding: '10px',
-                background: params.selectedTrack === idx ? (dark ? '#fff' : '#000') : 'none',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                cursor: 'pointer',
-                color: params.selectedTrack === idx ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000')
-              }}
-            >
-              {track.name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Selected track controls */}
-      <div style={{
-        marginBottom: '16px',
-        padding: '12px',
-        background: dark ? '#0a0a0a' : '#fafafa',
-        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
-      }}>
-        <div style={{
-          fontSize: '9px',
-          letterSpacing: '0.1em',
-          color: dark ? '#fff' : '#000',
-          marginBottom: '12px',
-          fontWeight: '500'
-        }}>
-          {selectedTrack.name}
-        </div>
-
-        {/* Wave type */}
-        <div style={{ marginBottom: '12px' }}>
-          <div style={{
-            fontSize: '7px',
-            letterSpacing: '0.1em',
-            color: dark ? '#666' : '#999',
-            marginBottom: '6px'
-          }}>
-            WAVE
-          </div>
-          <div style={{ display: 'flex', gap: '4px' }}>
-            {['sine', 'triangle', 'square', 'sawtooth'].map(type => (
-              <button
-                key={type}
-                onClick={() => updateTrackParam('type', type)}
-                style={{
-                  flex: 1,
-                  fontSize: '7px',
-                  letterSpacing: '0.05em',
-                  padding: '6px 2px',
-                  background: selectedTrack.type === type ? (dark ? '#666' : '#999') : 'none',
-                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                  cursor: 'pointer',
-                  color: selectedTrack.type === type ? (dark ? '#fff' : '#fff') : (dark ? '#666' : '#999')
-                }}
-              >
-                {type.slice(0, 3).toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Frequency */}
-        <div style={{ marginBottom: '12px' }}>
-          <div style={{
-            fontSize: '7px',
-            letterSpacing: '0.1em',
-            color: dark ? '#666' : '#999',
-            marginBottom: '4px'
-          }}>
-            FREQ: {selectedTrack.freq}Hz
-          </div>
-          <input
-            type="range"
-            min="40"
-            max="12000"
-            step="10"
-            value={selectedTrack.freq}
-            onChange={(e) => updateTrackParam('freq', parseInt(e.target.value))}
-            style={{ width: '100%' }}
-          />
-        </div>
-
-        {/* Decay */}
-        <div style={{ marginBottom: '12px' }}>
-          <div style={{
-            fontSize: '7px',
-            letterSpacing: '0.1em',
-            color: dark ? '#666' : '#999',
-            marginBottom: '4px'
-          }}>
-            DECAY: {selectedTrack.decay.toFixed(2)}s
-          </div>
-          <input
-            type="range"
-            min="0.01"
-            max="2"
-            step="0.01"
-            value={selectedTrack.decay}
-            onChange={(e) => updateTrackParam('decay', parseFloat(e.target.value))}
-            style={{ width: '100%' }}
-          />
-        </div>
-
-        {/* Pitch (transposition) */}
-        <div>
-          <div style={{
-            fontSize: '7px',
-            letterSpacing: '0.1em',
-            color: dark ? '#666' : '#999',
-            marginBottom: '4px'
-          }}>
-            PITCH: {selectedTrack.pitch > 0 ? '+' : ''}{selectedTrack.pitch}
-          </div>
-          <input
-            type="range"
-            min="-24"
-            max="24"
-            step="1"
-            value={selectedTrack.pitch}
-            onChange={(e) => updateTrackParam('pitch', parseInt(e.target.value))}
-            style={{ width: '100%' }}
-          />
-        </div>
-      </div>
-
-      <div style={{
-        fontSize: '7px',
-        letterSpacing: '0.05em',
-        color: dark ? '#666' : '#999',
-        textAlign: 'center'
-      }}>
-        CLICK TRACK NAME TO SELECT • ADJUST PARAMETERS
-      </div>
-    </div>
-  );
-}
-
 // Oscilloscope Visual
 function OscilloscopeVisual({ dark, audioContext }) {
   const canvasRef = React.useRef(null);
   const analyserRef = React.useRef(null);
   const animationRef = React.useRef(null);
+  const sourceConnectedRef = React.useRef(false);
 
   React.useEffect(() => {
     if (!audioContext || !canvasRef.current) return;
 
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 2048;
-    analyser.connect(audioContext.destination);
-    analyserRef.current = analyser;
+    // Only create analyser once
+    if (!analyserRef.current) {
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.connect(audioContext.destination);
+      
+      // Connect to destination so it intercepts all audio
+      const destination = audioContext.destination;
+      analyserRef.current = analyser;
+      
+      // Note: In a real implementation, you'd need to route all audio through this analyser
+      // For now, this is a basic visualization setup
+    }
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    const analyser = analyserRef.current;
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
 
@@ -4967,8 +4905,20 @@ function OscilloscopeVisual({ dark, audioContext }) {
       ctx.fillStyle = dark ? '#000' : '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+      // Draw grid
+      ctx.strokeStyle = dark ? '#1a1a1a' : '#f5f5f5';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const y = (canvas.height / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      // Draw waveform
       ctx.lineWidth = 2;
-      ctx.strokeStyle = dark ? '#fff' : '#000';
+      ctx.strokeStyle = dark ? '#4ade80' : '#22c55e';
       ctx.beginPath();
 
       const sliceWidth = canvas.width / bufferLength;
@@ -5001,17 +4951,26 @@ function OscilloscopeVisual({ dark, audioContext }) {
   }, [audioContext, dark]);
 
   return (
-    <div style={{ width: '300px', height: '150px' }}>
+    <div style={{ width: '400px' }}>
       <canvas
         ref={canvasRef}
-        width={300}
-        height={150}
+        width={400}
+        height={200}
         style={{
           width: '100%',
-          height: '100%',
+          height: '200px',
           border: `1px solid ${dark ? '#333' : '#e5e5e5'}`
         }}
       />
+      <div style={{
+        marginTop: '8px',
+        fontSize: '7px',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999',
+        textAlign: 'center'
+      }}>
+        WAVEFORM VISUALIZATION
+      </div>
     </div>
   );
 }
