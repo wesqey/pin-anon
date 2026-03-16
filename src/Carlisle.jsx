@@ -3714,6 +3714,8 @@ function Sandbox({ onBack, dark }) {
     return new Map();
   });
   const audioContextRef = React.useRef(null);
+  const masterGainRef = React.useRef(null);
+  const analyserRef = React.useRef(null);
 
   // Auto-save windows
   React.useEffect(() => {
@@ -3741,7 +3743,24 @@ function Sandbox({ onBack, dark }) {
   }, [instrumentParams]);
 
   React.useEffect(() => {
-    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    audioContextRef.current = ctx;
+    
+    // Create master gain node (all sounds route through this)
+    const masterGain = ctx.createGain();
+    masterGain.gain.value = 1.0;
+    masterGainRef.current = masterGain;
+    
+    // Create analyser for oscilloscope
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.8;
+    analyserRef.current = analyser;
+    
+    // Route: all sounds -> masterGain -> analyser -> destination
+    masterGain.connect(analyser);
+    analyser.connect(ctx.destination);
+    
     return () => {
       if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -3787,6 +3806,7 @@ function Sandbox({ onBack, dark }) {
         tracks: [
           { 
             name: 'KICK',
+            muted: false,
             // Dynamics
             gain: 1.0, compression: 0.5, volume: 0.8,
             // Synthesis
@@ -3801,6 +3821,7 @@ function Sandbox({ onBack, dark }) {
           },
           { 
             name: 'SNARE',
+            muted: false,
             gain: 1.0, compression: 0.5, volume: 0.8,
             decay: 0.2, sweep: 0, contour: 0.5, shape: 0,
             highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
@@ -3810,6 +3831,7 @@ function Sandbox({ onBack, dark }) {
           },
           { 
             name: 'HAT',
+            muted: false,
             gain: 1.0, compression: 0.5, volume: 0.8,
             decay: 0.05, sweep: 0, contour: 0.5, shape: 0,
             highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
@@ -3819,6 +3841,7 @@ function Sandbox({ onBack, dark }) {
           },
           { 
             name: 'PERC',
+            muted: false,
             gain: 1.0, compression: 0.5, volume: 0.8,
             decay: 0.3, sweep: 0, contour: 0.5, shape: 0,
             highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
@@ -3828,6 +3851,7 @@ function Sandbox({ onBack, dark }) {
           },
           { 
             name: 'FX',
+            muted: false,
             gain: 1.0, compression: 0.5, volume: 0.8,
             decay: 0.4, sweep: 0, contour: 0.5, shape: 0,
             highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
@@ -4197,6 +4221,8 @@ function Sandbox({ onBack, dark }) {
               params={windowParams}
               focusedInstrumentType={windows.find(w => w.id === focusedInstrument)?.type}
               audioContext={audioContextRef.current}
+              masterGain={masterGainRef.current}
+              analyser={analyserRef.current}
               onDragStart={(e) => handleDragStart(e, window.id)}
               onClose={() => removeWindow(window.id)}
               onToggleMinimize={() => toggleMinimize(window.id)}
@@ -4220,7 +4246,7 @@ function Sandbox({ onBack, dark }) {
   );
 }
 
-function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType, audioContext, onDragStart, onClose, onToggleMinimize, onFocus, onParamChange }) {
+function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType, audioContext, masterGain, analyser, onDragStart, onClose, onToggleMinimize, onFocus, onParamChange }) {
   const isInstrument = window.type === 'pulsewave' || window.type === 'gridseq';
   
   return (
@@ -4308,6 +4334,7 @@ function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType,
               dark={dark} 
               params={params} 
               audioContext={audioContext}
+              masterGain={masterGain}
               onParamChange={onParamChange}
             />
           )}
@@ -4316,6 +4343,7 @@ function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType,
               dark={dark} 
               params={params}
               audioContext={audioContext}
+              masterGain={masterGain}
               onParamChange={onParamChange}
             />
           )}
@@ -4330,8 +4358,7 @@ function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType,
           {window.type === 'oscilloscope' && (
             <OscilloscopeVisual 
               dark={dark}
-              params={params}
-              instrumentType={focusedInstrumentType}
+              analyser={analyser}
             />
           )}
         </div>
@@ -4341,7 +4368,7 @@ function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType,
 }
 
 // Minimal PulseWave - just keyboard + octave
-function PulseWaveMinimal({ dark, params, audioContext, onParamChange }) {
+function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChange }) {
   const [activeNotes, setActiveNotes] = useState(new Set());
   const voicesRef = React.useRef(new Map());
 
@@ -4387,7 +4414,10 @@ function PulseWaveMinimal({ dark, params, audioContext, onParamChange }) {
 
     osc.connect(filter);
     filter.connect(gainNode);
-    gainNode.connect(audioContext.destination);
+    
+    // Route through masterGain for oscilloscope, or directly to destination
+    const finalDestination = masterGain || audioContext.destination;
+    gainNode.connect(finalDestination);
 
     osc.start(now);
 
@@ -4556,7 +4586,7 @@ function PulseWaveMinimal({ dark, params, audioContext, onParamChange }) {
 }
 
 // Minimal GridSeq - 5 tracks with 10 presets each
-function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
+function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange }) {
   const [currentStep, setCurrentStep] = useState(-1);
   const intervalRef = React.useRef(null);
   const stepRef = React.useRef(0);
@@ -4666,8 +4696,11 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
     const mixerTrack = currentParams?.tracks?.[trackIndex] || {
       gain: 1.0, volume: 0.8, pan: 0, drive: 0,
       highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
-      decay: 0.5, sweep: 0, contour: 0.5, shape: 0
+      decay: 0.5, sweep: 0, contour: 0.5, shape: 0, muted: false
     };
+
+    // Skip if track is muted
+    if (mixerTrack.muted) return;
 
     // Use mixer decay (0.01 to 10 seconds, 10 = infinite sustain)
     const actualDecay = mixerTrack.decay >= 9.9 ? 10 : mixerTrack.decay;
@@ -4720,7 +4753,10 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
     currentNode.connect(driveGain);
     driveGain.connect(volumeGain);
     volumeGain.connect(panner);
-    panner.connect(audioContext.destination);
+    
+    // Route through masterGain for oscilloscope, or directly to destination
+    const finalDestination = masterGain || audioContext.destination;
+    panner.connect(finalDestination);
 
     // Apply shape to oscillator type
     let oscType = preset.type;
@@ -4850,9 +4886,31 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
               display: 'flex', 
               alignItems: 'center', 
               gap: '2px',
-              width: '100px',
+              width: '120px',
               marginRight: '4px'
             }}>
+              {/* Mute button */}
+              <button
+                onClick={() => {
+                  const newTracks = [...params.tracks];
+                  newTracks[trackIndex] = {
+                    ...newTracks[trackIndex],
+                    muted: !newTracks[trackIndex].muted
+                  };
+                  onParamChange('tracks', newTracks);
+                }}
+                style={{
+                  fontSize: '7px',
+                  padding: '2px 4px',
+                  background: params.tracks[trackIndex].muted ? (dark ? '#666' : '#999') : 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: params.tracks[trackIndex].muted ? (dark ? '#000' : '#fff') : (dark ? '#fff' : '#000')
+                }}
+                title={params.tracks[trackIndex].muted ? 'Unmute' : 'Mute'}
+              >
+                M
+              </button>
               <button
                 onClick={() => changePreset(trackIndex, 'prev')}
                 style={{
@@ -5417,38 +5475,25 @@ function PulseWaveControls({ dark, params, onParamChange }) {
   );
 }
 
-// Oscilloscope Visual - Shows LFO waveform of selected instrument
-function OscilloscopeVisual({ dark, params, instrumentType }) {
+// Oscilloscope Visual - Reactive to actual audio output
+function OscilloscopeVisual({ dark, analyser }) {
   const canvasRef = React.useRef(null);
   const animationRef = React.useRef(null);
-  const timeRef = React.useRef(0);
 
   React.useEffect(() => {
-    if (!canvasRef.current || !params) return;
+    if (!analyser || !canvasRef.current) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
 
-    // Get LFO params based on instrument type
-    let lfoRate = 4;
-    let lfoWave = 'sine';
-    
-    if (instrumentType === 'gridseq' && params.tracks) {
-      const selectedTrack = params.tracks[params.selectedTrack || 0];
-      lfoRate = selectedTrack.lfoRate || 4;
-      lfoWave = selectedTrack.lfoWave || 'sine';
-    } else if (instrumentType === 'pulsewave') {
-      lfoRate = params.lfoRate || 4;
-      lfoWave = params.lfoWave || 'sine';
-    }
-
-    const draw = (timestamp) => {
+    const draw = () => {
       animationRef.current = requestAnimationFrame(draw);
 
-      // Update time
-      timeRef.current += 0.016; // ~60fps
+      analyser.getByteTimeDomainData(dataArray);
 
-      // Clear
+      // Clear with grid
       ctx.fillStyle = dark ? '#000' : '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -5470,38 +5515,28 @@ function OscilloscopeVisual({ dark, params, instrumentType }) {
         ctx.stroke();
       }
 
-      // Draw LFO waveform
-      ctx.lineWidth = 2;
+      // Draw waveform
+      ctx.lineWidth = 2.5;
       ctx.strokeStyle = dark ? '#4ade80' : '#22c55e';
       ctx.beginPath();
 
-      const points = 200;
-      const centerY = canvas.height / 2;
-      const amplitude = canvas.height * 0.4;
+      const sliceWidth = canvas.width / bufferLength;
+      let x = 0;
 
-      for (let i = 0; i < points; i++) {
-        const x = (i / points) * canvas.width;
-        const phase = (i / points) * Math.PI * 4 + timeRef.current * lfoRate;
-        
-        let y;
-        if (lfoWave === 'sine') {
-          y = centerY + Math.sin(phase) * amplitude;
-        } else if (lfoWave === 'square') {
-          y = centerY + (Math.sin(phase) > 0 ? 1 : -1) * amplitude;
-        } else if (lfoWave === 'sawtooth') {
-          y = centerY + ((phase % (Math.PI * 2)) / (Math.PI * 2) * 2 - 1) * amplitude;
-        } else if (lfoWave === 'triangle') {
-          const val = (phase % (Math.PI * 2)) / (Math.PI * 2);
-          y = centerY + (val < 0.5 ? val * 4 - 1 : 3 - val * 4) * amplitude;
-        }
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * canvas.height) / 2;
 
         if (i === 0) {
           ctx.moveTo(x, y);
         } else {
           ctx.lineTo(x, y);
         }
+
+        x += sliceWidth;
       }
 
+      ctx.lineTo(canvas.width, canvas.height / 2);
       ctx.stroke();
     };
 
@@ -5512,7 +5547,7 @@ function OscilloscopeVisual({ dark, params, instrumentType }) {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [dark, params, instrumentType]);
+  }, [analyser, dark]);
 
   return (
     <div style={{ width: '400px' }}>
@@ -5533,7 +5568,7 @@ function OscilloscopeVisual({ dark, params, instrumentType }) {
         color: dark ? '#666' : '#999',
         textAlign: 'center'
       }}>
-        LFO WAVEFORM VISUALIZATION
+        LIVE AUDIO WAVEFORM
       </div>
     </div>
   );
