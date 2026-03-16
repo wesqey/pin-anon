@@ -3790,11 +3790,62 @@ function Sandbox({ onBack, dark }) {
         : {
             bpm: 120,
             pattern: Array(5).fill(null).map(() => Array(16).fill(false)),
+            selectedTrack: 0,
             kickPreset: 0,
             snarePreset: 0,
             hatPreset: 0,
             percPreset: 0,
-            fxPreset: 0
+            fxPreset: 0,
+            tracks: [
+              { 
+                name: 'KICK',
+                // Dynamics
+                gain: 1.0,
+                compression: 0.5,
+                volume: 0.8,
+                // EQ
+                highpass: 0,
+                eqLow: 0,
+                eqMid: 0,
+                eqHigh: 0,
+                // FX
+                reverbDecay: 0.2,
+                delayTime: 0,
+                delayFeedback: 0,
+                // Modulation
+                pan: 0,
+                chorusDepth: 0,
+                drive: 0
+              },
+              { 
+                name: 'SNARE',
+                gain: 1.0, compression: 0.5, volume: 0.8,
+                highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
+                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0,
+                pan: 0, chorusDepth: 0, drive: 0
+              },
+              { 
+                name: 'HAT',
+                gain: 1.0, compression: 0.5, volume: 0.8,
+                highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
+                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0,
+                pan: 0, chorusDepth: 0, drive: 0
+              },
+              { 
+                name: 'PERC',
+                gain: 1.0, compression: 0.5, volume: 0.8,
+                highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
+                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0,
+                pan: 0, chorusDepth: 0, drive: 0
+              },
+              { 
+                name: 'FX',
+                gain: 1.0, compression: 0.5, volume: 0.8,
+                highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
+                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0,
+                pan: 0, chorusDepth: 0, drive: 0
+              }
+            ]
           };
       
       setInstrumentParams(new Map(instrumentParams.set(nextId, defaultParams)));
@@ -4599,6 +4650,15 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
             color: dark ? '#fff' : '#000'
           }}
         />
+
+        <div style={{ 
+          fontSize: '7px', 
+          letterSpacing: '0.1em', 
+          color: dark ? '#666' : '#999',
+          marginLeft: 'auto'
+        }}>
+          SELECTED: {tracks[params?.selectedTrack || 0].name}
+        </div>
       </div>
 
       {/* Grid */}
@@ -4626,16 +4686,24 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
               >
                 ←
               </button>
-              <div style={{
-                flex: 1,
-                fontSize: '7px',
-                letterSpacing: '0.05em',
-                color: dark ? '#999' : '#666',
-                textAlign: 'center'
-              }}>
+              <button
+                onClick={() => onParamChange('selectedTrack', trackIndex)}
+                style={{
+                  flex: 1,
+                  fontSize: '7px',
+                  letterSpacing: '0.05em',
+                  color: params?.selectedTrack === trackIndex ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
+                  background: params?.selectedTrack === trackIndex ? (dark ? '#fff' : '#000') : 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  padding: '8px 4px',
+                  textAlign: 'center',
+                  transition: 'all 0.2s'
+                }}
+              >
                 <div style={{ fontWeight: '500', marginBottom: '2px' }}>{track.name}</div>
                 <div style={{ fontSize: '6px' }}>{presetLibrary[track.type][track.preset].name}</div>
-              </div>
+              </button>
               <button
                 onClick={() => changePreset(trackIndex, 'next')}
                 style={{
@@ -4683,7 +4751,7 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
         letterSpacing: '0.05em',
         color: dark ? '#666' : '#999'
       }}>
-        USE ARROWS TO CHANGE SOUNDS • CLICK GRID TO TRIGGER
+        USE ARROWS TO CHANGE SOUNDS • CLICK TRACK NAME TO SELECT FOR CONTROL BOARD
       </div>
     </div>
   );
@@ -4693,7 +4761,7 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
 function UnifiedControlBoard({ dark, params, instrumentType, onParamChange }) {
   if (!params || !instrumentType) {
     return (
-      <div style={{ width: '450px', fontSize: '10px', color: dark ? '#666' : '#999', textAlign: 'center', padding: '60px 20px' }}>
+      <div style={{ width: '600px', fontSize: '10px', color: dark ? '#666' : '#999', textAlign: 'center', padding: '60px 20px' }}>
         SELECT AN INSTRUMENT TO CONTROL
       </div>
     );
@@ -4704,14 +4772,259 @@ function UnifiedControlBoard({ dark, params, instrumentType, onParamChange }) {
   }
 
   if (instrumentType === 'gridseq') {
-    return (
-      <div style={{ width: '450px', fontSize: '10px', color: dark ? '#999' : '#666', textAlign: 'center', padding: '60px 20px' }}>
-        USE ARROWS ON GRIDSEQ TO CHANGE SOUNDS
-      </div>
-    );
+    return <GridSeqMixerControls dark={dark} params={params} onParamChange={onParamChange} />;
   }
 
   return null;
+}
+
+// GridSeq Professional Mixing Console
+function GridSeqMixerControls({ dark, params, onParamChange }) {
+  if (!params || !params.tracks) return null;
+
+  const selectedTrackIndex = params.selectedTrack || 0;
+  const selectedTrack = params.tracks[selectedTrackIndex];
+
+  const updateTrackParam = (paramName, value) => {
+    const newTracks = [...params.tracks];
+    newTracks[selectedTrackIndex] = {
+      ...newTracks[selectedTrackIndex],
+      [paramName]: value
+    };
+    onParamChange('tracks', newTracks);
+  };
+
+  const Knob = ({ label, value, min, max, step, param, unit = '' }) => (
+    <div style={{ marginBottom: '12px' }}>
+      <div style={{
+        fontSize: '7px',
+        letterSpacing: '0.1em',
+        color: dark ? '#666' : '#999',
+        marginBottom: '4px'
+      }}>
+        {label}: {value.toFixed(step >= 1 ? 0 : 2)}{unit}
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => updateTrackParam(param, parseFloat(e.target.value))}
+        style={{ width: '100%' }}
+      />
+    </div>
+  );
+
+  return (
+    <div style={{ width: '600px' }}>
+      {/* Track Header */}
+      <div style={{
+        marginBottom: '20px',
+        padding: '12px',
+        background: dark ? '#0a0a0a' : '#fafafa',
+        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+        textAlign: 'center'
+      }}>
+        <div style={{
+          fontSize: '11px',
+          letterSpacing: '0.15em',
+          color: dark ? '#fff' : '#000',
+          fontWeight: '500'
+        }}>
+          {selectedTrack.name} CHANNEL
+        </div>
+        <div style={{
+          fontSize: '7px',
+          letterSpacing: '0.05em',
+          color: dark ? '#666' : '#999',
+          marginTop: '4px'
+        }}>
+          PROFESSIONAL MIXING CONSOLE
+        </div>
+      </div>
+
+      {/* 3-Column Layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+        
+        {/* COLUMN 1: DYNAMICS */}
+        <div>
+          <div style={{
+            fontSize: '8px',
+            letterSpacing: '0.12em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px',
+            paddingBottom: '6px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+          }}>
+            DYNAMICS
+          </div>
+          
+          <Knob 
+            label="GAIN"
+            value={selectedTrack.gain}
+            min={0}
+            max={2}
+            step={0.1}
+            param="gain"
+            unit="x"
+          />
+          
+          <Knob 
+            label="COMP"
+            value={selectedTrack.compression}
+            min={0}
+            max={1}
+            step={0.01}
+            param="compression"
+          />
+          
+          <Knob 
+            label="VOLUME"
+            value={selectedTrack.volume}
+            min={0}
+            max={1}
+            step={0.01}
+            param="volume"
+          />
+        </div>
+
+        {/* COLUMN 2: EQ */}
+        <div>
+          <div style={{
+            fontSize: '8px',
+            letterSpacing: '0.12em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px',
+            paddingBottom: '6px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+          }}>
+            EQUALIZER
+          </div>
+          
+          <Knob 
+            label="HPF"
+            value={selectedTrack.highpass}
+            min={0}
+            max={500}
+            step={10}
+            param="highpass"
+            unit="Hz"
+          />
+          
+          <Knob 
+            label="LOW"
+            value={selectedTrack.eqLow}
+            min={-12}
+            max={12}
+            step={0.5}
+            param="eqLow"
+            unit="dB"
+          />
+          
+          <Knob 
+            label="MID"
+            value={selectedTrack.eqMid}
+            min={-12}
+            max={12}
+            step={0.5}
+            param="eqMid"
+            unit="dB"
+          />
+          
+          <Knob 
+            label="HIGH"
+            value={selectedTrack.eqHigh}
+            min={-12}
+            max={12}
+            step={0.5}
+            param="eqHigh"
+            unit="dB"
+          />
+        </div>
+
+        {/* COLUMN 3: FX & MODULATION */}
+        <div>
+          <div style={{
+            fontSize: '8px',
+            letterSpacing: '0.12em',
+            color: dark ? '#999' : '#666',
+            marginBottom: '12px',
+            paddingBottom: '6px',
+            borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+          }}>
+            FX & MODULATION
+          </div>
+          
+          <Knob 
+            label="REVERB"
+            value={selectedTrack.reverbDecay}
+            min={0}
+            max={1}
+            step={0.01}
+            param="reverbDecay"
+          />
+          
+          <Knob 
+            label="DELAY"
+            value={selectedTrack.delayTime}
+            min={0}
+            max={1}
+            step={0.01}
+            param="delayTime"
+            unit="s"
+          />
+          
+          <Knob 
+            label="FEEDBACK"
+            value={selectedTrack.delayFeedback}
+            min={0}
+            max={0.9}
+            step={0.01}
+            param="delayFeedback"
+          />
+          
+          <Knob 
+            label="PAN"
+            value={selectedTrack.pan}
+            min={-1}
+            max={1}
+            step={0.01}
+            param="pan"
+          />
+          
+          <Knob 
+            label="CHORUS"
+            value={selectedTrack.chorusDepth}
+            min={0}
+            max={1}
+            step={0.01}
+            param="chorusDepth"
+          />
+          
+          <Knob 
+            label="DRIVE"
+            value={selectedTrack.drive}
+            min={0}
+            max={1}
+            step={0.01}
+            param="drive"
+          />
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{
+        marginTop: '20px',
+        fontSize: '7px',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999',
+        textAlign: 'center'
+      }}>
+        CLICK TRACK NAME ON GRIDSEQ TO SWITCH CHANNEL
+      </div>
+    </div>
+  );
 }
 
 // PulseWave unified controls
