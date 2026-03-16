@@ -3887,6 +3887,11 @@ function GridSeq({ onBack, dark }) {
       i === trackIndex ? row.map((cell, j) => (j === step ? !cell : cell)) : row
     );
     setPattern(newPattern);
+    
+    // Play sound immediately when activating a cell
+    if (!pattern[trackIndex][step]) {
+      playSound(trackIndex);
+    }
   };
 
   const handlePlayPause = () => {
