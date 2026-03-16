@@ -4944,10 +4944,13 @@ function DragKnob({ label, value, min, max, step, onChange, unit = '', dark }) {
   const [startY, setStartY] = React.useState(0);
   const [startValue, setStartValue] = React.useState(0);
 
+  // Safety check for undefined value
+  const safeValue = value !== undefined ? value : min;
+
   const handleMouseDown = (e) => {
     setIsDragging(true);
     setStartY(e.clientY);
-    setStartValue(value);
+    setStartValue(safeValue);
     e.preventDefault();
   };
 
@@ -4979,7 +4982,7 @@ function DragKnob({ label, value, min, max, step, onChange, unit = '', dark }) {
   }, [isDragging, startY, startValue, min, max, step, onChange]);
 
   // Calculate rotation for visual knob (0-270 degrees)
-  const percentage = ((value - min) / (max - min));
+  const percentage = ((safeValue - min) / (max - min));
   const rotation = -135 + (percentage * 270);
 
   return (
@@ -5030,7 +5033,7 @@ function DragKnob({ label, value, min, max, step, onChange, unit = '', dark }) {
         color: dark ? '#999' : '#666',
         fontFamily: 'monospace'
       }}>
-        {step >= 1 ? value.toFixed(0) : value.toFixed(2)}{unit}
+        {step >= 1 ? safeValue.toFixed(0) : safeValue.toFixed(2)}{unit}
       </div>
     </div>
   );
@@ -6036,7 +6039,7 @@ function PulseWave({ onBack, dark }) {
                 color: dark ? '#666' : '#999',
                 marginBottom: '4px'
               }}>
-                {param.label}: {param.value.toFixed(2)}
+                {param.label}: {(param.value || 0).toFixed(2)}
               </div>
               <input
                 type="range"
@@ -6108,7 +6111,7 @@ function PulseWave({ onBack, dark }) {
               color: dark ? '#666' : '#999',
               marginBottom: '4px'
             }}>
-              RESONANCE: {filterQ.toFixed(1)}
+              RESONANCE: {(filterQ || 1).toFixed(1)}
             </div>
             <input
               type="range"
@@ -6139,7 +6142,7 @@ function PulseWave({ onBack, dark }) {
               color: dark ? '#666' : '#999',
               marginBottom: '4px'
             }}>
-              VOLUME: {(volume * 100).toFixed(0)}%
+              VOLUME: {((volume || 0) * 100).toFixed(0)}%
             </div>
             <input
               type="range"
