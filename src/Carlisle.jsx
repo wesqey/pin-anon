@@ -4531,12 +4531,67 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
     const preset = presetLibrary[track.type][track.preset];
     const now = audioContext.currentTime;
 
+    // Get mixer settings from params.tracks if available
+    const mixerTrack = params?.tracks?.[trackIndex] || {
+      gain: 1.0, volume: 0.8, pan: 0, drive: 0, 
+      highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0
+    };
+
+    // Create audio nodes
     const osc = audioContext.createOscillator();
     const gain = audioContext.createGain();
+    const driveGain = audioContext.createGain();
+    const volumeGain = audioContext.createGain();
+    const panner = audioContext.createStereoPanner();
+    
+    // High-pass filter if enabled
+    let currentNode = gain;
+    if (mixerTrack.highpass > 0) {
+      const hpf = audioContext.createBiquadFilter();
+      hpf.type = 'highpass';
+      hpf.frequency.value = mixerTrack.highpass;
+      gain.connect(hpf);
+      currentNode = hpf;
+    }
 
+    // 3-band EQ
+    if (mixerTrack.eqLow !== 0) {
+      const lowShelf = audioContext.createBiquadFilter();
+      lowShelf.type = 'lowshelf';
+      lowShelf.frequency.value = 200;
+      lowShelf.gain.value = mixerTrack.eqLow;
+      currentNode.connect(lowShelf);
+      currentNode = lowShelf;
+    }
+
+    if (mixerTrack.eqMid !== 0) {
+      const midPeak = audioContext.createBiquadFilter();
+      midPeak.type = 'peaking';
+      midPeak.frequency.value = 1000;
+      midPeak.Q.value = 1;
+      midPeak.gain.value = mixerTrack.eqMid;
+      currentNode.connect(midPeak);
+      currentNode = midPeak;
+    }
+
+    if (mixerTrack.eqHigh !== 0) {
+      const highShelf = audioContext.createBiquadFilter();
+      highShelf.type = 'highshelf';
+      highShelf.frequency.value = 4000;
+      highShelf.gain.value = mixerTrack.eqHigh;
+      currentNode.connect(highShelf);
+      currentNode = highShelf;
+    }
+
+    // Connect through drive -> volume -> pan -> destination
+    currentNode.connect(driveGain);
+    driveGain.connect(volumeGain);
+    volumeGain.connect(panner);
+    panner.connect(audioContext.destination);
+
+    // Set oscillator
     osc.type = preset.type;
     osc.connect(gain);
-    gain.connect(audioContext.destination);
 
     if (track.type === 'kick') {
       osc.frequency.setValueAtTime(preset.freq, now);
@@ -4545,8 +4600,16 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
       osc.frequency.setValueAtTime(preset.freq, now);
     }
 
-    gain.gain.setValueAtTime(0.3, now);
+    // Apply mixer settings
+    const baseGain = 0.3 * mixerTrack.gain * mixerTrack.volume;
+    const driveAmount = 1 + (mixerTrack.drive * 2); // 1x to 3x
+    
+    gain.gain.setValueAtTime(baseGain, now);
     gain.gain.exponentialRampToValueAtTime(0.01, now + preset.decay);
+    
+    driveGain.gain.value = driveAmount;
+    volumeGain.gain.value = 1;
+    panner.pan.value = mixerTrack.pan;
 
     osc.start(now);
     osc.stop(now + preset.decay);
@@ -4560,10 +4623,8 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
     );
     onParamChange('pattern', newPattern);
     
-    // Always trigger sound
-    if (!params.pattern[trackIndex][step]) {
-      playSound(trackIndex);
-    }
+    // ALWAYS trigger sound when clicking, regardless of on/off state
+    playSound(trackIndex);
   };
 
   const changePreset = (trackIndex, direction) => {
