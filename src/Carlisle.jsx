@@ -3691,13 +3691,54 @@ function AdminPanel({ onClose, dark, user }) {
 }
 
 function Sandbox({ onBack, dark }) {
-  const [windows, setWindows] = useState([]);
-  const [nextId, setNextId] = useState(1);
+  const [windows, setWindows] = useState(() => {
+    const saved = localStorage.getItem('carlisle_sandbox_windows');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [nextId, setNextId] = useState(() => {
+    const saved = localStorage.getItem('carlisle_sandbox_nextId');
+    return saved ? parseInt(saved) : 1;
+  });
   const [dragging, setDragging] = useState(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
-  const [focusedInstrument, setFocusedInstrument] = useState(null);
-  const [instrumentParams, setInstrumentParams] = useState(new Map());
+  const [focusedInstrument, setFocusedInstrument] = useState(() => {
+    const saved = localStorage.getItem('carlisle_sandbox_focused');
+    return saved ? parseInt(saved) : null;
+  });
+  const [instrumentParams, setInstrumentParams] = useState(() => {
+    const saved = localStorage.getItem('carlisle_sandbox_params');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return new Map(Object.entries(parsed).map(([k, v]) => [parseInt(k), v]));
+    }
+    return new Map();
+  });
   const audioContextRef = React.useRef(null);
+
+  // Auto-save windows
+  React.useEffect(() => {
+    localStorage.setItem('carlisle_sandbox_windows', JSON.stringify(windows));
+  }, [windows]);
+
+  // Auto-save nextId
+  React.useEffect(() => {
+    localStorage.setItem('carlisle_sandbox_nextId', nextId.toString());
+  }, [nextId]);
+
+  // Auto-save focused instrument
+  React.useEffect(() => {
+    if (focusedInstrument !== null) {
+      localStorage.setItem('carlisle_sandbox_focused', focusedInstrument.toString());
+    } else {
+      localStorage.removeItem('carlisle_sandbox_focused');
+    }
+  }, [focusedInstrument]);
+
+  // Auto-save instrument params
+  React.useEffect(() => {
+    const obj = Object.fromEntries(instrumentParams);
+    localStorage.setItem('carlisle_sandbox_params', JSON.stringify(obj));
+  }, [instrumentParams]);
 
   React.useEffect(() => {
     audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
@@ -3848,7 +3889,12 @@ function Sandbox({ onBack, dark }) {
   }, [dragging]);
 
   return (
-    <div>
+    <div style={{
+      margin: '0 -20px',
+      padding: '0 20px',
+      width: 'calc(100vw - 40px)',
+      maxWidth: '100%'
+    }}>
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -4856,7 +4902,17 @@ function OscilloscopeVisual({ dark, audioContext }) {
 }
 
 function SoundsStudio({ onBack, dark }) {
-  const [activeInstrument, setActiveInstrument] = useState(null);
+  const [activeInstrument, setActiveInstrument] = useState(() => {
+    return localStorage.getItem('carlisle_activeInstrument') || null;
+  });
+
+  React.useEffect(() => {
+    if (activeInstrument) {
+      localStorage.setItem('carlisle_activeInstrument', activeInstrument);
+    } else {
+      localStorage.removeItem('carlisle_activeInstrument');
+    }
+  }, [activeInstrument]);
 
   const instruments = [
     {
@@ -4989,15 +5045,40 @@ function SoundsStudio({ onBack, dark }) {
 }
 
 function PulseWave({ onBack, dark }) {
-  const [oscType, setOscType] = useState('sine');
-  const [attack, setAttack] = useState(0.01);
-  const [decay, setDecay] = useState(0.1);
-  const [sustain, setSustain] = useState(0.7);
-  const [release, setRelease] = useState(0.3);
-  const [filterType, setFilterType] = useState('lowpass');
-  const [filterFreq, setFilterFreq] = useState(2000);
-  const [filterQ, setFilterQ] = useState(1);
-  const [volume, setVolume] = useState(0.3);
+  const [oscType, setOscType] = useState(() => {
+    return localStorage.getItem('carlisle_pulsewave_oscType') || 'sine';
+  });
+  const [attack, setAttack] = useState(() => {
+    const saved = localStorage.getItem('carlisle_pulsewave_attack');
+    return saved ? parseFloat(saved) : 0.01;
+  });
+  const [decay, setDecay] = useState(() => {
+    const saved = localStorage.getItem('carlisle_pulsewave_decay');
+    return saved ? parseFloat(saved) : 0.1;
+  });
+  const [sustain, setSustain] = useState(() => {
+    const saved = localStorage.getItem('carlisle_pulsewave_sustain');
+    return saved ? parseFloat(saved) : 0.7;
+  });
+  const [release, setRelease] = useState(() => {
+    const saved = localStorage.getItem('carlisle_pulsewave_release');
+    return saved ? parseFloat(saved) : 0.3;
+  });
+  const [filterType, setFilterType] = useState(() => {
+    return localStorage.getItem('carlisle_pulsewave_filterType') || 'lowpass';
+  });
+  const [filterFreq, setFilterFreq] = useState(() => {
+    const saved = localStorage.getItem('carlisle_pulsewave_filterFreq');
+    return saved ? parseInt(saved) : 2000;
+  });
+  const [filterQ, setFilterQ] = useState(() => {
+    const saved = localStorage.getItem('carlisle_pulsewave_filterQ');
+    return saved ? parseFloat(saved) : 1;
+  });
+  const [volume, setVolume] = useState(() => {
+    const saved = localStorage.getItem('carlisle_pulsewave_volume');
+    return saved ? parseFloat(saved) : 0.3;
+  });
   const [activeNotes, setActiveNotes] = useState(new Set());
   const [activeKeys, setActiveKeys] = useState(new Set());
 
@@ -5016,16 +5097,43 @@ function PulseWave({ onBack, dark }) {
   const filterQRef = React.useRef(filterQ);
   const volumeRef = React.useRef(volume);
 
-  // Update refs when values change
-  React.useEffect(() => { oscTypeRef.current = oscType; }, [oscType]);
-  React.useEffect(() => { attackRef.current = attack; }, [attack]);
-  React.useEffect(() => { decayRef.current = decay; }, [decay]);
-  React.useEffect(() => { sustainRef.current = sustain; }, [sustain]);
-  React.useEffect(() => { releaseRef.current = release; }, [release]);
-  React.useEffect(() => { filterTypeRef.current = filterType; }, [filterType]);
-  React.useEffect(() => { filterFreqRef.current = filterFreq; }, [filterFreq]);
-  React.useEffect(() => { filterQRef.current = filterQ; }, [filterQ]);
-  React.useEffect(() => { volumeRef.current = volume; }, [volume]);
+  // Auto-save settings
+  React.useEffect(() => { 
+    oscTypeRef.current = oscType;
+    localStorage.setItem('carlisle_pulsewave_oscType', oscType);
+  }, [oscType]);
+  React.useEffect(() => { 
+    attackRef.current = attack;
+    localStorage.setItem('carlisle_pulsewave_attack', attack.toString());
+  }, [attack]);
+  React.useEffect(() => { 
+    decayRef.current = decay;
+    localStorage.setItem('carlisle_pulsewave_decay', decay.toString());
+  }, [decay]);
+  React.useEffect(() => { 
+    sustainRef.current = sustain;
+    localStorage.setItem('carlisle_pulsewave_sustain', sustain.toString());
+  }, [sustain]);
+  React.useEffect(() => { 
+    releaseRef.current = release;
+    localStorage.setItem('carlisle_pulsewave_release', release.toString());
+  }, [release]);
+  React.useEffect(() => { 
+    filterTypeRef.current = filterType;
+    localStorage.setItem('carlisle_pulsewave_filterType', filterType);
+  }, [filterType]);
+  React.useEffect(() => { 
+    filterFreqRef.current = filterFreq;
+    localStorage.setItem('carlisle_pulsewave_filterFreq', filterFreq.toString());
+  }, [filterFreq]);
+  React.useEffect(() => { 
+    filterQRef.current = filterQ;
+    localStorage.setItem('carlisle_pulsewave_filterQ', filterQ.toString());
+  }, [filterQ]);
+  React.useEffect(() => { 
+    volumeRef.current = volume;
+    localStorage.setItem('carlisle_pulsewave_volume', volume.toString());
+  }, [volume]);
 
   // Note frequencies (C4 to C5)
   const notes = [
@@ -5548,15 +5656,32 @@ function PulseWave({ onBack, dark }) {
 
 function GridSeq({ onBack, dark }) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [bpm, setBpm] = useState(120);
+  const [bpm, setBpm] = useState(() => {
+    const saved = localStorage.getItem('carlisle_gridseq_bpm');
+    return saved ? parseInt(saved) : 120;
+  });
   const [currentStep, setCurrentStep] = useState(-1);
   const [pattern, setPattern] = useState(() => {
+    const saved = localStorage.getItem('carlisle_gridseq_pattern');
+    if (saved) {
+      return JSON.parse(saved);
+    }
     // 8 tracks x 16 steps
     return Array(8).fill(null).map(() => Array(16).fill(false));
   });
 
   const audioContextRef = React.useRef(null);
   const intervalRef = React.useRef(null);
+
+  // Auto-save pattern
+  React.useEffect(() => {
+    localStorage.setItem('carlisle_gridseq_pattern', JSON.stringify(pattern));
+  }, [pattern]);
+
+  // Auto-save BPM
+  React.useEffect(() => {
+    localStorage.setItem('carlisle_gridseq_bpm', bpm.toString());
+  }, [bpm]);
 
   const tracks = [
     { name: 'KICK', freq: 150, decay: 0.5 },
