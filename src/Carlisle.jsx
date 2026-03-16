@@ -4516,70 +4516,76 @@ function PulseWaveMinimal({ dark, params, audioContext, onParamChange }) {
 function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
   const [currentStep, setCurrentStep] = useState(-1);
   const intervalRef = React.useRef(null);
-  const stepRef = React.useRef(0); // Track current step position
+  const stepRef = React.useRef(0);
+  const paramsRef = React.useRef(params); // Track current params without recreating interval
 
   const isPlaying = params?.isPlaying || false;
 
+  // Update params ref whenever they change (doesn't trigger interval recreation)
+  React.useEffect(() => {
+    paramsRef.current = params;
+  }, [params]);
+
   const presetLibrary = {
     kick: [
-      { name: 'DEEP', freq: 120, decay: 0.6, type: 'sine' },
-      { name: 'PUNCH', freq: 150, decay: 0.4, type: 'sine' },
-      { name: '808', freq: 100, decay: 0.8, type: 'sine' },
-      { name: 'SUB', freq: 80, decay: 0.5, type: 'sine' },
-      { name: 'TIGHT', freq: 180, decay: 0.3, type: 'sine' },
-      { name: 'BOOM', freq: 110, decay: 0.7, type: 'sine' },
-      { name: 'THUD', freq: 140, decay: 0.35, type: 'triangle' },
-      { name: 'KNOCK', freq: 200, decay: 0.25, type: 'sine' },
-      { name: 'FLOOR', freq: 90, decay: 0.9, type: 'sine' },
-      { name: 'SNAP', freq: 170, decay: 0.2, type: 'square' }
+      { name: '808', freq: 100, decay: 0.8, type: 'sine' },          // Trap/Hip-hop
+      { name: 'GARAGE', freq: 160, decay: 0.35, type: 'sine' },      // UK Garage
+      { name: 'TECHNO', freq: 180, decay: 0.25, type: 'sine' },      // Techno
+      { name: 'SUB', freq: 70, decay: 1.0, type: 'sine' },           // Dubstep
+      { name: 'HOUSE', freq: 140, decay: 0.45, type: 'sine' },       // House
+      { name: 'JUNGLE', freq: 170, decay: 0.2, type: 'sine' },       // Jungle/DnB
+      { name: 'HARD', freq: 200, decay: 0.3, type: 'square' },       // Hardstyle
+      { name: 'BOUNCE', freq: 150, decay: 0.4, type: 'triangle' },   // Footwork
+      { name: '909', freq: 130, decay: 0.5, type: 'sine' },          // Detroit
+      { name: 'AFRO', freq: 120, decay: 0.55, type: 'triangle' }     // Afrobeat
     ],
     snare: [
-      { name: 'CLASSIC', freq: 200, decay: 0.2, type: 'triangle' },
-      { name: 'CRISP', freq: 250, decay: 0.15, type: 'triangle' },
-      { name: 'RIM', freq: 300, decay: 0.1, type: 'square' },
-      { name: 'CLAP', freq: 400, decay: 0.15, type: 'triangle' },
-      { name: 'POP', freq: 350, decay: 0.12, type: 'square' },
-      { name: 'CRACK', freq: 280, decay: 0.18, type: 'sawtooth' },
-      { name: 'SLAP', freq: 320, decay: 0.13, type: 'triangle' },
-      { name: 'WHIP', freq: 450, decay: 0.08, type: 'square' },
-      { name: 'TIGHT', freq: 380, decay: 0.09, type: 'square' },
-      { name: 'FAT', freq: 180, decay: 0.25, type: 'triangle' }
+      { name: 'TRAP', freq: 350, decay: 0.12, type: 'square' },      // Trap
+      { name: 'JUNGLE', freq: 280, decay: 0.08, type: 'square' },    // Jungle
+      { name: 'CLAP', freq: 400, decay: 0.15, type: 'triangle' },    // House
+      { name: 'GARAGE', freq: 320, decay: 0.1, type: 'square' },     // UK Garage  
+      { name: 'DUB', freq: 220, decay: 0.25, type: 'triangle' },     // Dubstep
+      { name: 'TECHNO', freq: 300, decay: 0.13, type: 'triangle' },  // Techno
+      { name: 'JUKE', freq: 380, decay: 0.09, type: 'square' },      // Footwork
+      { name: '808', freq: 260, decay: 0.18, type: 'triangle' },     // Classic
+      { name: 'RETON', freq: 420, decay: 0.11, type: 'square' },     // Reggaeton
+      { name: 'LIVE', freq: 200, decay: 0.2, type: 'sine' }          // Acoustic-like
     ],
     hat: [
-      { name: 'CLOSED', freq: 8000, decay: 0.05, type: 'square' },
-      { name: 'OPEN', freq: 10000, decay: 0.15, type: 'square' },
-      { name: 'SHAKER', freq: 12000, decay: 0.08, type: 'square' },
-      { name: 'RIDE', freq: 6000, decay: 0.2, type: 'square' },
-      { name: 'BELL', freq: 5000, decay: 0.3, type: 'sine' },
-      { name: 'PEDAL', freq: 9000, decay: 0.04, type: 'square' },
-      { name: 'SIZZLE', freq: 11000, decay: 0.12, type: 'sawtooth' },
-      { name: 'CRASH', freq: 7000, decay: 0.4, type: 'square' },
-      { name: 'SPLASH', freq: 8500, decay: 0.18, type: 'square' },
-      { name: 'TICK', freq: 13000, decay: 0.03, type: 'square' }
+      { name: 'TRAP', freq: 9000, decay: 0.04, type: 'square' },     // Trap
+      { name: 'JUNGLE', freq: 10000, decay: 0.03, type: 'square' },  // Jungle
+      { name: 'OPEN', freq: 8500, decay: 0.2, type: 'square' },      // House open
+      { name: 'GARAGE', freq: 9500, decay: 0.06, type: 'square' },   // UK Garage
+      { name: 'TECHNO', freq: 11000, decay: 0.035, type: 'square' }, // Techno
+      { name: 'DARK', freq: 7000, decay: 0.08, type: 'square' },     // Dubstep
+      { name: 'JUKE', freq: 12000, decay: 0.05, type: 'square' },    // Footwork
+      { name: '808', freq: 8000, decay: 0.05, type: 'square' },      // Classic
+      { name: 'TRANCE', freq: 10500, decay: 0.15, type: 'sawtooth' },// Trance
+      { name: 'JERSEY', freq: 13000, decay: 0.04, type: 'square' }   // Jersey Club
     ],
     perc: [
-      { name: 'TOM', freq: 180, decay: 0.4, type: 'sine' },
-      { name: 'CONGA', freq: 220, decay: 0.3, type: 'sine' },
-      { name: 'COWBELL', freq: 800, decay: 0.15, type: 'square' },
-      { name: 'WOOD', freq: 1200, decay: 0.08, type: 'square' },
-      { name: 'CLICK', freq: 2000, decay: 0.05, type: 'square' },
-      { name: 'BONGO', freq: 300, decay: 0.25, type: 'sine' },
-      { name: 'TABLA', freq: 350, decay: 0.2, type: 'triangle' },
-      { name: 'AGOGO', freq: 1000, decay: 0.3, type: 'sine' },
-      { name: 'CLAVES', freq: 1500, decay: 0.06, type: 'square' },
-      { name: 'TIMP', freq: 150, decay: 0.5, type: 'sine' }
+      { name: 'CONGA', freq: 220, decay: 0.3, type: 'sine' },        // Latin
+      { name: 'TALK', freq: 250, decay: 0.25, type: 'triangle' },    // Afrobeat
+      { name: 'DJEMBE', freq: 180, decay: 0.35, type: 'sine' },      // Tribal
+      { name: 'TIMBAL', freq: 350, decay: 0.2, type: 'triangle' },   // Reggaeton
+      { name: 'RIM', freq: 800, decay: 0.08, type: 'square' },       // Trap
+      { name: 'METAL', freq: 1200, decay: 0.15, type: 'square' },    // Techno
+      { name: 'WHISTLE', freq: 2500, decay: 0.12, type: 'sine' },    // Baile Funk
+      { name: 'CLICK', freq: 1800, decay: 0.05, type: 'square' },    // Jersey Club
+      { name: 'GRIME', freq: 400, decay: 0.1, type: 'square' },      // Grime
+      { name: 'BELL', freq: 900, decay: 0.4, type: 'sine' }          // Dancehall
     ],
     fx: [
-      { name: 'ZAP', freq: 500, decay: 0.1, type: 'sawtooth' },
-      { name: 'BLIP', freq: 1000, decay: 0.05, type: 'square' },
-      { name: 'SWOOSH', freq: 2000, decay: 0.3, type: 'triangle' },
-      { name: 'LASER', freq: 3000, decay: 0.15, type: 'sawtooth' },
-      { name: 'DING', freq: 2500, decay: 0.4, type: 'sine' },
-      { name: 'WOOP', freq: 600, decay: 0.2, type: 'triangle' },
-      { name: 'BEEP', freq: 1800, decay: 0.08, type: 'square' },
-      { name: 'CHIRP', freq: 4000, decay: 0.12, type: 'sine' },
-      { name: 'PEW', freq: 1200, decay: 0.1, type: 'sawtooth' },
-      { name: 'GLITCH', freq: 800, decay: 0.06, type: 'square' }
+      { name: 'HORN', freq: 600, decay: 0.2, type: 'sawtooth' },     // Trap airhorn
+      { name: 'WOBBLE', freq: 140, decay: 0.3, type: 'square' },     // Dubstep
+      { name: 'SQUEAK', freq: 2800, decay: 0.15, type: 'sine' },     // Jersey Club
+      { name: 'REWIND', freq: 1200, decay: 0.25, type: 'sawtooth' }, // Grime
+      { name: 'WHISTLE', freq: 3500, decay: 0.18, type: 'sine' },    // Baile Funk
+      { name: 'VOCAL', freq: 800, decay: 0.1, type: 'triangle' },    // Footwork
+      { name: 'REESE', freq: 180, decay: 0.4, type: 'sawtooth' },    // UK Garage
+      { name: 'LASER', freq: 2000, decay: 0.2, type: 'sawtooth' },   // Techno
+      { name: 'RISER', freq: 1500, decay: 0.35, type: 'triangle' },  // Trance
+      { name: 'SCREECH', freq: 500, decay: 0.15, type: 'square' }    // Hardstyle
     ]
   };
 
@@ -4599,12 +4605,13 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
   const playSound = (trackIndex) => {
     if (!audioContext) return;
 
+    const currentParams = paramsRef.current; // Read from ref for latest values
     const track = tracks[trackIndex];
     const preset = presetLibrary[track.type][track.preset];
     const now = audioContext.currentTime;
 
-    // Get mixer settings from params.tracks if available
-    const mixerTrack = params?.tracks?.[trackIndex] || {
+    // Get mixer settings from paramsRef (always current)
+    const mixerTrack = currentParams?.tracks?.[trackIndex] || {
       gain: 1.0, volume: 0.8, pan: 0, drive: 0, 
       highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0
     };
@@ -4711,10 +4718,9 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
     playSound(trackIndex);
   };
 
-  // Play loop controlled by params.isPlaying
+  // Play loop - only recreates for BPM/play state changes, NOT mixer changes
   React.useEffect(() => {
     if (isPlaying) {
-      // Preserve current step position when recreating interval
       if (!intervalRef.current) {
         stepRef.current = 0; // Only reset to 0 when first starting
       }
@@ -4724,7 +4730,9 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
       intervalRef.current = setInterval(() => {
         setCurrentStep(stepRef.current);
         
-        (params?.pattern || []).forEach((row, trackIndex) => {
+        // Read pattern from ref for latest values
+        const currentPattern = paramsRef.current?.pattern || [];
+        currentPattern.forEach((row, trackIndex) => {
           if (row[stepRef.current]) {
             playSound(trackIndex);
           }
@@ -4738,7 +4746,7 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
         intervalRef.current = null;
       }
       setCurrentStep(-1);
-      stepRef.current = 0; // Reset step when stopped
+      stepRef.current = 0;
     }
 
     return () => {
@@ -4746,7 +4754,7 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isPlaying, params?.bpm, params?.tracks]); // Re-create when mixer params change
+  }, [isPlaying, params?.bpm]); // ONLY recreate for play state and BPM changes
 
   return (
     <div style={{ width: '520px' }}>
