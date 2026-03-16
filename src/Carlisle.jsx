@@ -3773,85 +3773,72 @@ function Sandbox({ onBack, dark }) {
     };
 
     // If adding an instrument, initialize its parameters
-    if (type === 'pulsewave' || type === 'gridseq') {
-      const defaultParams = type === 'pulsewave' 
-        ? {
-            oscType: 'sine',
-            attack: 0.01,
-            decay: 0.1,
-            sustain: 0.7,
-            release: 0.3,
-            filterType: 'lowpass',
-            filterFreq: 2000,
-            filterQ: 1,
-            volume: 0.3,
-            octave: 4
+    if (type === 'gridseq') {
+      const defaultParams = {
+        bpm: 120,
+        isPlaying: false,
+        pattern: Array(5).fill(null).map(() => Array(16).fill(false)),
+        selectedTrack: 0,
+        kickPreset: 0,
+        snarePreset: 0,
+        hatPreset: 0,
+        percPreset: 0,
+        fxPreset: 0,
+        tracks: [
+          { 
+            name: 'KICK',
+            // Dynamics
+            gain: 1.0, compression: 0.5, volume: 0.8,
+            // Synthesis
+            decay: 0.5, sweep: 0, contour: 0.5, shape: 0,
+            // EQ
+            highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
+            // FX
+            reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
+            // Modulation
+            pan: 0, chorusDepth: 0, drive: 0,
+            lfoRate: 2, lfoDepth: 0.3, lfoWave: 'sine'
+          },
+          { 
+            name: 'SNARE',
+            gain: 1.0, compression: 0.5, volume: 0.8,
+            decay: 0.2, sweep: 0, contour: 0.5, shape: 0,
+            highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
+            reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
+            pan: 0, chorusDepth: 0, drive: 0,
+            lfoRate: 4, lfoDepth: 0.2, lfoWave: 'triangle'
+          },
+          { 
+            name: 'HAT',
+            gain: 1.0, compression: 0.5, volume: 0.8,
+            decay: 0.05, sweep: 0, contour: 0.5, shape: 0,
+            highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
+            reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
+            pan: 0, chorusDepth: 0, drive: 0,
+            lfoRate: 6, lfoDepth: 0.1, lfoWave: 'square'
+          },
+          { 
+            name: 'PERC',
+            gain: 1.0, compression: 0.5, volume: 0.8,
+            decay: 0.3, sweep: 0, contour: 0.5, shape: 0,
+            highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
+            reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
+            pan: 0, chorusDepth: 0, drive: 0,
+            lfoRate: 3, lfoDepth: 0.25, lfoWave: 'sawtooth'
+          },
+          { 
+            name: 'FX',
+            gain: 1.0, compression: 0.5, volume: 0.8,
+            decay: 0.4, sweep: 0, contour: 0.5, shape: 0,
+            highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
+            reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
+            pan: 0, chorusDepth: 0, drive: 0,
+            lfoRate: 5, lfoDepth: 0.4, lfoWave: 'sine'
           }
-        : {
-            bpm: 120,
-            isPlaying: false,
-            pattern: Array(5).fill(null).map(() => Array(16).fill(false)),
-            selectedTrack: 0,
-            kickPreset: 0,
-            snarePreset: 0,
-            hatPreset: 0,
-            percPreset: 0,
-            fxPreset: 0,
-            tracks: [
-              { 
-                name: 'KICK',
-                // Dynamics
-                gain: 1.0, compression: 0.5, volume: 0.8,
-                // Synthesis
-                decay: 0.5, sweep: 0, contour: 0.5, shape: 0,
-                // EQ
-                highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
-                // FX
-                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
-                // Modulation
-                pan: 0, chorusDepth: 0, drive: 0,
-                lfoRate: 2, lfoDepth: 0.3, lfoWave: 'sine'
-              },
-              { 
-                name: 'SNARE',
-                gain: 1.0, compression: 0.5, volume: 0.8,
-                decay: 0.2, sweep: 0, contour: 0.5, shape: 0,
-                highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
-                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
-                pan: 0, chorusDepth: 0, drive: 0,
-                lfoRate: 4, lfoDepth: 0.2, lfoWave: 'triangle'
-              },
-              { 
-                name: 'HAT',
-                gain: 1.0, compression: 0.5, volume: 0.8,
-                decay: 0.05, sweep: 0, contour: 0.5, shape: 0,
-                highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
-                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
-                pan: 0, chorusDepth: 0, drive: 0,
-                lfoRate: 6, lfoDepth: 0.1, lfoWave: 'square'
-              },
-              { 
-                name: 'PERC',
-                gain: 1.0, compression: 0.5, volume: 0.8,
-                decay: 0.3, sweep: 0, contour: 0.5, shape: 0,
-                highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
-                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
-                pan: 0, chorusDepth: 0, drive: 0,
-                lfoRate: 3, lfoDepth: 0.25, lfoWave: 'sawtooth'
-              },
-              { 
-                name: 'FX',
-                gain: 1.0, compression: 0.5, volume: 0.8,
-                decay: 0.4, sweep: 0, contour: 0.5, shape: 0,
-                highpass: 0, eqLow: 0, eqMid: 0, eqHigh: 0,
-                reverbDecay: 0.2, delayTime: 0, delayFeedback: 0, delaySend: 0,
-                pan: 0, chorusDepth: 0, drive: 0,
-                lfoRate: 5, lfoDepth: 0.4, lfoWave: 'sine'
-              }
-            ]
-          };
+        ]
+      };
       
-      // Auto-focus new instruments
+      setInstrumentParams(new Map(instrumentParams.set(nextId, defaultParams)));
       setFocusedInstrument(nextId);
     } else if (type === 'pulsewave') {
       const defaultParams = {
@@ -4657,6 +4644,15 @@ function GridSeqMinimal({ dark, params, audioContext, onParamChange }) {
     ...t,
     preset: (params?.[`${t.type}Preset`] !== undefined) ? params[`${t.type}Preset`] : 0
   }));
+
+  // Safety check - if params is not ready, don't render yet
+  if (!params || !params.pattern) {
+    return (
+      <div style={{ width: '520px', padding: '40px', textAlign: 'center', fontSize: '10px', color: dark ? '#666' : '#999' }}>
+        LOADING...
+      </div>
+    );
+  }
 
   const playSound = (trackIndex) => {
     if (!audioContext) return;
