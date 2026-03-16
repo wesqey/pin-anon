@@ -1847,7 +1847,7 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
       <button
         onClick={() => setOpen(!open)}
         style={{
-          fontSize: '16px',
+          fontSize: '10px',
           letterSpacing: '0.15em',
           padding: '8px 0',
           background: 'none',
@@ -1864,7 +1864,7 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
         onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
       >
         {currentRoomName.toUpperCase()}
-        <span style={{ fontSize: '10px' }}>▼</span>
+        <span style={{ fontSize: '8px' }}>▼</span>
       </button>
 
       {open && (
