@@ -3831,6 +3831,29 @@ function PulseWave({ onBack, dark }) {
   const gainNodeRef = React.useRef(null);
   const filterNodeRef = React.useRef(null);
   const currentNoteRef = React.useRef(null);
+  const activeKeysRef = React.useRef(new Set());
+  
+  // Refs for current parameter values
+  const oscTypeRef = React.useRef(oscType);
+  const attackRef = React.useRef(attack);
+  const decayRef = React.useRef(decay);
+  const sustainRef = React.useRef(sustain);
+  const releaseRef = React.useRef(release);
+  const filterTypeRef = React.useRef(filterType);
+  const filterFreqRef = React.useRef(filterFreq);
+  const filterQRef = React.useRef(filterQ);
+  const volumeRef = React.useRef(volume);
+
+  // Update refs when values change
+  React.useEffect(() => { oscTypeRef.current = oscType; }, [oscType]);
+  React.useEffect(() => { attackRef.current = attack; }, [attack]);
+  React.useEffect(() => { decayRef.current = decay; }, [decay]);
+  React.useEffect(() => { sustainRef.current = sustain; }, [sustain]);
+  React.useEffect(() => { releaseRef.current = release; }, [release]);
+  React.useEffect(() => { filterTypeRef.current = filterType; }, [filterType]);
+  React.useEffect(() => { filterFreqRef.current = filterFreq; }, [filterFreq]);
+  React.useEffect(() => { filterQRef.current = filterQ; }, [filterQ]);
+  React.useEffect(() => { volumeRef.current = volume; }, [volume]);
 
   // Note frequencies (C4 to C5)
   const notes = [
@@ -3849,19 +3872,98 @@ function PulseWave({ onBack, dark }) {
     { name: 'C', freq: 523.25, isBlack: false, key: 'k' }
   ];
 
+  const playNoteInternal = React.useCallback((freq, noteName) => {
+    const ctx = audioContextRef.current;
+    if (!ctx) return;
+
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
+
+    if (oscillatorRef.current) {
+      try {
+        const oldGain = gainNodeRef.current;
+        const oldOsc = oscillatorRef.current;
+        
+        if (oldGain) {
+          oldGain.gain.cancelScheduledValues(ctx.currentTime);
+          oldGain.gain.setValueAtTime(oldGain.gain.value, ctx.currentTime);
+          oldGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.01);
+        }
+        
+        setTimeout(() => {
+          try {
+            oldOsc.stop();
+          } catch (e) {}
+        }, 20);
+      } catch (e) {}
+    }
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = oscTypeRef.current;
+    osc.frequency.setValueAtTime(freq, now);
+
+    const gainNode = ctx.createGain();
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(volumeRef.current, now + attackRef.current);
+    gainNode.gain.linearRampToValueAtTime(volumeRef.current * sustainRef.current, now + attackRef.current + decayRef.current);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = filterTypeRef.current;
+    filter.frequency.setValueAtTime(filterFreqRef.current, now);
+    filter.Q.setValueAtTime(filterQRef.current, now);
+
+    osc.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    osc.start(now);
+
+    oscillatorRef.current = osc;
+    gainNodeRef.current = gainNode;
+    filterNodeRef.current = filter;
+    currentNoteRef.current = noteName;
+  }, []);
+
+  const stopNoteInternal = React.useCallback(() => {
+    if (!oscillatorRef.current || !gainNodeRef.current) return;
+
+    const ctx = audioContextRef.current;
+    const now = ctx.currentTime;
+
+    try {
+      gainNodeRef.current.gain.cancelScheduledValues(now);
+      gainNodeRef.current.gain.setValueAtTime(gainNodeRef.current.gain.value, now);
+      gainNodeRef.current.gain.linearRampToValueAtTime(0, now + releaseRef.current);
+    } catch (e) {}
+
+    const oscToStop = oscillatorRef.current;
+    setTimeout(() => {
+      try {
+        oscToStop.stop();
+      } catch (e) {}
+    }, releaseRef.current * 1000 + 100);
+
+    oscillatorRef.current = null;
+    gainNodeRef.current = null;
+    currentNoteRef.current = null;
+  }, []);
+
   React.useEffect(() => {
     audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
     
-    // Keyboard event listeners
     const handleKeyDown = (e) => {
       const key = e.key.toLowerCase();
-      if (activeKeys.has(key)) return; // Prevent repeat
+      if (activeKeysRef.current.has(key)) return;
       
       const note = notes.find(n => n.key === key);
       if (note) {
         e.preventDefault();
-        setActiveKeys(prev => new Set(prev).add(key));
-        handleNoteDown(note);
+        activeKeysRef.current.add(key);
+        setActiveKeys(new Set(activeKeysRef.current));
+        setActiveNote(note.name);
+        playNoteInternal(note.freq, note.name);
       }
     };
 
@@ -3870,12 +3972,10 @@ function PulseWave({ onBack, dark }) {
       const note = notes.find(n => n.key === key);
       if (note) {
         e.preventDefault();
-        setActiveKeys(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(key);
-          return newSet;
-        });
-        handleNoteUp();
+        activeKeysRef.current.delete(key);
+        setActiveKeys(new Set(activeKeysRef.current));
+        setActiveNote(null);
+        stopNoteInternal();
       }
     };
 
@@ -3894,103 +3994,16 @@ function PulseWave({ onBack, dark }) {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [activeKeys]);
-
-  const playNote = (freq, noteName) => {
-    const ctx = audioContextRef.current;
-    if (!ctx) return;
-
-    // Resume audio context if suspended (required for some browsers)
-    if (ctx.state === 'suspended') {
-      ctx.resume();
-    }
-
-    // Stop previous note
-    if (oscillatorRef.current) {
-      try {
-        const oldGain = gainNodeRef.current;
-        const oldOsc = oscillatorRef.current;
-        
-        // Quick fade out
-        if (oldGain) {
-          oldGain.gain.cancelScheduledValues(ctx.currentTime);
-          oldGain.gain.setValueAtTime(oldGain.gain.value, ctx.currentTime);
-          oldGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.01);
-        }
-        
-        setTimeout(() => {
-          try {
-            oldOsc.stop();
-          } catch (e) {}
-        }, 20);
-      } catch (e) {}
-    }
-
-    const now = ctx.currentTime;
-
-    // Create oscillator
-    const osc = ctx.createOscillator();
-    osc.type = oscType;
-    osc.frequency.setValueAtTime(freq, now);
-
-    // Create gain envelope
-    const gainNode = ctx.createGain();
-    gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(volume, now + attack);
-    gainNode.gain.linearRampToValueAtTime(volume * sustain, now + attack + decay);
-
-    // Create filter
-    const filter = ctx.createBiquadFilter();
-    filter.type = filterType;
-    filter.frequency.setValueAtTime(filterFreq, now);
-    filter.Q.setValueAtTime(filterQ, now);
-
-    // Connect: osc → filter → gain → destination
-    osc.connect(filter);
-    filter.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    osc.start(now);
-
-    oscillatorRef.current = osc;
-    gainNodeRef.current = gainNode;
-    filterNodeRef.current = filter;
-    currentNoteRef.current = noteName;
-  };
-
-  const stopNote = () => {
-    if (!oscillatorRef.current || !gainNodeRef.current) return;
-
-    const ctx = audioContextRef.current;
-    const now = ctx.currentTime;
-
-    // Release envelope
-    try {
-      gainNodeRef.current.gain.cancelScheduledValues(now);
-      gainNodeRef.current.gain.setValueAtTime(gainNodeRef.current.gain.value, now);
-      gainNodeRef.current.gain.linearRampToValueAtTime(0, now + release);
-    } catch (e) {}
-
-    const oscToStop = oscillatorRef.current;
-    setTimeout(() => {
-      try {
-        oscToStop.stop();
-      } catch (e) {}
-    }, release * 1000 + 100);
-
-    oscillatorRef.current = null;
-    gainNodeRef.current = null;
-    currentNoteRef.current = null;
-  };
+  }, [playNoteInternal, stopNoteInternal]);
 
   const handleNoteDown = (note) => {
     setActiveNote(note.name);
-    playNote(note.freq, note.name);
+    playNoteInternal(note.freq, note.name);
   };
 
   const handleNoteUp = () => {
     setActiveNote(null);
-    stopNote();
+    stopNoteInternal();
   };
 
   const exportSettings = () => {
