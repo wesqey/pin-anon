@@ -115,6 +115,13 @@ styleSheet.textContent = `
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
+  
+  /* Better font rendering */
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+  }
 `;
 if (!document.head.querySelector('style[data-carlisle]')) {
   styleSheet.setAttribute('data-carlisle', 'true');
@@ -3703,6 +3710,268 @@ function AdminPanel({ onClose, dark, user }) {
   );
 }
 
+// Pattern Library Component - Save/load/export/import patterns
+function PatternLibrary({ dark, onLoadPattern }) {
+  const [savedPatterns, setSavedPatterns] = useState(() => {
+    const saved = localStorage.getItem('carlisle_pattern_library');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [patternName, setPatternName] = useState('');
+  const [selectedPattern, setSelectedPattern] = useState(null);
+
+  // Auto-save to localStorage
+  React.useEffect(() => {
+    localStorage.setItem('carlisle_pattern_library', JSON.stringify(savedPatterns));
+  }, [savedPatterns]);
+
+  const saveCurrentPattern = () => {
+    if (!patternName.trim() || !selectedPattern) return;
+    
+    const newPattern = {
+      id: Date.now(),
+      name: patternName.trim(),
+      pattern: selectedPattern,
+      date: new Date().toISOString()
+    };
+    
+    setSavedPatterns([...savedPatterns, newPattern]);
+    setPatternName('');
+    setSelectedPattern(null);
+  };
+
+  const deletePattern = (id) => {
+    setSavedPatterns(savedPatterns.filter(p => p.id !== id));
+  };
+
+  const exportPattern = (pattern) => {
+    const dataStr = JSON.stringify(pattern, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${pattern.name.replace(/[^a-z0-9]/gi, '_')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportAll = () => {
+    const dataStr = JSON.stringify(savedPatterns, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `carlisle_patterns_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importPatterns = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const imported = JSON.parse(event.target.result);
+          if (Array.isArray(imported)) {
+            setSavedPatterns([...savedPatterns, ...imported]);
+          } else if (imported.pattern) {
+            setSavedPatterns([...savedPatterns, imported]);
+          }
+        } catch (err) {
+          console.error('Failed to import:', err);
+          alert('Invalid pattern file');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  return (
+    <div style={{ width: '480px', padding: '12px' }}>
+      {/* Header */}
+      <div style={{
+        marginBottom: '12px',
+        padding: '8px',
+        background: dark ? '#0a0a0a' : '#fafafa',
+        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+        textAlign: 'center'
+      }}>
+        <div style={{
+          fontSize: '10px',
+          fontWeight: '500',
+          letterSpacing: '0.15em',
+          color: dark ? '#fff' : '#000'
+        }}>
+          PATTERN LIBRARY
+        </div>
+        <div style={{
+          fontSize: '7px',
+          fontWeight: '500',
+          letterSpacing: '0.1em',
+          color: dark ? '#666' : '#999',
+          marginTop: '4px'
+        }}>
+          {savedPatterns.length} SAVED PATTERNS
+        </div>
+      </div>
+
+      {/* Import/Export All */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+        <button
+          onClick={importPatterns}
+          style={{
+            flex: 1,
+            fontSize: '8px',
+            fontWeight: '500',
+            letterSpacing: '0.1em',
+            padding: '8px',
+            background: dark ? '#fff' : '#000',
+            border: 'none',
+            cursor: 'pointer',
+            color: dark ? '#000' : '#fff'
+          }}
+        >
+          IMPORT
+        </button>
+        <button
+          onClick={exportAll}
+          disabled={savedPatterns.length === 0}
+          style={{
+            flex: 1,
+            fontSize: '8px',
+            fontWeight: '500',
+            letterSpacing: '0.1em',
+            padding: '8px',
+            background: savedPatterns.length > 0 ? (dark ? '#fff' : '#000') : 'none',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: savedPatterns.length > 0 ? 'pointer' : 'not-allowed',
+            color: savedPatterns.length > 0 ? (dark ? '#000' : '#fff') : (dark ? '#666' : '#999')
+          }}
+        >
+          EXPORT ALL
+        </button>
+      </div>
+
+      {/* Pattern List */}
+      <div style={{
+        maxHeight: '400px',
+        overflowY: 'auto',
+        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+        background: dark ? '#0a0a0a' : '#fafafa'
+      }}>
+        {savedPatterns.length === 0 ? (
+          <div style={{
+            padding: '20px',
+            textAlign: 'center',
+            fontSize: '8px',
+            fontWeight: '500',
+            color: dark ? '#666' : '#999'
+          }}>
+            NO PATTERNS SAVED YET
+            <div style={{ fontSize: '7px', fontWeight: '500', marginTop: '4px' }}>
+              COPY A PATTERN FROM GRIDSEQ, THEN NAME & SAVE IT HERE
+            </div>
+          </div>
+        ) : (
+          savedPatterns.map(pattern => (
+            <div
+              key={pattern.id}
+              style={{
+                padding: '10px',
+                borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}
+            >
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  fontSize: '9px',
+                  fontWeight: '600',
+                  color: dark ? '#fff' : '#000',
+                  marginBottom: '4px'
+                }}>
+                  {pattern.name}
+                </div>
+                <div style={{
+                  fontSize: '7px',
+                  fontWeight: '500',
+                  color: dark ? '#666' : '#999'
+                }}>
+                  {new Date(pattern.date).toLocaleDateString()}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  onClick={() => onLoadPattern?.(pattern.pattern)}
+                  style={{
+                    fontSize: '7px',
+                    fontWeight: '500',
+                    padding: '6px 10px',
+                    background: dark ? '#4ade80' : '#22c55e',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#000'
+                  }}
+                  title="Load into focused GridSeq"
+                >
+                  LOAD
+                </button>
+                <button
+                  onClick={() => exportPattern(pattern)}
+                  style={{
+                    fontSize: '7px',
+                    fontWeight: '500',
+                    padding: '6px 10px',
+                    background: 'none',
+                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    cursor: 'pointer',
+                    color: dark ? '#fff' : '#000'
+                  }}
+                >
+                  DL
+                </button>
+                <button
+                  onClick={() => deletePattern(pattern.id)}
+                  style={{
+                    fontSize: '7px',
+                    fontWeight: '500',
+                    padding: '6px 10px',
+                    background: '#ef4444',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#fff'
+                  }}
+                >
+                  DEL
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Help Text */}
+      <div style={{
+        marginTop: '10px',
+        fontSize: '7px',
+        fontWeight: '500',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999',
+        textAlign: 'center'
+      }}>
+        IMPORT/EXPORT JSON FILES • LOAD PATTERNS INTO GRIDSEQ • DL = DOWNLOAD SINGLE PATTERN
+      </div>
+    </div>
+  );
+}
+
 function Sandbox({ onBack, dark }) {
   const [windows, setWindows] = useState(() => {
     const saved = localStorage.getItem('carlisle_sandbox_windows');
@@ -3825,6 +4094,9 @@ function Sandbox({ onBack, dark }) {
     ]},
     { category: 'VISUALS', items: [
       { type: 'oscilloscope', name: 'OSCILLOSCOPE', description: 'WAVEFORM DISPLAY' }
+    ]},
+    { category: 'UTILITY', items: [
+      { type: 'patternlibrary', name: 'PATTERN LIBRARY', description: 'SAVE & LOAD PATTERNS' }
     ]}
   ];
 
@@ -4630,6 +4902,17 @@ function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType,
               analyser={analyser}
             />
           )}
+          {window.type === 'patternlibrary' && (
+            <PatternLibrary 
+              dark={dark}
+              onLoadPattern={(pattern) => {
+                // Load pattern into focused GridSeq
+                if (focusedInstrument && params) {
+                  onParamChange('pattern', pattern);
+                }
+              }}
+            />
+          )}
         </div>
       )}
     </div>
@@ -5221,42 +5504,59 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
       }}>
         {/* Pattern Slots (16) */}
         <div style={{ display: 'flex', gap: '2px', flex: 1 }}>
-          {Array(8).fill(0).map((_, i) => (
-            <button
-              key={i}
-              onClick={() => {
-                if (params.patternSlots[i]) {
-                  // Load pattern
-                  onParamChange('pattern', params.patternSlots[i]);
-                } else {
-                  // Save current pattern
-                  const newSlots = [...(params.patternSlots || Array(16).fill(null))];
-                  newSlots[i] = params.pattern;
+          {Array(8).fill(0).map((_, i) => {
+            const slots = params?.patternSlots || Array(16).fill(null);
+            const hasPattern = slots[i] !== null && slots[i] !== undefined;
+            return (
+              <button
+                key={i}
+                onClick={() => {
+                  console.log('Pattern slot clicked:', i, 'hasPattern:', hasPattern);
+                  if (hasPattern) {
+                    // Load pattern
+                    console.log('Loading pattern from slot', i);
+                    onParamChange('pattern', slots[i]);
+                  } else {
+                    // Save current pattern
+                    console.log('Saving pattern to slot', i);
+                    const newSlots = [...slots];
+                    newSlots[i] = JSON.parse(JSON.stringify(params.pattern)); // Deep clone
+                    onParamChange('patternSlots', newSlots);
+                  }
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  // Right-click to clear slot
+                  console.log('Clearing slot', i);
+                  const newSlots = [...slots];
+                  newSlots[i] = null;
                   onParamChange('patternSlots', newSlots);
-                }
-              }}
-              style={{
-                flex: 1,
-                fontSize: '6px',
-                padding: '4px 2px',
-                background: params.patternSlots?.[i] ? (dark ? '#4ade80' : '#22c55e') : 'none',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                cursor: 'pointer',
-                color: params.patternSlots?.[i] ? '#000' : (dark ? '#fff' : '#000')
-              }}
-              title={params.patternSlots?.[i] ? 'Click to load' : 'Click to save current pattern'}
-            >
-              {i + 1}
-            </button>
-          ))}
+                }}
+                style={{
+                  flex: 1,
+                  fontSize: '8px',
+                  fontWeight: '600',
+                  padding: '6px 2px',
+                  background: hasPattern ? (dark ? '#4ade80' : '#22c55e') : 'none',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: hasPattern ? '#000' : (dark ? '#fff' : '#000')
+                }}
+                title={hasPattern ? 'Click: Load | Right-click: Clear' : 'Click to save current pattern'}
+              >
+                {i + 1}
+              </button>
+            );
+          })}
         </div>
         
         {/* Copy/Paste/Randomize */}
         <button
           onClick={() => onParamChange('clipboard', params.pattern)}
           style={{
-            fontSize: '6px',
-            padding: '4px 8px',
+            fontSize: '8px',
+            fontWeight: '500',
+            padding: '6px 10px',
             background: 'none',
             border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
             cursor: 'pointer',
@@ -5273,8 +5573,9 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
             }
           }}
           style={{
-            fontSize: '6px',
-            padding: '4px 8px',
+            fontSize: '8px',
+            fontWeight: '500',
+            padding: '6px 10px',
             background: params.clipboard ? (dark ? '#fff' : '#000') : 'none',
             border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
             cursor: 'pointer',
@@ -5293,8 +5594,9 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
             onParamChange('pattern', newPattern);
           }}
           style={{
-            fontSize: '6px',
-            padding: '4px 8px',
+            fontSize: '8px',
+            fontWeight: '500',
+            padding: '6px 10px',
             background: 'none',
             border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
             cursor: 'pointer',
@@ -5309,8 +5611,9 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
             onParamChange('pattern', Array(5).fill(null).map(() => Array(16).fill(false)));
           }}
           style={{
-            fontSize: '6px',
-            padding: '4px 8px',
+            fontSize: '8px',
+            fontWeight: '500',
+            padding: '6px 10px',
             background: 'none',
             border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
             cursor: 'pointer',
@@ -5334,8 +5637,9 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
             onParamChange('pattern', fillPattern);
           }}
           style={{
-            fontSize: '6px',
-            padding: '4px 8px',
+            fontSize: '8px',
+            fontWeight: '500',
+            padding: '6px 10px',
             background: dark ? '#f59e0b' : '#fbbf24',
             border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
             cursor: 'pointer',
@@ -5347,28 +5651,108 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
         </button>
         
         {/* Swing Control */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: '80px' }}>
-          <div style={{ fontSize: '6px', color: dark ? '#999' : '#666' }}>SW</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: '100px' }}>
+          <div style={{ fontSize: '8px', fontWeight: '500', color: dark ? '#999' : '#666' }}>SWING</div>
           <input
             type="range"
             min="0"
             max="100"
             value={params.swing || 0}
             onChange={(e) => onParamChange('swing', parseInt(e.target.value))}
-            style={{ flex: 1, height: '4px' }}
+            style={{ flex: 1, height: '6px' }}
           />
-          <div style={{ fontSize: '6px', fontFamily: 'monospace', color: dark ? '#999' : '#666', width: '20px' }}>
+          <div style={{ fontSize: '8px', fontFamily: 'monospace', fontWeight: '600', color: dark ? '#999' : '#666', width: '25px' }}>
             {params.swing || 0}%
           </div>
         </div>
+        
+        {/* Pattern Library */}
+        <button
+          onClick={() => {
+            // Export current pattern to library
+            const library = JSON.parse(localStorage.getItem('carlisle_pattern_library') || '[]');
+            const patternName = prompt('Name this pattern:', `Pattern ${library.length + 1}`);
+            if (patternName) {
+              library.push({
+                name: patternName,
+                pattern: params.pattern,
+                probabilities: params.stepProbabilities,
+                timestamp: Date.now()
+              });
+              localStorage.setItem('carlisle_pattern_library', JSON.stringify(library));
+              alert('Pattern saved to library!');
+            }
+          }}
+          style={{
+            fontSize: '8px',
+            fontWeight: '500',
+            padding: '6px 10px',
+            background: dark ? '#3b82f6' : '#60a5fa',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: 'pointer',
+            color: dark ? '#fff' : '#000'
+          }}
+          title="Save to pattern library"
+        >
+          💾 SAVE
+        </button>
+        <button
+          onClick={() => {
+            // Show pattern library
+            const library = JSON.parse(localStorage.getItem('carlisle_pattern_library') || '[]');
+            if (library.length === 0) {
+              alert('Pattern library is empty. Save some patterns first!');
+              return;
+            }
+            
+            const choice = prompt(
+              `Pattern Library:\n\n` +
+              library.map((p, i) => `${i + 1}. ${p.name} (${new Date(p.timestamp).toLocaleDateString()})`).join('\n') +
+              `\n\nEnter number to load (or 0 to download all as JSON):`,
+              '1'
+            );
+            
+            if (choice === '0') {
+              // Download all patterns as JSON
+              const blob = new Blob([JSON.stringify(library, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `carlisle-patterns-${Date.now()}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            } else {
+              const index = parseInt(choice) - 1;
+              if (index >= 0 && index < library.length) {
+                onParamChange('pattern', library[index].pattern);
+                if (library[index].probabilities) {
+                  onParamChange('stepProbabilities', library[index].probabilities);
+                }
+              }
+            }
+          }}
+          style={{
+            fontSize: '8px',
+            fontWeight: '500',
+            padding: '6px 10px',
+            background: dark ? '#8b5cf6' : '#a78bfa',
+            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+            cursor: 'pointer',
+            color: dark ? '#fff' : '#000'
+          }}
+          title="Load from pattern library or export"
+        >
+          📂 LOAD
+        </button>
       </div>
 
       {/* Track Info */}
       <div style={{ 
-        fontSize: '6px', 
-        letterSpacing: '0.1em', 
-        color: dark ? '#666' : '#999',
-        marginBottom: '6px',
+        fontSize: '8px',
+        fontWeight: '500',
+        letterSpacing: '0.08em', 
+        color: dark ? '#999' : '#666',
+        marginBottom: '8px',
         textAlign: 'center'
       }}>
         SELECTED: {tracks[params?.selectedTrack || 0].name}
@@ -5447,7 +5831,7 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
                 onClick={() => onParamChange('selectedTrack', trackIndex)}
                 style={{
                   flex: 1,
-                  fontSize: '6px',
+                  fontSize: '8px', fontWeight: '500',
                   letterSpacing: '0.05em',
                   color: params?.selectedTrack === trackIndex ? (dark ? '#000' : '#fff') : (dark ? '#999' : '#666'),
                   background: params?.selectedTrack === trackIndex ? (dark ? '#fff' : '#000') : 'none',
@@ -5459,7 +5843,7 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
                 }}
               >
                 <div style={{ fontWeight: '500', marginBottom: '1px' }}>{track.name}</div>
-                <div style={{ fontSize: '5px' }}>{presetLibrary[track.type][track.preset].name}</div>
+                <div style={{ fontSize: '7px', fontWeight: '500' }}>{presetLibrary[track.type][track.preset].name}</div>
               </button>
               <button
                 onClick={() => changePreset(trackIndex, 'next')}
@@ -5523,13 +5907,17 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
       </div>
 
       <div style={{
-        marginTop: '6px',
-        fontSize: '5px',
+        marginTop: '8px',
+        fontSize: '7px',
+        fontWeight: '500',
         letterSpacing: '0.05em',
         color: dark ? '#666' : '#999',
-        textAlign: 'center'
+        textAlign: 'center',
+        lineHeight: '1.4'
       }}>
-        M=MUTE S=SOLO • SHIFT+CLICK STEP=PROBABILITY • 1-8=SAVE/LOAD PATTERN • CPY/PST/RND/CLR • SW=SWING
+        M=MUTE S=SOLO • SHIFT+CLICK STEP=PROBABILITY • 1-8=QUICK SLOTS • RIGHT-CLICK SLOT=CLEAR
+        <br />
+        💾=SAVE TO LIBRARY • 📂=LOAD/EXPORT • CPY/PST/RND/CLR/FILL • SWING=GROOVE
       </div>
     </div>
   );
@@ -5585,7 +5973,7 @@ function DragKnob({ label, value, min, max, step, onChange, unit = '', dark }) {
   return (
     <div style={{ marginBottom: '8px', textAlign: 'center' }}>
       <div style={{
-        fontSize: '6px',
+        fontSize: '8px', fontWeight: '500',
         letterSpacing: '0.1em',
         color: dark ? '#666' : '#999',
         marginBottom: '4px'
@@ -5699,7 +6087,7 @@ function GridSeqMixerControls({ dark, params, onParamChange }) {
         {/* COLUMN 1: DYNAMICS */}
         <div>
           <div style={{
-            fontSize: '6px',
+            fontSize: '8px', fontWeight: '500',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
             marginBottom: '8px',
@@ -5718,7 +6106,7 @@ function GridSeqMixerControls({ dark, params, onParamChange }) {
         {/* COLUMN 2: SYNTH */}
         <div>
           <div style={{
-            fontSize: '6px',
+            fontSize: '8px', fontWeight: '500',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
             marginBottom: '8px',
@@ -5738,7 +6126,7 @@ function GridSeqMixerControls({ dark, params, onParamChange }) {
         {/* COLUMN 3: EQ */}
         <div>
           <div style={{
-            fontSize: '6px',
+            fontSize: '8px', fontWeight: '500',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
             marginBottom: '8px',
@@ -5758,7 +6146,7 @@ function GridSeqMixerControls({ dark, params, onParamChange }) {
         {/* COLUMN 4: FX */}
         <div>
           <div style={{
-            fontSize: '6px',
+            fontSize: '8px', fontWeight: '500',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
             marginBottom: '8px',
@@ -5778,7 +6166,7 @@ function GridSeqMixerControls({ dark, params, onParamChange }) {
         {/* COLUMN 5: LFO + MOD */}
         <div>
           <div style={{
-            fontSize: '6px',
+            fontSize: '8px', fontWeight: '500',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
             marginBottom: '8px',
@@ -5799,7 +6187,7 @@ function GridSeqMixerControls({ dark, params, onParamChange }) {
       {/* Footer */}
       <div style={{
         marginTop: '10px',
-        fontSize: '5px',
+        fontSize: '7px', fontWeight: '500',
         letterSpacing: '0.05em',
         color: dark ? '#666' : '#999',
         textAlign: 'center'
@@ -5838,7 +6226,7 @@ function PulseWaveControls({ dark, params, onParamChange }) {
         {/* COLUMN 1: OSC */}
         <div>
           <div style={{
-            fontSize: '6px',
+            fontSize: '8px', fontWeight: '500',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
             marginBottom: '8px',
@@ -5851,14 +6239,14 @@ function PulseWaveControls({ dark, params, onParamChange }) {
           
           {/* Wave type selector */}
           <div style={{ marginBottom: '8px' }}>
-            <div style={{ fontSize: '5px', color: dark ? '#666' : '#999', marginBottom: '4px', textAlign: 'center' }}>WAVE</div>
+            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#666' : '#999', marginBottom: '4px', textAlign: 'center' }}>WAVE</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px' }}>
               {['sine', 'square', 'saw', 'tri'].map(type => (
                 <button
                   key={type}
                   onClick={() => onParamChange('oscType', type === 'saw' ? 'sawtooth' : type === 'tri' ? 'triangle' : type)}
                   style={{
-                    fontSize: '5px',
+                    fontSize: '7px', fontWeight: '500',
                     padding: '4px 2px',
                     background: params.oscType === (type === 'saw' ? 'sawtooth' : type === 'tri' ? 'triangle' : type) ? (dark ? '#fff' : '#000') : 'none',
                     border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
@@ -5879,7 +6267,7 @@ function PulseWaveControls({ dark, params, onParamChange }) {
         {/* COLUMN 2: ENVELOPE */}
         <div>
           <div style={{
-            fontSize: '6px',
+            fontSize: '8px', fontWeight: '500',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
             marginBottom: '8px',
@@ -5899,7 +6287,7 @@ function PulseWaveControls({ dark, params, onParamChange }) {
         {/* COLUMN 3: FILTER */}
         <div>
           <div style={{
-            fontSize: '6px',
+            fontSize: '8px', fontWeight: '500',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
             marginBottom: '8px',
@@ -5912,7 +6300,7 @@ function PulseWaveControls({ dark, params, onParamChange }) {
           
           {/* Filter type */}
           <div style={{ marginBottom: '8px' }}>
-            <div style={{ fontSize: '5px', color: dark ? '#666' : '#999', marginBottom: '4px', textAlign: 'center' }}>TYPE</div>
+            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#666' : '#999', marginBottom: '4px', textAlign: 'center' }}>TYPE</div>
             <div style={{ display: 'flex', gap: '2px' }}>
               {['LP', 'HP', 'BP'].map((type, i) => (
                 <button
@@ -5920,7 +6308,7 @@ function PulseWaveControls({ dark, params, onParamChange }) {
                   onClick={() => onParamChange('filterType', ['lowpass', 'highpass', 'bandpass'][i])}
                   style={{
                     flex: 1,
-                    fontSize: '5px',
+                    fontSize: '7px', fontWeight: '500',
                     padding: '4px 2px',
                     background: params.filterType === ['lowpass', 'highpass', 'bandpass'][i] ? (dark ? '#fff' : '#000') : 'none',
                     border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
@@ -5941,7 +6329,7 @@ function PulseWaveControls({ dark, params, onParamChange }) {
         {/* COLUMN 4: MOD */}
         <div>
           <div style={{
-            fontSize: '6px',
+            fontSize: '8px', fontWeight: '500',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
             marginBottom: '8px',
@@ -5961,7 +6349,7 @@ function PulseWaveControls({ dark, params, onParamChange }) {
         {/* COLUMN 5: LFO */}
         <div>
           <div style={{
-            fontSize: '6px',
+            fontSize: '8px', fontWeight: '500',
             letterSpacing: '0.12em',
             color: dark ? '#999' : '#666',
             marginBottom: '8px',
@@ -5977,14 +6365,14 @@ function PulseWaveControls({ dark, params, onParamChange }) {
           
           {/* LFO Wave selector */}
           <div style={{ marginBottom: '8px', marginTop: '8px' }}>
-            <div style={{ fontSize: '5px', color: dark ? '#666' : '#999', marginBottom: '4px', textAlign: 'center' }}>WAVE</div>
+            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#666' : '#999', marginBottom: '4px', textAlign: 'center' }}>WAVE</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px' }}>
               {['sine', 'square', 'saw', 'tri'].map(type => (
                 <button
                   key={type}
                   onClick={() => onParamChange('lfoWave', type === 'saw' ? 'sawtooth' : type === 'tri' ? 'triangle' : type)}
                   style={{
-                    fontSize: '5px',
+                    fontSize: '7px', fontWeight: '500',
                     padding: '4px 2px',
                     background: (params.lfoWave || 'sine') === (type === 'saw' ? 'sawtooth' : type === 'tri' ? 'triangle' : type) ? (dark ? '#fff' : '#000') : 'none',
                     border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
@@ -6003,7 +6391,7 @@ function PulseWaveControls({ dark, params, onParamChange }) {
       {/* Footer */}
       <div style={{
         marginTop: '10px',
-        fontSize: '5px',
+        fontSize: '7px', fontWeight: '500',
         letterSpacing: '0.05em',
         color: dark ? '#666' : '#999',
         textAlign: 'center'
