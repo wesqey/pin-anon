@@ -4215,7 +4215,11 @@ function Sandbox({ onBack, dark }) {
         contour: 0.5,
         shape: 0,
         pan: 0,
-        drive: 0
+        drive: 0,
+        // Routing
+        routingEnabled: false,
+        routingTarget: null, // GridSeq window ID
+        routingTrack: 0 // Which track (0=kick, 1=snare, etc)
       };
       
       setInstrumentParams(new Map(instrumentParams.set(nextId, defaultParams)));
@@ -4814,6 +4818,8 @@ function Sandbox({ onBack, dark }) {
               audioContext={audioContextRef.current}
               masterGain={masterGainRef.current}
               analyser={analyserRef.current}
+              windows={windows}
+              instrumentParams={instrumentParams}
               onDragStart={(e) => handleDragStart(e, window.id)}
               onClose={() => removeWindow(window.id)}
               onToggleMinimize={() => toggleMinimize(window.id)}
@@ -4837,7 +4843,7 @@ function Sandbox({ onBack, dark }) {
   );
 }
 
-function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType, audioContext, masterGain, analyser, onDragStart, onClose, onToggleMinimize, onFocus, onParamChange }) {
+function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType, audioContext, masterGain, analyser, windows, instrumentParams, onDragStart, onClose, onToggleMinimize, onFocus, onParamChange }) {
   const isInstrument = window.type === 'pulsewave' || window.type === 'gridseq';
   
   return (
@@ -4926,6 +4932,8 @@ function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType,
               params={params} 
               audioContext={audioContext}
               masterGain={masterGain}
+              windows={windows}
+              instrumentParams={instrumentParams}
               onParamChange={onParamChange}
             />
           )}
@@ -4970,7 +4978,7 @@ function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType,
 }
 
 // Minimal PulseWave - just keyboard + octave
-function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChange }) {
+function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, instrumentParams, onParamChange }) {
   const [activeNotes, setActiveNotes] = useState(new Set());
   const voicesRef = React.useRef(new Map());
 
@@ -5005,6 +5013,115 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
     const freq = getFrequency(offset, params.octave);
     const now = audioContext.currentTime;
 
+    // ROUTING MODE: Play drum sound at keyboard pitch (Salem "Trapdoor" style!)
+    if (params.routingEnabled && params.routingTarget && instrumentParams) {
+      const targetParams = instrumentParams.get(params.routingTarget);
+      if (targetParams && targetParams.tracks) {
+        const trackIndex = params.routingTrack || 0;
+        const mixerTrack = targetParams.tracks[trackIndex];
+        
+        // Create full drum synthesis chain at keyboard frequency
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        const driveGain = audioContext.createGain();
+        const volumeGain = audioContext.createGain();
+        const panner = audioContext.createStereoPanner();
+        
+        // Use mixer settings
+        const decay = mixerTrack?.decay || 0.5;
+        const volume = (mixerTrack?.volume || 0.8) * (mixerTrack?.gain || 1.0) * 0.3;
+        const oscType = mixerTrack?.shape > 0.66 ? 'square' : mixerTrack?.shape > 0.33 ? 'sawtooth' : 'sine';
+        const sweepAmount = (mixerTrack?.sweep || 0) * 2000;
+        const driveAmount = 1 + ((mixerTrack?.drive || 0) * 2);
+        const contour = mixerTrack?.contour || 0.5;
+        
+        osc.type = oscType;
+        
+        // Apply EQ chain
+        let currentNode = gain;
+        
+        // High-pass filter
+        if (mixerTrack?.highpass > 0) {
+          const hpf = audioContext.createBiquadFilter();
+          hpf.type = 'highpass';
+          hpf.frequency.value = mixerTrack.highpass;
+          gain.connect(hpf);
+          currentNode = hpf;
+        }
+        
+        // 3-band EQ
+        if (mixerTrack?.eqLow !== 0) {
+          const lowShelf = audioContext.createBiquadFilter();
+          lowShelf.type = 'lowshelf';
+          lowShelf.frequency.value = 200;
+          lowShelf.gain.value = mixerTrack.eqLow;
+          currentNode.connect(lowShelf);
+          currentNode = lowShelf;
+        }
+        
+        if (mixerTrack?.eqMid !== 0) {
+          const midPeak = audioContext.createBiquadFilter();
+          midPeak.type = 'peaking';
+          midPeak.frequency.value = 1000;
+          midPeak.Q.value = 1;
+          midPeak.gain.value = mixerTrack.eqMid;
+          currentNode.connect(midPeak);
+          currentNode = midPeak;
+        }
+        
+        if (mixerTrack?.eqHigh !== 0) {
+          const highShelf = audioContext.createBiquadFilter();
+          highShelf.type = 'highshelf';
+          highShelf.frequency.value = 4000;
+          highShelf.gain.value = mixerTrack.eqHigh;
+          currentNode.connect(highShelf);
+          currentNode = highShelf;
+        }
+        
+        currentNode.connect(driveGain);
+        driveGain.connect(volumeGain);
+        volumeGain.connect(panner);
+        
+        // Frequency with pitch envelope (kick-style)
+        if (trackIndex === 0) { // KICK - pitch envelope down
+          osc.frequency.setValueAtTime(freq + sweepAmount, now);
+          osc.frequency.exponentialRampToValueAtTime(Math.max(50, freq * 0.3), now + 0.1);
+        } else { // OTHER DRUMS - optional sweep
+          osc.frequency.setValueAtTime(freq + sweepAmount, now);
+          if (sweepAmount !== 0) {
+            osc.frequency.exponentialRampToValueAtTime(Math.max(50, freq), now + decay * 0.5);
+          }
+        }
+        
+        // Gain envelope with contour
+        if (contour > 0.5) {
+          gain.gain.setValueAtTime(volume, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + decay);
+        } else {
+          gain.gain.setValueAtTime(volume, now);
+          gain.gain.linearRampToValueAtTime(0, now + decay);
+        }
+        
+        driveGain.gain.value = driveAmount;
+        volumeGain.gain.value = 1;
+        panner.pan.value = mixerTrack?.pan || 0;
+        
+        osc.connect(gain);
+        const finalDestination = masterGain || audioContext.destination;
+        panner.connect(finalDestination);
+        
+        osc.start(now);
+        osc.stop(now + decay);
+        
+        // Store for cleanup
+        voicesRef.current.set(noteName, { osc, gainNode: gain, panner });
+        setActiveNotes(new Set([...voicesRef.current.keys()]));
+        
+        return; // Exit early - we played drum sound
+      }
+    }
+
+    // NORMAL MODE: Play synth sound
     const osc = audioContext.createOscillator();
     osc.type = params.oscType;
     osc.frequency.setValueAtTime(freq, now);
@@ -5218,6 +5335,120 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
         </button>
       </div>
 
+      {/* ROUTING CONTROLS */}
+      <div style={{
+        marginBottom: '20px',
+        padding: '12px',
+        background: dark ? '#0a0a0a' : '#fafafa',
+        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+      }}>
+        <div style={{
+          fontSize: '8px',
+          fontWeight: '600',
+          letterSpacing: '0.15em',
+          color: dark ? '#fff' : '#000',
+          marginBottom: '12px',
+          textAlign: 'center'
+        }}>
+          KEYBOARD ROUTING • MELODIC DRUMS
+        </div>
+        
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Enable/Disable */}
+          <button
+            onClick={() => onParamChange('routingEnabled', !params.routingEnabled)}
+            style={{
+              fontSize: '8px',
+              fontWeight: '600',
+              letterSpacing: '0.1em',
+              padding: '8px 16px',
+              background: params.routingEnabled ? (dark ? '#4ade80' : '#22c55e') : 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: params.routingEnabled ? '#000' : (dark ? '#fff' : '#000')
+            }}
+          >
+            {params.routingEnabled ? '✓ ROUTING ON' : 'ROUTING OFF'}
+          </button>
+
+          {/* Target GridSeq */}
+          {windows && windows.filter(w => w.type === 'gridseq').length > 0 && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>TARGET:</div>
+                <select
+                  value={params.routingTarget || ''}
+                  onChange={(e) => onParamChange('routingTarget', parseInt(e.target.value))}
+                  style={{
+                    fontSize: '8px',
+                    fontWeight: '500',
+                    padding: '6px 8px',
+                    background: dark ? '#1a1a1a' : '#fff',
+                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    color: dark ? '#fff' : '#000',
+                    cursor: 'pointer'
+                  }}
+                  disabled={!params.routingEnabled}
+                >
+                  <option value="">Select GridSeq...</option>
+                  {windows.filter(w => w.type === 'gridseq').map(w => (
+                    <option key={w.id} value={w.id}>GridSeq #{w.id}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Track Selection */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>DRUM:</div>
+                <select
+                  value={params.routingTrack || 0}
+                  onChange={(e) => onParamChange('routingTrack', parseInt(e.target.value))}
+                  style={{
+                    fontSize: '8px',
+                    fontWeight: '500',
+                    padding: '6px 8px',
+                    background: dark ? '#1a1a1a' : '#fff',
+                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                    color: dark ? '#fff' : '#000',
+                    cursor: 'pointer'
+                  }}
+                  disabled={!params.routingEnabled}
+                >
+                  <option value={0}>KICK (Bass)</option>
+                  <option value={1}>SNARE</option>
+                  <option value={2}>HAT</option>
+                  <option value={3}>PERC</option>
+                  <option value={4}>FX</option>
+                </select>
+              </div>
+            </>
+          )}
+          
+          {windows && windows.filter(w => w.type === 'gridseq').length === 0 && (
+            <div style={{
+              fontSize: '7px',
+              fontWeight: '500',
+              color: dark ? '#666' : '#999',
+              fontStyle: 'italic'
+            }}>
+              Add a GridSeq to enable routing
+            </div>
+          )}
+        </div>
+        
+        {params.routingEnabled && params.routingTarget && (
+          <div style={{
+            marginTop: '12px',
+            fontSize: '7px',
+            fontWeight: '500',
+            color: dark ? '#4ade80' : '#22c55e',
+            textAlign: 'center'
+          }}>
+            🎹 Playing {['KICK', 'SNARE', 'HAT', 'PERC', 'FX'][params.routingTrack || 0]} melodically via keyboard
+          </div>
+        )}
+      </div>
+
       {/* Keyboard */}
       <div style={{
         display: 'flex',
@@ -5288,6 +5519,23 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
             />
           );
         })}
+      </div>
+      
+      {/* Help text */}
+      <div style={{
+        marginTop: '12px',
+        fontSize: '7px',
+        fontWeight: '500',
+        letterSpacing: '0.05em',
+        color: dark ? '#666' : '#999',
+        textAlign: 'center',
+        lineHeight: '1.4'
+      }}>
+        {params.routingEnabled && params.routingTarget ? (
+          <>ROUTING MODE: Playing drum sounds melodically • Adjust GridSeq mixer for tone</>
+        ) : (
+          <>QWERTY KEYS: A-K = Notes • ROUTING: Play drums like Salem "Trapdoor" bass • PANIC stops all</>
+        )}
       </div>
     </div>
   );
