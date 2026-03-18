@@ -5321,7 +5321,10 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
       { name: 'AFRO', freq: 120, decay: 0.55, type: 'triangle' },    // Afrobeat
       { name: 'SALEM', freq: 85, decay: 0.9, type: 'square' },       // Witch house - distorted, heavy
       { name: 'LOFI', freq: 110, decay: 0.6, type: 'triangle' },     // Lo-fi degraded
-      { name: 'WITCH', freq: 65, decay: 1.2, type: 'sine' }          // Deep sub witch house
+      { name: 'WITCH', freq: 65, decay: 1.2, type: 'sine' },         // Deep sub witch house
+      { name: 'DRAIN', freq: 180, decay: 0.35, type: 'square' },     // Draingang compressed
+      { name: 'MECHA', freq: 160, decay: 0.28, type: 'square' },     // Mechatok hard
+      { name: 'HYPER', freq: 190, decay: 0.32, type: 'square' }      // Hyperpop distorted
     ],
     snare: [
       { name: 'TRAP', freq: 350, decay: 0.12, type: 'square' },      // Trap
@@ -5336,19 +5339,25 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
       { name: 'LIVE', freq: 200, decay: 0.2, type: 'sine' },         // Acoustic-like
       { name: 'CRACK', freq: 6500, decay: 0.06, type: 'square' },    // Vinyl texture
       { name: 'WITCH', freq: 240, decay: 0.35, type: 'square' },     // Reverby witch house
-      { name: 'NOISE', freq: 5000, decay: 0.08, type: 'square' }     // White noise snare
+      { name: 'NOISE', freq: 5000, decay: 0.08, type: 'square' },    // White noise snare
+      { name: 'PITCH', freq: 450, decay: 0.1, type: 'square' },      // Draingang pitched snare
+      { name: 'METAL', freq: 1800, decay: 0.07, type: 'square' },    // Mechatok metallic
+      { name: 'GLITCH', freq: 3200, decay: 0.05, type: 'square' }    // Hyperpop glitchy
     ],
     hat: [
-      { name: 'TRAP', freq: 9000, decay: 0.04, type: 'square' },     // Trap
-      { name: 'JUNGLE', freq: 10000, decay: 0.03, type: 'square' },  // Jungle
-      { name: 'OPEN', freq: 8500, decay: 0.2, type: 'square' },      // House open
-      { name: 'GARAGE', freq: 9500, decay: 0.06, type: 'square' },   // UK Garage
-      { name: 'TECHNO', freq: 11000, decay: 0.035, type: 'square' }, // Techno
-      { name: 'DARK', freq: 7000, decay: 0.08, type: 'square' },     // Dubstep
-      { name: 'JUKE', freq: 12000, decay: 0.05, type: 'square' },    // Footwork
-      { name: '808', freq: 8000, decay: 0.05, type: 'square' },      // Classic
-      { name: 'TRANCE', freq: 10500, decay: 0.15, type: 'sawtooth' },// Trance
-      { name: 'JERSEY', freq: 13000, decay: 0.04, type: 'square' }   // Jersey Club
+      { name: 'TRAP', freq: 6000, decay: 0.04, type: 'square' },     // Trap - lowered from 9000
+      { name: 'JUNGLE', freq: 6800, decay: 0.03, type: 'square' },   // Jungle - lowered from 10000
+      { name: 'OPEN', freq: 5500, decay: 0.2, type: 'square' },      // House open - lowered from 8500
+      { name: 'GARAGE', freq: 6200, decay: 0.06, type: 'square' },   // UK Garage - lowered from 9500
+      { name: 'TECHNO', freq: 7000, decay: 0.035, type: 'square' },  // Techno - lowered from 11000
+      { name: 'DARK', freq: 4500, decay: 0.08, type: 'square' },     // Dubstep - lowered from 7000
+      { name: 'JUKE', freq: 7500, decay: 0.05, type: 'square' },     // Footwork - lowered from 12000
+      { name: '808', freq: 5000, decay: 0.05, type: 'square' },      // Classic - lowered from 8000
+      { name: 'TRANCE', freq: 6500, decay: 0.15, type: 'sawtooth' }, // Trance - lowered from 10500
+      { name: 'JERSEY', freq: 7800, decay: 0.04, type: 'square' },   // Jersey Club - lowered from 13000
+      { name: 'METAL', freq: 8500, decay: 0.025, type: 'square' },   // Draingang metallic
+      { name: 'GLITCH', freq: 9000, decay: 0.02, type: 'square' },   // Mechatok glitchy
+      { name: 'CRYSTAL', freq: 8000, decay: 0.06, type: 'triangle' } // Ethereal cloud rap
     ],
     perc: [
       { name: 'CONGA', freq: 220, decay: 0.3, type: 'sine' },        // Latin
@@ -5360,7 +5369,10 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
       { name: 'WHISTLE', freq: 2500, decay: 0.12, type: 'sine' },    // Baile Funk
       { name: 'CLICK', freq: 1800, decay: 0.05, type: 'square' },    // Jersey Club
       { name: 'GRIME', freq: 400, decay: 0.1, type: 'square' },      // Grime
-      { name: 'BELL', freq: 900, decay: 0.4, type: 'sine' }          // Dancehall
+      { name: 'BELL', freq: 900, decay: 0.4, type: 'sine' },         // Dancehall
+      { name: 'SHAKER', freq: 6000, decay: 0.06, type: 'square' },   // Draingang shaker
+      { name: 'STICK', freq: 1500, decay: 0.04, type: 'square' },    // Mechatok stick
+      { name: 'CHAIN', freq: 3500, decay: 0.08, type: 'triangle' }   // Hyperpop chain
     ],
     fx: [
       { name: 'HORN', freq: 600, decay: 0.2, type: 'sawtooth' },     // Trap airhorn
@@ -5375,7 +5387,12 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
       { name: 'SCREECH', freq: 500, decay: 0.15, type: 'square' },   // Hardstyle
       { name: 'VINYL', freq: 4200, decay: 0.08, type: 'square' },    // Vinyl crackle/noise
       { name: 'DRONE', freq: 55, decay: 2.0, type: 'sine' },         // Dark ambient drone
-      { name: 'PAD', freq: 220, decay: 1.5, type: 'triangle' }       // Shlohmo ambient pad
+      { name: 'PAD', freq: 220, decay: 1.5, type: 'triangle' },      // Shlohmo ambient pad
+      { name: 'CLAP', freq: 1400, decay: 0.12, type: 'square' },     // Trap clap - bright
+      { name: 'CLAP2', freq: 1000, decay: 0.15, type: 'triangle' },  // Witch house clap - dark
+      { name: 'SNAP', freq: 2200, decay: 0.08, type: 'square' },     // Hyperpop snap
+      { name: 'CHROME', freq: 3000, decay: 0.1, type: 'sawtooth' },  // Draingang metallic perc
+      { name: 'GLASS', freq: 4500, decay: 0.12, type: 'triangle' }   // Mechatok glass shatter
     ]
   };
 
