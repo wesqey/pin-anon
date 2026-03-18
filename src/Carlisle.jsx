@@ -4997,6 +4997,11 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
   const playNote = (noteName, offset) => {
     if (!audioContext || !params) return;
 
+    // Stop any existing note with this name first
+    if (voicesRef.current.has(noteName)) {
+      stopNote(noteName);
+    }
+
     const freq = getFrequency(offset, params.octave);
     const now = audioContext.currentTime;
 
@@ -5012,18 +5017,26 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
     const sustainLevel = params.volume * params.sustain;
     gainNode.gain.linearRampToValueAtTime(sustainLevel, now + params.attack + params.decay);
     
-    // Auto-release after max time if sustain isn't maxed
-    if (params.sustain < 0.99) {
-      const maxNoteTime = params.attack + params.decay + 10; // Max 10 seconds
-      gainNode.gain.linearRampToValueAtTime(0, now + maxNoteTime);
-      setTimeout(() => {
-        try {
-          osc.stop();
+    // ALWAYS add a safety auto-release (even for high sustain)
+    // High sustain = 30 seconds max, low sustain = 10 seconds max
+    const maxNoteTime = params.sustain >= 0.99 ? 30 : (params.attack + params.decay + 10);
+    
+    // Schedule auto-release
+    gainNode.gain.linearRampToValueAtTime(0, now + maxNoteTime);
+    
+    // Timeout to stop oscillator and cleanup
+    const timeoutId = setTimeout(() => {
+      try {
+        if (voicesRef.current.has(noteName)) {
+          const voice = voicesRef.current.get(noteName);
+          voice.osc.stop();
           voicesRef.current.delete(noteName);
           setActiveNotes(new Set([...voicesRef.current.keys()]));
-        } catch (e) {}
-      }, maxNoteTime * 1000);
-    }
+        }
+      } catch (e) {
+        console.log('Auto-release cleanup error:', e);
+      }
+    }, maxNoteTime * 1000 + 100);
 
     const filter = audioContext.createBiquadFilter();
     filter.type = params.filterType;
@@ -5044,7 +5057,8 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
       osc, 
       gainNode, 
       filter, 
-      params: { ...params } // Store snapshot of params
+      params: { ...params }, // Store snapshot of params
+      timeoutId // Store timeout ID so we can clear it
     });
     setActiveNotes(new Set([...voicesRef.current.keys()]));
   };
@@ -5056,18 +5070,29 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
     const now = audioContext.currentTime;
     const releaseTime = voice.params?.release || 0.3; // Use stored params
 
+    // Clear the auto-release timeout
+    if (voice.timeoutId) {
+      clearTimeout(voice.timeoutId);
+    }
+
     try {
       voice.gainNode.gain.cancelScheduledValues(now);
       voice.gainNode.gain.setValueAtTime(voice.gainNode.gain.value, now);
       voice.gainNode.gain.linearRampToValueAtTime(0, now + releaseTime);
-    } catch (e) {}
+    } catch (e) {
+      console.log('Stop note error:', e);
+    }
 
     setTimeout(() => {
       try {
-        voice.osc.stop();
-      } catch (e) {}
-      voicesRef.current.delete(noteName);
-      setActiveNotes(new Set([...voicesRef.current.keys()]));
+        if (voicesRef.current.has(noteName)) {
+          voice.osc.stop();
+          voicesRef.current.delete(noteName);
+          setActiveNotes(new Set([...voicesRef.current.keys()]));
+        }
+      } catch (e) {
+        console.log('Cleanup error:', e);
+      }
     }, releaseTime * 1000 + 100);
   };
 
@@ -5099,6 +5124,24 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [params, audioContext]);
+
+  // Cleanup all voices on unmount
+  React.useEffect(() => {
+    return () => {
+      // Stop all playing notes when component unmounts
+      voicesRef.current.forEach((voice, noteName) => {
+        try {
+          if (voice.timeoutId) {
+            clearTimeout(voice.timeoutId);
+          }
+          voice.osc.stop();
+        } catch (e) {
+          console.log('Unmount cleanup error:', e);
+        }
+      });
+      voicesRef.current.clear();
+    };
+  }, []);
 
   return (
     <div style={{ width: '400px' }}>
@@ -5133,6 +5176,46 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, onParamChang
             {oct}
           </button>
         ))}
+        
+        {/* PANIC button - stops all notes */}
+        <button
+          onClick={() => {
+            // Stop all playing notes immediately
+            voicesRef.current.forEach((voice, noteName) => {
+              try {
+                if (voice.timeoutId) {
+                  clearTimeout(voice.timeoutId);
+                }
+                const now = audioContext.currentTime;
+                voice.gainNode.gain.cancelScheduledValues(now);
+                voice.gainNode.gain.setValueAtTime(voice.gainNode.gain.value, now);
+                voice.gainNode.gain.linearRampToValueAtTime(0, now + 0.01); // Fast fade
+                setTimeout(() => {
+                  try {
+                    voice.osc.stop();
+                  } catch (e) {}
+                }, 50);
+              } catch (e) {
+                console.log('Panic error:', e);
+              }
+            });
+            voicesRef.current.clear();
+            setActiveNotes(new Set());
+          }}
+          style={{
+            fontSize: '8px',
+            letterSpacing: '0.1em',
+            padding: '6px 12px',
+            background: '#ef4444',
+            border: 'none',
+            cursor: 'pointer',
+            color: '#fff',
+            marginLeft: 'auto'
+          }}
+          title="Stop all notes immediately"
+        >
+          PANIC
+        </button>
       </div>
 
       {/* Keyboard */}
