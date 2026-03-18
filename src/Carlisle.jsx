@@ -4006,6 +4006,8 @@ function Sandbox({ onBack, dark }) {
   const [isRecording, setIsRecording] = useState(false);
   const [vuLevel, setVuLevel] = useState(0);
   const [tapBPM, setTapBPM] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const sandboxRef = React.useRef(null);
 
   // Auto-save windows
   React.useEffect(() => {
@@ -4305,6 +4307,27 @@ function Sandbox({ onBack, dark }) {
     }, 2000);
   };
 
+  // Fullscreen toggle
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      sandboxRef.current?.requestFullscreen?.();
+    } else {
+      document.exitFullscreen?.();
+    }
+  };
+
+  // Listen for fullscreen changes
+  React.useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   const removeWindow = (id) => {
     setWindows(windows.filter(w => w.id !== id));
     if (focusedInstrument === id) {
@@ -4385,12 +4408,22 @@ function Sandbox({ onBack, dark }) {
   }, [dragging]);
 
   return (
-    <div style={{
-      margin: '0 -20px',
-      padding: '0 20px',
-      width: 'calc(100vw - 40px)',
-      maxWidth: '100%'
-    }}>
+    <div 
+      ref={sandboxRef}
+      style={{
+        margin: '0 -20px',
+        padding: '0 20px',
+        width: 'calc(100vw - 40px)',
+        maxWidth: '100%',
+        ...(isFullscreen ? {
+          margin: 0,
+          padding: '20px',
+          width: '100vw',
+          height: '100vh',
+          background: dark ? '#000' : '#fff',
+          overflow: 'auto'
+        } : {})
+      }}>
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -4416,13 +4449,30 @@ function Sandbox({ onBack, dark }) {
           ← BACK TO SOUNDS
         </button>
 
-        <div style={{
-          fontSize: '24px',
-          fontWeight: '300',
-          letterSpacing: '0.15em',
-          color: dark ? '#fff' : '#000'
-        }}>
-          SANDBOX
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{
+            fontSize: '24px',
+            fontWeight: '300',
+            letterSpacing: '0.15em',
+            color: dark ? '#fff' : '#000'
+          }}>
+            SANDBOX
+          </div>
+          <button
+            onClick={toggleFullscreen}
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              padding: '8px 12px',
+              background: isFullscreen ? (dark ? '#4ade80' : '#22c55e') : 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: isFullscreen ? '#000' : (dark ? '#fff' : '#000')
+            }}
+            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? '⊗ EXIT' : '⛶ FULL'}
+          </button>
         </div>
 
         {/* Global Transport Controls */}
@@ -5185,7 +5235,10 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
       { name: 'HARD', freq: 200, decay: 0.3, type: 'square' },       // Hardstyle
       { name: 'BOUNCE', freq: 150, decay: 0.4, type: 'triangle' },   // Footwork
       { name: '909', freq: 130, decay: 0.5, type: 'sine' },          // Detroit
-      { name: 'AFRO', freq: 120, decay: 0.55, type: 'triangle' }     // Afrobeat
+      { name: 'AFRO', freq: 120, decay: 0.55, type: 'triangle' },    // Afrobeat
+      { name: 'SALEM', freq: 85, decay: 0.9, type: 'square' },       // Witch house - distorted, heavy
+      { name: 'LOFI', freq: 110, decay: 0.6, type: 'triangle' },     // Lo-fi degraded
+      { name: 'WITCH', freq: 65, decay: 1.2, type: 'sine' }          // Deep sub witch house
     ],
     snare: [
       { name: 'TRAP', freq: 350, decay: 0.12, type: 'square' },      // Trap
@@ -5197,7 +5250,10 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
       { name: 'JUKE', freq: 380, decay: 0.09, type: 'square' },      // Footwork
       { name: '808', freq: 260, decay: 0.18, type: 'triangle' },     // Classic
       { name: 'RETON', freq: 420, decay: 0.11, type: 'square' },     // Reggaeton
-      { name: 'LIVE', freq: 200, decay: 0.2, type: 'sine' }          // Acoustic-like
+      { name: 'LIVE', freq: 200, decay: 0.2, type: 'sine' },         // Acoustic-like
+      { name: 'CRACK', freq: 6500, decay: 0.06, type: 'square' },    // Vinyl texture
+      { name: 'WITCH', freq: 240, decay: 0.35, type: 'square' },     // Reverby witch house
+      { name: 'NOISE', freq: 5000, decay: 0.08, type: 'square' }     // White noise snare
     ],
     hat: [
       { name: 'TRAP', freq: 9000, decay: 0.04, type: 'square' },     // Trap
@@ -5233,7 +5289,10 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
       { name: 'REESE', freq: 180, decay: 0.4, type: 'sawtooth' },    // UK Garage
       { name: 'LASER', freq: 2000, decay: 0.2, type: 'sawtooth' },   // Techno
       { name: 'RISER', freq: 1500, decay: 0.35, type: 'triangle' },  // Trance
-      { name: 'SCREECH', freq: 500, decay: 0.15, type: 'square' }    // Hardstyle
+      { name: 'SCREECH', freq: 500, decay: 0.15, type: 'square' },   // Hardstyle
+      { name: 'VINYL', freq: 4200, decay: 0.08, type: 'square' },    // Vinyl crackle/noise
+      { name: 'DRONE', freq: 55, decay: 2.0, type: 'sine' },         // Dark ambient drone
+      { name: 'PAD', freq: 220, decay: 1.5, type: 'triangle' }       // Shlohmo ambient pad
     ]
   };
 
