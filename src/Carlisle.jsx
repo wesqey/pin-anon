@@ -5490,6 +5490,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     
     // Check if this is an arp note (needs smoother envelope to prevent clicks)
     const isArpNote = noteName.startsWith('arp_');
+    let timeoutId; // Define in outer scope
     
     if (isArpNote) {
       // ARP MODE: Ultra-smooth envelope to prevent clicks/pops
@@ -5501,7 +5502,25 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       gainNode.gain.exponentialRampToValueAtTime(params.volume * 0.01, now + 0.001);
       gainNode.gain.exponentialRampToValueAtTime(params.volume, now + arpAttack);
       
-      // Note will be stopped by arp's gate timing, so no auto-release here
+      // Safety timeout for arp notes (in case stopNote never gets called)
+      // Arp notes should be stopped by the arp engine, but this prevents infinite notes
+      const safetyTime = 5; // 5 seconds max for any arp note
+      gainNode.gain.linearRampToValueAtTime(0, now + safetyTime);
+      
+      timeoutId = setTimeout(() => {
+        try {
+          if (voicesRef.current.has(noteName)) {
+            const voice = voicesRef.current.get(noteName);
+            if (voice.osc && voice.osc.context.state === 'running') {
+              voice.osc.stop();
+            }
+            voicesRef.current.delete(noteName);
+            setActiveNotes(new Set([...voicesRef.current.keys()]));
+          }
+        } catch (e) {
+          console.log('Arp safety cleanup:', e);
+        }
+      }, safetyTime * 1000 + 100);
     } else {
       // NORMAL MODE: Full ADSR envelope
       gainNode.gain.setValueAtTime(0, now);
@@ -5519,11 +5538,13 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       gainNode.gain.linearRampToValueAtTime(0, now + maxNoteTime);
       
       // Timeout to stop oscillator and cleanup
-      const timeoutId = setTimeout(() => {
+      timeoutId = setTimeout(() => {
         try {
           if (voicesRef.current.has(noteName)) {
             const voice = voicesRef.current.get(noteName);
-            voice.osc.stop();
+            if (voice.osc && voice.osc.context.state === 'running') {
+              voice.osc.stop();
+            }
             voicesRef.current.delete(noteName);
             setActiveNotes(new Set([...voicesRef.current.keys()]));
           }
@@ -5554,13 +5575,9 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       osc, 
       gainNode, 
       filter, 
-      params: { ...params } // Store snapshot of params
+      params: { ...params }, // Store snapshot of params
+      timeoutId // Store timeout for all notes (normal and arp now have safety timeouts)
     };
-    
-    // Only store timeoutId for normal notes (arp notes don't have auto-release timeout)
-    if (!isArpNote && typeof timeoutId !== 'undefined') {
-      voiceData.timeoutId = timeoutId;
-    }
     
     voicesRef.current.set(noteName, voiceData);
     setActiveNotes(new Set([...voicesRef.current.keys()]));
@@ -5603,7 +5620,10 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     setTimeout(() => {
       try {
         if (voicesRef.current.has(noteName)) {
-          voice.osc.stop();
+          // Check oscillator state before stopping
+          if (voice.osc && voice.osc.context.state === 'running') {
+            voice.osc.stop();
+          }
           voicesRef.current.delete(noteName);
           setActiveNotes(new Set([...voicesRef.current.keys()]));
         }
@@ -5679,7 +5699,9 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     }
 
     // Calculate arp timing using BPM from params
-    const bpm = params.bpm || 120; // Use params BPM, default to 120
+    // setInterval has inherent drift - typically runs slightly slow
+    // To match GridSeq timing exactly, we don't compensate (let it drift the same way)
+    const bpm = params.bpm || 120;
     const beatDuration = 60000 / bpm; // ms per beat
     const arpRate = params.arpRate || 8; // Default to eighth notes
     const arpMode = params.arpMode || 'up'; // Default to up
@@ -5883,27 +5905,64 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
         {/* PANIC button - stops all notes */}
         <button
           onClick={() => {
-            // Stop all playing notes immediately
+            if (!audioContext) return;
+            
+            // Clear arp interval
+            if (arpIntervalRef.current) {
+              clearInterval(arpIntervalRef.current);
+              arpIntervalRef.current = null;
+            }
+            
+            // Clear held notes (stops arp from restarting)
+            setHeldNotes(new Set());
+            
+            // Stop all playing notes IMMEDIATELY - no fade
             voicesRef.current.forEach((voice, noteName) => {
               try {
+                // Clear any pending timeouts
                 if (voice.timeoutId) {
                   clearTimeout(voice.timeoutId);
                 }
+                
                 const now = audioContext.currentTime;
-                voice.gainNode.gain.cancelScheduledValues(now);
-                voice.gainNode.gain.setValueAtTime(voice.gainNode.gain.value, now);
-                voice.gainNode.gain.linearRampToValueAtTime(0, now + 0.01); // Fast fade
-                setTimeout(() => {
-                  try {
-                    voice.osc.stop();
-                  } catch (e) {}
-                }, 50);
+                
+                // Immediate gain cut - no fade for PANIC
+                try {
+                  voice.gainNode.gain.cancelScheduledValues(now);
+                  voice.gainNode.gain.setValueAtTime(0, now);
+                } catch (e) {
+                  // Gain node might be in bad state
+                }
+                
+                // Stop oscillator immediately
+                try {
+                  if (voice.osc) {
+                    // Try to stop gracefully first
+                    if (voice.osc.context.state === 'running') {
+                      voice.osc.stop(now + 0.001); // Stop almost immediately
+                    }
+                  }
+                } catch (e) {
+                  // Oscillator might already be stopped - that's fine
+                }
+                
+                // Disconnect everything
+                try {
+                  voice.osc.disconnect();
+                  voice.filter.disconnect();
+                  voice.gainNode.disconnect();
+                } catch (e) {
+                  // Already disconnected
+                }
               } catch (e) {
-                console.log('Panic error:', e);
+                console.log('Panic error for note:', noteName, e);
               }
             });
+            
+            // Clear everything
             voicesRef.current.clear();
             setActiveNotes(new Set());
+            lastArpNoteRef.current = null;
           }}
           style={{
             fontSize: '8px',
@@ -6095,6 +6154,32 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
             disabled={!params.arpEnabled}
           />
           <div style={{ fontSize: '6px', color: dark ? '#999' : '#666' }}>BPM</div>
+          {windows && windows.filter(w => w.type === 'gridseq').length > 0 && (
+            <button
+              onClick={() => {
+                const gridSeqWindow = windows.find(w => w.type === 'gridseq');
+                if (gridSeqWindow && instrumentParams) {
+                  const gridSeqParams = instrumentParams.get(gridSeqWindow.id);
+                  if (gridSeqParams?.bpm) {
+                    onParamChange('bpm', gridSeqParams.bpm);
+                  }
+                }
+              }}
+              style={{
+                fontSize: '6px',
+                padding: '3px 6px',
+                background: dark ? '#333' : '#e5e5e5',
+                border: 'none',
+                cursor: 'pointer',
+                color: dark ? '#fff' : '#000',
+                borderRadius: '2px'
+              }}
+              disabled={!params.arpEnabled}
+              title="Sync to GridSeq BPM"
+            >
+              SYNC
+            </button>
+          )}
           {params.arpEnabled && (
             <div style={{ fontSize: '6px', color: dark ? '#4ade80' : '#22c55e', marginLeft: 'auto' }}>
               🎵 {heldNotes.size}
