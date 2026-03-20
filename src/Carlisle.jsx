@@ -4230,7 +4230,8 @@ function Sandbox({ onBack, dark }) {
         arpMode: 'up', // up, down, updown, random, chord
         arpRate: 8, // Note division (4=quarter, 8=eighth, 16=sixteenth)
         arpOctaves: 1, // 1-3 octaves
-        arpGate: 0.8 // Note length 0-1
+        arpGate: 0.8, // Note length 0-1
+        bpm: 120 // BPM for arpeggiator timing
       };
       
       setInstrumentParams(new Map(instrumentParams.set(nextId, defaultParams)));
@@ -5395,33 +5396,53 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     osc.frequency.setValueAtTime(freq, now);
 
     const gainNode = audioContext.createGain();
-    gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(params.volume, now + params.attack);
     
-    // Only sustain indefinitely if sustain is maxed (>= 0.99)
-    const sustainLevel = params.volume * params.sustain;
-    gainNode.gain.linearRampToValueAtTime(sustainLevel, now + params.attack + params.decay);
+    // Check if this is an arp note (needs smoother envelope to prevent clicks)
+    const isArpNote = noteName.startsWith('arp_');
     
-    // ALWAYS add a safety auto-release (even for high sustain)
-    // High sustain = 30 seconds max, low sustain = 10 seconds max
-    const maxNoteTime = params.sustain >= 0.99 ? 30 : (params.attack + params.decay + 10);
-    
-    // Schedule auto-release
-    gainNode.gain.linearRampToValueAtTime(0, now + maxNoteTime);
-    
-    // Timeout to stop oscillator and cleanup
-    const timeoutId = setTimeout(() => {
-      try {
-        if (voicesRef.current.has(noteName)) {
-          const voice = voicesRef.current.get(noteName);
-          voice.osc.stop();
-          voicesRef.current.delete(noteName);
-          setActiveNotes(new Set([...voicesRef.current.keys()]));
+    if (isArpNote) {
+      // ARP MODE: Ultra-smooth envelope to prevent clicks/pops
+      const arpAttack = 0.003; // 3ms attack to prevent clicks
+      const arpRelease = 0.02; // 20ms release for smooth transitions
+      
+      gainNode.gain.setValueAtTime(0, now);
+      // Use exponentialRampToValueAtTime for smoother attack (no clicks)
+      gainNode.gain.exponentialRampToValueAtTime(params.volume * 0.01, now + 0.001);
+      gainNode.gain.exponentialRampToValueAtTime(params.volume, now + arpAttack);
+      
+      // Note will be stopped by arp's gate timing, so no auto-release here
+    } else {
+      // NORMAL MODE: Full ADSR envelope
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(params.volume, now + params.attack);
+      
+      // Only sustain indefinitely if sustain is maxed (>= 0.99)
+      const sustainLevel = params.volume * params.sustain;
+      gainNode.gain.linearRampToValueAtTime(sustainLevel, now + params.attack + params.decay);
+      
+      // ALWAYS add a safety auto-release (even for high sustain)
+      // High sustain = 30 seconds max, low sustain = 10 seconds max
+      const maxNoteTime = params.sustain >= 0.99 ? 30 : (params.attack + params.decay + 10);
+      
+      // Schedule auto-release
+      gainNode.gain.linearRampToValueAtTime(0, now + maxNoteTime);
+      
+      // Timeout to stop oscillator and cleanup
+      const timeoutId = setTimeout(() => {
+        try {
+          if (voicesRef.current.has(noteName)) {
+            const voice = voicesRef.current.get(noteName);
+            voice.osc.stop();
+            voicesRef.current.delete(noteName);
+            setActiveNotes(new Set([...voicesRef.current.keys()]));
+          }
+        } catch (e) {
+          console.log('Auto-release cleanup error:', e);
         }
-      } catch (e) {
-        console.log('Auto-release cleanup error:', e);
-      }
-    }, maxNoteTime * 1000 + 100);
+      }, maxNoteTime * 1000 + 100);
+    }
+    
+    // Rest of code is same for both modes
 
     const filter = audioContext.createBiquadFilter();
     filter.type = params.filterType;
@@ -5438,13 +5459,19 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     osc.start(now);
 
     // Store params with voice for proper release
-    voicesRef.current.set(noteName, { 
+    const voiceData = { 
       osc, 
       gainNode, 
       filter, 
-      params: { ...params }, // Store snapshot of params
-      timeoutId // Store timeout ID so we can clear it
-    });
+      params: { ...params } // Store snapshot of params
+    };
+    
+    // Only store timeoutId for normal notes (arp notes don't have auto-release timeout)
+    if (!isArpNote && typeof timeoutId !== 'undefined') {
+      voiceData.timeoutId = timeoutId;
+    }
+    
+    voicesRef.current.set(noteName, voiceData);
     setActiveNotes(new Set([...voicesRef.current.keys()]));
   };
 
@@ -5453,9 +5480,12 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     if (!voice || !audioContext) return;
 
     const now = audioContext.currentTime;
-    const releaseTime = voice.params?.release || 0.3; // Use stored params
+    const isArpNote = noteName.startsWith('arp_');
+    
+    // Arp notes use shorter, smoother release to prevent clicks
+    const releaseTime = isArpNote ? 0.02 : (voice.params?.release || 0.3);
 
-    // Clear the auto-release timeout
+    // Clear the auto-release timeout (only normal notes have this)
     if (voice.timeoutId) {
       clearTimeout(voice.timeoutId);
     }
@@ -5463,7 +5493,18 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     try {
       voice.gainNode.gain.cancelScheduledValues(now);
       voice.gainNode.gain.setValueAtTime(voice.gainNode.gain.value, now);
-      voice.gainNode.gain.linearRampToValueAtTime(0, now + releaseTime);
+      
+      // Use exponential ramp for arp notes (smoother, no clicks)
+      if (isArpNote) {
+        const currentGain = voice.gainNode.gain.value;
+        if (currentGain > 0.01) {
+          voice.gainNode.gain.exponentialRampToValueAtTime(0.01, now + releaseTime);
+        } else {
+          voice.gainNode.gain.setValueAtTime(0, now);
+        }
+      } else {
+        voice.gainNode.gain.linearRampToValueAtTime(0, now + releaseTime);
+      }
     } catch (e) {
       console.log('Stop note error:', e);
     }
@@ -5520,6 +5561,13 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     return pattern;
   };
 
+  // Clear held notes when arp is disabled
+  React.useEffect(() => {
+    if (!params?.arpEnabled) {
+      setHeldNotes(new Set());
+    }
+  }, [params?.arpEnabled]);
+
   // Arpeggiator effect
   React.useEffect(() => {
     if (!params?.arpEnabled || heldNotes.size === 0 || !audioContext) {
@@ -5528,16 +5576,19 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
         clearInterval(arpIntervalRef.current);
         arpIntervalRef.current = null;
       }
-      if (lastArpNoteRef.current) {
-        stopNote(lastArpNoteRef.current);
-        lastArpNoteRef.current = null;
-      }
+      // Stop ALL arp notes (including chords)
+      voicesRef.current.forEach((voice, noteName) => {
+        if (noteName.startsWith('arp_')) {
+          stopNote(noteName);
+        }
+      });
+      lastArpNoteRef.current = null;
       setArpStepIndex(0);
       return;
     }
 
-    // Calculate arp timing (based on rate and BPM assumption of 120)
-    const bpm = 120;
+    // Calculate arp timing using BPM from params
+    const bpm = params.bpm || 120; // Use params BPM, default to 120
     const beatDuration = 60000 / bpm; // ms per beat
     const arpRate = params.arpRate || 8; // Default to eighth notes
     const arpMode = params.arpMode || 'up'; // Default to up
@@ -5553,6 +5604,13 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     
     if (pattern.length === 0) return;
 
+    // IMPORTANT: Stop all previous arp notes before starting new pattern
+    voicesRef.current.forEach((voice, noteName) => {
+      if (noteName.startsWith('arp_')) {
+        stopNote(noteName);
+      }
+    });
+
     // Clear previous interval
     if (arpIntervalRef.current) {
       clearInterval(arpIntervalRef.current);
@@ -5560,11 +5618,6 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
 
     // Chord mode - play all notes together
     if (arpMode === 'chord') {
-      // Stop previous chord
-      if (lastArpNoteRef.current) {
-        stopNote(lastArpNoteRef.current);
-      }
-      
       // Play all notes in the chord
       pattern.forEach((offset, i) => {
         const noteName = `arp_chord_${i}`;
@@ -5627,9 +5680,13 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       if (arpIntervalRef.current) {
         clearInterval(arpIntervalRef.current);
       }
-      if (lastArpNoteRef.current) {
-        stopNote(lastArpNoteRef.current);
-      }
+      // Stop all arp notes (including all chord notes)
+      voicesRef.current.forEach((voice, noteName) => {
+        if (noteName.startsWith('arp_')) {
+          stopNote(noteName);
+        }
+      });
+      lastArpNoteRef.current = null;
     };
   }, [params?.arpEnabled, params?.arpMode, params?.arpRate, params?.arpOctaves, params?.arpGate, heldNotes, audioContext]);
 
@@ -5929,6 +5986,24 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
           <div style={{ fontSize: '6px', color: dark ? '#999' : '#666', minWidth: '25px' }}>
             {Math.round((params.arpGate || 0.8) * 100)}%
           </div>
+          <input
+            type="number"
+            min="40"
+            max="300"
+            value={params.bpm || 120}
+            onChange={(e) => onParamChange('bpm', parseInt(e.target.value) || 120)}
+            style={{
+              fontSize: '7px',
+              padding: '3px 4px',
+              width: '40px',
+              background: dark ? '#1a1a1a' : '#fff',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              color: dark ? '#fff' : '#000',
+              textAlign: 'center'
+            }}
+            disabled={!params.arpEnabled}
+          />
+          <div style={{ fontSize: '6px', color: dark ? '#999' : '#666' }}>BPM</div>
           {params.arpEnabled && (
             <div style={{ fontSize: '6px', color: dark ? '#4ade80' : '#22c55e', marginLeft: 'auto' }}>
               🎵 {heldNotes.size}
