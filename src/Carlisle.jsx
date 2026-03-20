@@ -4007,6 +4007,11 @@ function Sandbox({ onBack, dark }) {
   const [vuLevel, setVuLevel] = useState(0);
   const [tapBPM, setTapBPM] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showRecordingsLibrary, setShowRecordingsLibrary] = useState(false);
+  const [recordings, setRecordings] = useState(() => {
+    const saved = localStorage.getItem('carlisle_recordings');
+    return saved ? JSON.parse(saved) : [];
+  });
   const sandboxRef = React.useRef(null);
 
   // Auto-save windows
@@ -4256,6 +4261,24 @@ function Sandbox({ onBack, dark }) {
     mediaRecorder.onstop = () => {
       const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
       const url = URL.createObjectURL(blob);
+      
+      // Save to library
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result;
+        const newRecording = {
+          id: Date.now(),
+          name: `Recording ${new Date().toLocaleString()}`,
+          data: base64,
+          timestamp: Date.now()
+        };
+        const updatedRecordings = [newRecording, ...recordings];
+        setRecordings(updatedRecordings);
+        localStorage.setItem('carlisle_recordings', JSON.stringify(updatedRecordings));
+      };
+      reader.readAsDataURL(blob);
+      
+      // Also download
       const a = document.createElement('a');
       a.href = url;
       a.download = `carlisle-${Date.now()}.webm`;
@@ -4583,7 +4606,7 @@ function Sandbox({ onBack, dark }) {
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  zIndex: 999
+                  zIndex: 9998
                 }}
               />
               <div style={{
@@ -4594,7 +4617,7 @@ function Sandbox({ onBack, dark }) {
                 backgroundColor: dark ? '#000' : '#fff',
                 border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
                 minWidth: '250px',
-                zIndex: 1000,
+                zIndex: 9999,
                 boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
               }}>
                 {availableModules.map(category => (
@@ -4747,6 +4770,21 @@ function Sandbox({ onBack, dark }) {
               ■ STOP
             </button>
           )}
+          <button
+            onClick={() => setShowRecordingsLibrary(!showRecordingsLibrary)}
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.1em',
+              padding: '8px 16px',
+              background: showRecordingsLibrary ? (dark ? '#4ade80' : '#22c55e') : (dark ? '#fff' : '#000'),
+              border: 'none',
+              cursor: 'pointer',
+              color: showRecordingsLibrary ? '#000' : (dark ? '#000' : '#fff'),
+              borderRadius: '3px'
+            }}
+          >
+            📼 RECORDINGS {recordings.length > 0 ? `(${recordings.length})` : ''}
+          </button>
         </div>
 
         {/* Tap Tempo */}
@@ -4835,6 +4873,224 @@ function Sandbox({ onBack, dark }) {
           );
         })}
       </div>
+
+      {/* RECORDINGS LIBRARY MODAL */}
+      {showRecordingsLibrary && (
+        <div
+          onClick={() => setShowRecordingsLibrary(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.8)',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: dark ? '#000' : '#fff',
+              border: `2px solid ${dark ? '#333' : '#e5e5e5'}`,
+              maxWidth: '800px',
+              width: '100%',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              borderRadius: '4px'
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '20px',
+              borderBottom: `1px solid ${dark ? '#222' : '#f0f0f0'}`,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                letterSpacing: '0.1em',
+                color: dark ? '#fff' : '#000'
+              }}>
+                📼 RECORDINGS LIBRARY ({recordings.length})
+              </div>
+              <button
+                onClick={() => setShowRecordingsLibrary(false)}
+                style={{
+                  fontSize: '20px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: dark ? '#666' : '#999',
+                  padding: '0 8px'
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Recordings List */}
+            <div style={{ padding: '20px' }}>
+              {recordings.length === 0 ? (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '40px 20px',
+                  color: dark ? '#666' : '#999',
+                  fontSize: '12px'
+                }}>
+                  No recordings yet. Click REC to start recording!
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {recordings.map((recording) => (
+                    <div
+                      key={recording.id}
+                      style={{
+                        background: dark ? '#0a0a0a' : '#fafafa',
+                        border: `1px solid ${dark ? '#222' : '#e5e5e5'}`,
+                        borderRadius: '3px',
+                        padding: '16px'
+                      }}
+                    >
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '12px'
+                      }}>
+                        <div>
+                          <div style={{
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            color: dark ? '#fff' : '#000',
+                            marginBottom: '4px'
+                          }}>
+                            {recording.name}
+                          </div>
+                          <div style={{
+                            fontSize: '9px',
+                            color: dark ? '#666' : '#999'
+                          }}>
+                            {new Date(recording.timestamp).toLocaleString()}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            onClick={() => {
+                              const a = document.createElement('a');
+                              a.href = recording.data;
+                              a.download = `${recording.name.replace(/[^a-z0-9]/gi, '_')}.webm`;
+                              a.click();
+                            }}
+                            style={{
+                              fontSize: '9px',
+                              padding: '6px 12px',
+                              background: dark ? '#333' : '#e5e5e5',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: dark ? '#fff' : '#000',
+                              borderRadius: '3px'
+                            }}
+                          >
+                            ⬇ DL
+                          </button>
+                          <button
+                            onClick={() => {
+                              const newName = prompt('Rename recording:', recording.name);
+                              if (newName && newName.trim()) {
+                                const updated = recordings.map(r =>
+                                  r.id === recording.id ? { ...r, name: newName.trim() } : r
+                                );
+                                setRecordings(updated);
+                                localStorage.setItem('carlisle_recordings', JSON.stringify(updated));
+                              }
+                            }}
+                            style={{
+                              fontSize: '9px',
+                              padding: '6px 12px',
+                              background: dark ? '#333' : '#e5e5e5',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: dark ? '#fff' : '#000',
+                              borderRadius: '3px'
+                            }}
+                          >
+                            ✏ RENAME
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm('Delete this recording?')) {
+                                const updated = recordings.filter(r => r.id !== recording.id);
+                                setRecordings(updated);
+                                localStorage.setItem('carlisle_recordings', JSON.stringify(updated));
+                              }
+                            }}
+                            style={{
+                              fontSize: '9px',
+                              padding: '6px 12px',
+                              background: '#ef4444',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: '#fff',
+                              borderRadius: '3px'
+                            }}
+                          >
+                            ✕ DEL
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {/* Audio Player */}
+                      <audio
+                        controls
+                        src={recording.data}
+                        style={{
+                          width: '100%',
+                          height: '32px'
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {recordings.length > 0 && (
+                <div style={{
+                  marginTop: '20px',
+                  display: 'flex',
+                  justifyContent: 'flex-end'
+                }}>
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete all ${recordings.length} recordings?`)) {
+                        setRecordings([]);
+                        localStorage.removeItem('carlisle_recordings');
+                      }
+                    }}
+                    style={{
+                      fontSize: '9px',
+                      padding: '8px 16px',
+                      background: dark ? '#333' : '#e5e5e5',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: dark ? '#fff' : '#000',
+                      borderRadius: '3px'
+                    }}
+                  >
+                    CLEAR ALL
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{
         marginTop: '20px',
@@ -5338,11 +5594,6 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     
     // Set up interval for subsequent notes
     arpIntervalRef.current = setInterval(() => {
-      // Stop previous note
-      if (lastArpNoteRef.current) {
-        stopNote(lastArpNoteRef.current);
-      }
-      
       // Move to next step
       currentIndex = (currentIndex + 1) % pattern.length;
       
@@ -5354,7 +5605,15 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       const offset = pattern[currentIndex];
       const noteName = `arp_${currentIndex}_${Date.now()}`;
       
+      // Start new note immediately (overlap for smooth transition)
       playNote(noteName, offset);
+      
+      // Stop previous note with slight delay for crossfade
+      const prevNote = lastArpNoteRef.current;
+      if (prevNote) {
+        setTimeout(() => stopNote(prevNote), 10); // 10ms crossfade
+      }
+      
       lastArpNoteRef.current = noteName;
       
       // Auto-stop after gate time
@@ -5514,261 +5773,168 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
         </button>
       </div>
 
-      {/* ROUTING CONTROLS */}
+      {/* COMPACT ROUTING & ARP CONTROLS */}
       <div style={{
-        marginBottom: '20px',
-        padding: '12px',
+        marginBottom: '12px',
+        padding: '8px',
         background: dark ? '#0a0a0a' : '#fafafa',
         border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
       }}>
-        <div style={{
-          fontSize: '8px',
-          fontWeight: '600',
-          letterSpacing: '0.15em',
-          color: dark ? '#fff' : '#000',
-          marginBottom: '12px',
-          textAlign: 'center'
-        }}>
-          KEYBOARD ROUTING • MELODIC DRUMS
-        </div>
-        
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* Enable/Disable */}
+        {/* Row 1: Routing */}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '6px' }}>
+          <div style={{ fontSize: '7px', fontWeight: '600', color: dark ? '#888' : '#666', minWidth: '35px' }}>ROUTE:</div>
           <button
             onClick={() => onParamChange('routingEnabled', !params.routingEnabled)}
             style={{
-              fontSize: '8px',
+              fontSize: '7px',
               fontWeight: '600',
-              letterSpacing: '0.1em',
-              padding: '8px 16px',
+              padding: '4px 8px',
               background: params.routingEnabled ? (dark ? '#4ade80' : '#22c55e') : 'none',
               border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
               cursor: 'pointer',
               color: params.routingEnabled ? '#000' : (dark ? '#fff' : '#000')
             }}
           >
-            {params.routingEnabled ? '✓ ROUTING ON' : 'ROUTING OFF'}
+            {params.routingEnabled ? 'ON' : 'OFF'}
           </button>
-
-          {/* Target GridSeq */}
           {windows && windows.filter(w => w.type === 'gridseq').length > 0 && (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>TARGET:</div>
-                <select
-                  value={params.routingTarget || ''}
-                  onChange={(e) => onParamChange('routingTarget', parseInt(e.target.value))}
-                  style={{
-                    fontSize: '8px',
-                    fontWeight: '500',
-                    padding: '6px 8px',
-                    background: dark ? '#1a1a1a' : '#fff',
-                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                    color: dark ? '#fff' : '#000',
-                    cursor: 'pointer'
-                  }}
-                  disabled={!params.routingEnabled}
-                >
-                  <option value="">Select GridSeq...</option>
-                  {windows.filter(w => w.type === 'gridseq').map(w => (
-                    <option key={w.id} value={w.id}>GridSeq #{w.id}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Track Selection */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>DRUM:</div>
-                <select
-                  value={params.routingTrack || 0}
-                  onChange={(e) => onParamChange('routingTrack', parseInt(e.target.value))}
-                  style={{
-                    fontSize: '8px',
-                    fontWeight: '500',
-                    padding: '6px 8px',
-                    background: dark ? '#1a1a1a' : '#fff',
-                    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                    color: dark ? '#fff' : '#000',
-                    cursor: 'pointer'
-                  }}
-                  disabled={!params.routingEnabled}
-                >
-                  <option value={0}>KICK (Bass)</option>
-                  <option value={1}>SNARE</option>
-                  <option value={2}>HAT</option>
-                  <option value={3}>PERC</option>
-                  <option value={4}>FX</option>
-                </select>
-              </div>
+              <select
+                value={params.routingTarget || ''}
+                onChange={(e) => onParamChange('routingTarget', parseInt(e.target.value))}
+                style={{
+                  fontSize: '7px',
+                  padding: '4px 6px',
+                  background: dark ? '#1a1a1a' : '#fff',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  color: dark ? '#fff' : '#000',
+                  cursor: 'pointer'
+                }}
+                disabled={!params.routingEnabled}
+              >
+                <option value="">GridSeq...</option>
+                {windows.filter(w => w.type === 'gridseq').map(w => (
+                  <option key={w.id} value={w.id}>#{w.id}</option>
+                ))}
+              </select>
+              <select
+                value={params.routingTrack || 0}
+                onChange={(e) => onParamChange('routingTrack', parseInt(e.target.value))}
+                style={{
+                  fontSize: '7px',
+                  padding: '4px 6px',
+                  background: dark ? '#1a1a1a' : '#fff',
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  color: dark ? '#fff' : '#000',
+                  cursor: 'pointer'
+                }}
+                disabled={!params.routingEnabled}
+              >
+                <option value={0}>KICK</option>
+                <option value={1}>SNR</option>
+                <option value={2}>HAT</option>
+                <option value={3}>PRC</option>
+                <option value={4}>FX</option>
+              </select>
             </>
           )}
-          
-          {windows && windows.filter(w => w.type === 'gridseq').length === 0 && (
-            <div style={{
-              fontSize: '7px',
-              fontWeight: '500',
-              color: dark ? '#666' : '#999',
-              fontStyle: 'italic'
-            }}>
-              Add a GridSeq to enable routing
+          {params.routingEnabled && params.routingTarget && (
+            <div style={{ fontSize: '6px', color: dark ? '#4ade80' : '#22c55e', marginLeft: 'auto' }}>
+              🎹 {['KICK', 'SNR', 'HAT', 'PRC', 'FX'][params.routingTrack || 0]}
             </div>
           )}
         </div>
         
-        {params.routingEnabled && params.routingTarget && (
-          <div style={{
-            marginTop: '12px',
-            fontSize: '7px',
-            fontWeight: '500',
-            color: dark ? '#4ade80' : '#22c55e',
-            textAlign: 'center'
-          }}>
-            🎹 Playing {['KICK', 'SNARE', 'HAT', 'PERC', 'FX'][params.routingTrack || 0]} melodically via keyboard
-          </div>
-        )}
-      </div>
-
-      {/* ARPEGGIATOR CONTROLS */}
-      <div style={{
-        marginBottom: '20px',
-        padding: '12px',
-        background: dark ? '#0a0a0a' : '#fafafa',
-        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
-      }}>
-        <div style={{
-          fontSize: '8px',
-          fontWeight: '600',
-          letterSpacing: '0.15em',
-          color: dark ? '#fff' : '#000',
-          marginBottom: '12px',
-          textAlign: 'center'
-        }}>
-          ARPEGGIATOR
-        </div>
-        
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* Enable/Disable */}
+        {/* Row 2: Arp */}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ fontSize: '7px', fontWeight: '600', color: dark ? '#888' : '#666', minWidth: '35px' }}>ARP:</div>
           <button
             onClick={() => onParamChange('arpEnabled', !params.arpEnabled)}
             style={{
-              fontSize: '8px',
+              fontSize: '7px',
               fontWeight: '600',
-              letterSpacing: '0.1em',
-              padding: '8px 16px',
+              padding: '4px 8px',
               background: params.arpEnabled ? (dark ? '#4ade80' : '#22c55e') : 'none',
               border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
               cursor: 'pointer',
               color: params.arpEnabled ? '#000' : (dark ? '#fff' : '#000')
             }}
           >
-            {params.arpEnabled ? '✓ ARP ON' : 'ARP OFF'}
+            {params.arpEnabled ? 'ON' : 'OFF'}
           </button>
-
-          {/* Mode */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>MODE:</div>
-            <select
-              value={params.arpMode || 'up'}
-              onChange={(e) => onParamChange('arpMode', e.target.value)}
-              style={{
-                fontSize: '8px',
-                fontWeight: '500',
-                padding: '6px 8px',
-                background: dark ? '#1a1a1a' : '#fff',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                color: dark ? '#fff' : '#000',
-                cursor: 'pointer'
-              }}
-              disabled={!params.arpEnabled}
-            >
-              <option value="up">UP</option>
-              <option value="down">DOWN</option>
-              <option value="updown">UP-DOWN</option>
-              <option value="random">RANDOM</option>
-              <option value="chord">CHORD</option>
-            </select>
+          <select
+            value={params.arpMode || 'up'}
+            onChange={(e) => onParamChange('arpMode', e.target.value)}
+            style={{
+              fontSize: '7px',
+              padding: '4px 6px',
+              background: dark ? '#1a1a1a' : '#fff',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              color: dark ? '#fff' : '#000',
+              cursor: 'pointer'
+            }}
+            disabled={!params.arpEnabled}
+          >
+            <option value="up">UP</option>
+            <option value="down">DN</option>
+            <option value="updown">UD</option>
+            <option value="random">RND</option>
+            <option value="chord">CHD</option>
+          </select>
+          <select
+            value={params.arpRate || 8}
+            onChange={(e) => onParamChange('arpRate', parseInt(e.target.value))}
+            style={{
+              fontSize: '7px',
+              padding: '4px 6px',
+              background: dark ? '#1a1a1a' : '#fff',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              color: dark ? '#fff' : '#000',
+              cursor: 'pointer'
+            }}
+            disabled={!params.arpEnabled}
+          >
+            <option value={4}>1/4</option>
+            <option value={8}>1/8</option>
+            <option value={16}>1/16</option>
+            <option value={32}>1/32</option>
+          </select>
+          <select
+            value={params.arpOctaves || 1}
+            onChange={(e) => onParamChange('arpOctaves', parseInt(e.target.value))}
+            style={{
+              fontSize: '7px',
+              padding: '4px 6px',
+              background: dark ? '#1a1a1a' : '#fff',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              color: dark ? '#fff' : '#000',
+              cursor: 'pointer'
+            }}
+            disabled={!params.arpEnabled}
+          >
+            <option value={1}>1</option>
+            <option value={2}>2</option>
+            <option value={3}>3</option>
+          </select>
+          <input
+            type="range"
+            min="0.1"
+            max="1"
+            step="0.1"
+            value={params.arpGate || 0.8}
+            onChange={(e) => onParamChange('arpGate', parseFloat(e.target.value))}
+            style={{ width: '50px', cursor: 'pointer' }}
+            disabled={!params.arpEnabled}
+          />
+          <div style={{ fontSize: '6px', color: dark ? '#999' : '#666', minWidth: '25px' }}>
+            {Math.round((params.arpGate || 0.8) * 100)}%
           </div>
-
-          {/* Rate */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>RATE:</div>
-            <select
-              value={params.arpRate || 8}
-              onChange={(e) => onParamChange('arpRate', parseInt(e.target.value))}
-              style={{
-                fontSize: '8px',
-                fontWeight: '500',
-                padding: '6px 8px',
-                background: dark ? '#1a1a1a' : '#fff',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                color: dark ? '#fff' : '#000',
-                cursor: 'pointer'
-              }}
-              disabled={!params.arpEnabled}
-            >
-              <option value={4}>1/4</option>
-              <option value={8}>1/8</option>
-              <option value={16}>1/16</option>
-              <option value={32}>1/32</option>
-            </select>
-          </div>
-
-          {/* Octaves */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>OCT:</div>
-            <select
-              value={params.arpOctaves || 1}
-              onChange={(e) => onParamChange('arpOctaves', parseInt(e.target.value))}
-              style={{
-                fontSize: '8px',
-                fontWeight: '500',
-                padding: '6px 8px',
-                background: dark ? '#1a1a1a' : '#fff',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                color: dark ? '#fff' : '#000',
-                cursor: 'pointer'
-              }}
-              disabled={!params.arpEnabled}
-            >
-              <option value={1}>1</option>
-              <option value={2}>2</option>
-              <option value={3}>3</option>
-            </select>
-          </div>
-
-          {/* Gate */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>GATE:</div>
-            <input
-              type="range"
-              min="0.1"
-              max="1"
-              step="0.1"
-              value={params.arpGate || 0.8}
-              onChange={(e) => onParamChange('arpGate', parseFloat(e.target.value))}
-              style={{
-                width: '60px',
-                cursor: 'pointer'
-              }}
-              disabled={!params.arpEnabled}
-            />
-            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666', minWidth: '30px' }}>
-              {Math.round((params.arpGate || 0.8) * 100)}%
+          {params.arpEnabled && (
+            <div style={{ fontSize: '6px', color: dark ? '#4ade80' : '#22c55e', marginLeft: 'auto' }}>
+              🎵 {heldNotes.size}
             </div>
-          </div>
+          )}
         </div>
-        
-        {params.arpEnabled && (
-          <div style={{
-            marginTop: '12px',
-            fontSize: '7px',
-            fontWeight: '500',
-            color: dark ? '#4ade80' : '#22c55e',
-            textAlign: 'center'
-          }}>
-            🎵 Arpeggiator active: Hold keys to arpeggiate • {heldNotes.size} note{heldNotes.size !== 1 ? 's' : ''} held
-          </div>
-        )}
       </div>
 
       {/* Keyboard */}
