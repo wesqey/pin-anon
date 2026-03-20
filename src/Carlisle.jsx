@@ -5283,12 +5283,17 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     // Calculate arp timing (based on rate and BPM assumption of 120)
     const bpm = 120;
     const beatDuration = 60000 / bpm; // ms per beat
-    const noteDuration = beatDuration / (params.arpRate / 4); // 4=quarter, 8=eighth, 16=sixteenth
-    const gateTime = noteDuration * (params.arpGate || 0.8);
+    const arpRate = params.arpRate || 8; // Default to eighth notes
+    const arpMode = params.arpMode || 'up'; // Default to up
+    const arpOctaves = params.arpOctaves || 1; // Default to 1 octave
+    const arpGate = params.arpGate !== undefined ? params.arpGate : 0.8; // Default to 80%
+    
+    const noteDuration = beatDuration / (arpRate / 4); // 4=quarter, 8=eighth, 16=sixteenth
+    const gateTime = noteDuration * arpGate;
 
     // Get arp pattern
     const noteOffsets = Array.from(heldNotes);
-    const pattern = getArpPattern(noteOffsets, params.arpMode, params.arpOctaves || 1);
+    const pattern = getArpPattern(noteOffsets, arpMode, arpOctaves);
     
     if (pattern.length === 0) return;
 
@@ -5298,7 +5303,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     }
 
     // Chord mode - play all notes together
-    if (params.arpMode === 'chord') {
+    if (arpMode === 'chord') {
       // Stop previous chord
       if (lastArpNoteRef.current) {
         stopNote(lastArpNoteRef.current);
@@ -5342,7 +5347,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       currentIndex = (currentIndex + 1) % pattern.length;
       
       // Randomize if in random mode
-      if (params.arpMode === 'random') {
+      if (arpMode === 'random') {
         currentIndex = Math.floor(Math.random() * pattern.length);
       }
       
@@ -5903,7 +5908,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
         {params.routingEnabled && params.routingTarget ? (
           <>ROUTING MODE: Playing drum sounds melodically • Adjust GridSeq mixer for tone</>
         ) : params.arpEnabled ? (
-          <>ARP MODE: Hold keys to arpeggiate • {params.arpMode.toUpperCase()} pattern at {params.arpRate === 4 ? '1/4' : params.arpRate === 8 ? '1/8' : params.arpRate === 16 ? '1/16' : '1/32'} notes</>
+          <>ARP MODE: Hold keys to arpeggiate • {(params.arpMode || 'up').toUpperCase()} pattern at {(params.arpRate || 8) === 4 ? '1/4' : (params.arpRate || 8) === 8 ? '1/8' : (params.arpRate || 8) === 16 ? '1/16' : '1/32'} notes</>
         ) : (
           <>QWERTY KEYS: A-K = Notes • ARP: Automatic patterns • ROUTING: Melodic drums • PANIC stops all</>
         )}
