@@ -4108,11 +4108,17 @@ function Sandbox({ onBack, dark }) {
   ];
 
   const addWindow = (type) => {
+    // Calculate position that stays within viewport
+    const baseX = 100;
+    const baseY = 100;
+    const offsetX = (nextId * 30) % 500; // Wrap after 500px
+    const offsetY = (nextId * 30) % 400; // Wrap after 400px
+    
     const newWindow = {
       id: nextId,
       type,
-      x: 100 + (nextId * 30),
-      y: 100 + (nextId * 30),
+      x: baseX + offsetX,
+      y: baseY + offsetY,
       minimized: false,
       zIndex: nextId
     };
@@ -4458,6 +4464,91 @@ function Sandbox({ onBack, dark }) {
           overflow: 'auto'
         } : {})
       }}>
+      
+      {/* TAB BAR - Browser Style */}
+      {windows.length > 0 && (
+        <div style={{
+          display: 'flex',
+          gap: '4px',
+          marginBottom: '16px',
+          borderBottom: `1px solid ${dark ? '#222' : '#e5e5e5'}`,
+          paddingBottom: '8px',
+          overflowX: 'auto',
+          overflowY: 'hidden'
+        }}>
+          {windows.map(window => {
+            const isFocused = focusedInstrument === window.id;
+            const typeNames = {
+              gridseq: 'GRIDSEQ',
+              pulsewave: 'PULSEWAVE',
+              control: 'CONTROL',
+              oscilloscope: 'SCOPE',
+              patternlibrary: 'LIBRARY'
+            };
+            
+            return (
+              <div
+                key={window.id}
+                onClick={() => focusInstrument(window.id)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 12px',
+                  fontSize: '8px',
+                  fontWeight: '600',
+                  letterSpacing: '0.05em',
+                  background: isFocused 
+                    ? (dark ? '#1a1a1a' : '#f5f5f5')
+                    : (dark ? '#0a0a0a' : '#fafafa'),
+                  border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  borderBottom: isFocused ? 'none' : `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                  cursor: 'pointer',
+                  color: isFocused ? (dark ? '#fff' : '#000') : (dark ? '#888' : '#666'),
+                  transition: 'all 0.2s',
+                  borderRadius: '3px 3px 0 0',
+                  whiteSpace: 'nowrap',
+                  userSelect: 'none'
+                }}
+                onMouseEnter={(e) => {
+                  if (!isFocused) {
+                    e.currentTarget.style.background = dark ? '#111' : '#f0f0f0';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isFocused) {
+                    e.currentTarget.style.background = dark ? '#0a0a0a' : '#fafafa';
+                  }
+                }}
+              >
+                <span>{typeNames[window.type] || window.type.toUpperCase()} #{window.id}</span>
+                {window.minimized && <span style={{ fontSize: '6px', opacity: 0.5 }}>MIN</span>}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeWindow(window.id);
+                  }}
+                  style={{
+                    fontSize: '12px',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: dark ? '#666' : '#999',
+                    padding: '0 4px',
+                    lineHeight: '1'
+                  }}
+                  onMouseEnter={(e) => e.target.style.color = '#ef4444'}
+                  onMouseLeave={(e) => e.target.style.color = dark ? '#666' : '#999'}
+                  title="Close window"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
