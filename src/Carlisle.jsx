@@ -6004,7 +6004,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
           >
             {params.routingEnabled ? 'ON' : 'OFF'}
           </button>
-          {windows && windows.filter(w => w.type === 'gridseq').length > 0 && (
+          {windows && Array.isArray(windows) && windows.some(w => w.type === 'gridseq') && (
             <>
               <select
                 value={params.routingTarget || ''}
@@ -6154,15 +6154,19 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
             disabled={!params.arpEnabled}
           />
           <div style={{ fontSize: '6px', color: dark ? '#999' : '#666' }}>BPM</div>
-          {windows && windows.filter(w => w.type === 'gridseq').length > 0 && (
+          {windows && Array.isArray(windows) && windows.some(w => w.type === 'gridseq') && (
             <button
               onClick={() => {
-                const gridSeqWindow = windows.find(w => w.type === 'gridseq');
-                if (gridSeqWindow && instrumentParams) {
-                  const gridSeqParams = instrumentParams.get(gridSeqWindow.id);
-                  if (gridSeqParams?.bpm) {
-                    onParamChange('bpm', gridSeqParams.bpm);
+                try {
+                  const gridSeqWindow = windows.find(w => w.type === 'gridseq');
+                  if (gridSeqWindow && instrumentParams && typeof instrumentParams.get === 'function') {
+                    const gridSeqParams = instrumentParams.get(gridSeqWindow.id);
+                    if (gridSeqParams && gridSeqParams.bpm) {
+                      onParamChange('bpm', gridSeqParams.bpm);
+                    }
                   }
+                } catch (e) {
+                  console.log('SYNC button error:', e);
                 }
               }}
               style={{
