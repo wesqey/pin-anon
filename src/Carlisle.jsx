@@ -4219,7 +4219,13 @@ function Sandbox({ onBack, dark }) {
         // Routing
         routingEnabled: false,
         routingTarget: null, // GridSeq window ID
-        routingTrack: 0 // Which track (0=kick, 1=snare, etc)
+        routingTrack: 0, // Which track (0=kick, 1=snare, etc)
+        // Arpeggiator
+        arpEnabled: false,
+        arpMode: 'up', // up, down, updown, random, chord
+        arpRate: 8, // Note division (4=quarter, 8=eighth, 16=sixteenth)
+        arpOctaves: 1, // 1-3 octaves
+        arpGate: 0.8 // Note length 0-1
       };
       
       setInstrumentParams(new Map(instrumentParams.set(nextId, defaultParams)));
@@ -4981,6 +4987,12 @@ function SandboxWindow({ window, dark, isFocused, params, focusedInstrumentType,
 function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, instrumentParams, onParamChange }) {
   const [activeNotes, setActiveNotes] = useState(new Set());
   const voicesRef = React.useRef(new Map());
+  
+  // Arpeggiator state
+  const [heldNotes, setHeldNotes] = useState(new Set());
+  const [arpStepIndex, setArpStepIndex] = useState(0);
+  const arpIntervalRef = React.useRef(null);
+  const lastArpNoteRef = React.useRef(null);
 
   const notes = [
     { name: 'C', offset: 0, isBlack: false, key: 'a' },
@@ -5213,6 +5225,150 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     }, releaseTime * 1000 + 100);
   };
 
+  // Arpeggiator pattern generation
+  const getArpPattern = (noteOffsets, mode, octaves) => {
+    if (!noteOffsets || noteOffsets.length === 0) return [];
+    
+    let pattern = [];
+    const sortedNotes = [...noteOffsets].sort((a, b) => a - b);
+    
+    // Build pattern across octaves
+    for (let oct = 0; oct < octaves; oct++) {
+      const octaveShift = oct * 12;
+      if (mode === 'up') {
+        pattern.push(...sortedNotes.map(n => n + octaveShift));
+      } else if (mode === 'down') {
+        pattern.push(...[...sortedNotes].reverse().map(n => n + octaveShift));
+      } else if (mode === 'random') {
+        pattern.push(...sortedNotes.map(n => n + octaveShift));
+      }
+    }
+    
+    // Handle up-down mode
+    if (mode === 'updown') {
+      for (let oct = 0; oct < octaves; oct++) {
+        const octaveShift = oct * 12;
+        pattern.push(...sortedNotes.map(n => n + octaveShift));
+      }
+      for (let oct = octaves - 1; oct >= 0; oct--) {
+        const octaveShift = oct * 12;
+        pattern.push(...[...sortedNotes].reverse().slice(1).map(n => n + octaveShift));
+      }
+    }
+    
+    // Chord mode - all notes at once
+    if (mode === 'chord') {
+      pattern = sortedNotes;
+    }
+    
+    return pattern;
+  };
+
+  // Arpeggiator effect
+  React.useEffect(() => {
+    if (!params?.arpEnabled || heldNotes.size === 0 || !audioContext) {
+      // Stop arp when disabled or no notes held
+      if (arpIntervalRef.current) {
+        clearInterval(arpIntervalRef.current);
+        arpIntervalRef.current = null;
+      }
+      if (lastArpNoteRef.current) {
+        stopNote(lastArpNoteRef.current);
+        lastArpNoteRef.current = null;
+      }
+      setArpStepIndex(0);
+      return;
+    }
+
+    // Calculate arp timing (based on rate and BPM assumption of 120)
+    const bpm = 120;
+    const beatDuration = 60000 / bpm; // ms per beat
+    const noteDuration = beatDuration / (params.arpRate / 4); // 4=quarter, 8=eighth, 16=sixteenth
+    const gateTime = noteDuration * (params.arpGate || 0.8);
+
+    // Get arp pattern
+    const noteOffsets = Array.from(heldNotes);
+    const pattern = getArpPattern(noteOffsets, params.arpMode, params.arpOctaves || 1);
+    
+    if (pattern.length === 0) return;
+
+    // Clear previous interval
+    if (arpIntervalRef.current) {
+      clearInterval(arpIntervalRef.current);
+    }
+
+    // Chord mode - play all notes together
+    if (params.arpMode === 'chord') {
+      // Stop previous chord
+      if (lastArpNoteRef.current) {
+        stopNote(lastArpNoteRef.current);
+      }
+      
+      // Play all notes in the chord
+      pattern.forEach((offset, i) => {
+        const noteName = `arp_chord_${i}`;
+        playNote(noteName, offset);
+      });
+      
+      // Set up interval to retrigger chord
+      arpIntervalRef.current = setInterval(() => {
+        pattern.forEach((offset, i) => {
+          const noteName = `arp_chord_${i}`;
+          stopNote(noteName);
+          setTimeout(() => playNote(noteName, offset), 10);
+        });
+      }, noteDuration);
+      
+      return;
+    }
+
+    // Sequential modes (up, down, updown, random)
+    let currentIndex = 0;
+    
+    // Trigger first note immediately
+    const firstOffset = pattern[currentIndex];
+    const firstName = `arp_${currentIndex}`;
+    playNote(firstName, firstOffset);
+    lastArpNoteRef.current = firstName;
+    
+    // Set up interval for subsequent notes
+    arpIntervalRef.current = setInterval(() => {
+      // Stop previous note
+      if (lastArpNoteRef.current) {
+        stopNote(lastArpNoteRef.current);
+      }
+      
+      // Move to next step
+      currentIndex = (currentIndex + 1) % pattern.length;
+      
+      // Randomize if in random mode
+      if (params.arpMode === 'random') {
+        currentIndex = Math.floor(Math.random() * pattern.length);
+      }
+      
+      const offset = pattern[currentIndex];
+      const noteName = `arp_${currentIndex}_${Date.now()}`;
+      
+      playNote(noteName, offset);
+      lastArpNoteRef.current = noteName;
+      
+      // Auto-stop after gate time
+      setTimeout(() => {
+        stopNote(noteName);
+      }, gateTime);
+    }, noteDuration);
+
+    // Cleanup
+    return () => {
+      if (arpIntervalRef.current) {
+        clearInterval(arpIntervalRef.current);
+      }
+      if (lastArpNoteRef.current) {
+        stopNote(lastArpNoteRef.current);
+      }
+    };
+  }, [params?.arpEnabled, params?.arpMode, params?.arpRate, params?.arpOctaves, params?.arpGate, heldNotes, audioContext]);
+
   // Add keyboard support
   React.useEffect(() => {
     const handleKeyDown = (e) => {
@@ -5221,7 +5377,14 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       const note = notes.find(n => n.key === e.key.toLowerCase());
       if (note) {
         e.preventDefault();
-        playNote(note.name, note.offset);
+        
+        if (params?.arpEnabled) {
+          // Arp mode: add to held notes
+          setHeldNotes(prev => new Set([...prev, note.offset]));
+        } else {
+          // Normal mode: play directly
+          playNote(note.name + note.offset, note.offset);
+        }
       }
     };
 
@@ -5229,7 +5392,18 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       const note = notes.find(n => n.key === e.key.toLowerCase());
       if (note) {
         e.preventDefault();
-        stopNote(note.name);
+        
+        if (params?.arpEnabled) {
+          // Arp mode: remove from held notes
+          setHeldNotes(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(note.offset);
+            return newSet;
+          });
+        } else {
+          // Normal mode: stop directly
+          stopNote(note.name + note.offset);
+        }
       }
     };
 
@@ -5449,6 +5623,149 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
         )}
       </div>
 
+      {/* ARPEGGIATOR CONTROLS */}
+      <div style={{
+        marginBottom: '20px',
+        padding: '12px',
+        background: dark ? '#0a0a0a' : '#fafafa',
+        border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`
+      }}>
+        <div style={{
+          fontSize: '8px',
+          fontWeight: '600',
+          letterSpacing: '0.15em',
+          color: dark ? '#fff' : '#000',
+          marginBottom: '12px',
+          textAlign: 'center'
+        }}>
+          ARPEGGIATOR
+        </div>
+        
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Enable/Disable */}
+          <button
+            onClick={() => onParamChange('arpEnabled', !params.arpEnabled)}
+            style={{
+              fontSize: '8px',
+              fontWeight: '600',
+              letterSpacing: '0.1em',
+              padding: '8px 16px',
+              background: params.arpEnabled ? (dark ? '#4ade80' : '#22c55e') : 'none',
+              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              cursor: 'pointer',
+              color: params.arpEnabled ? '#000' : (dark ? '#fff' : '#000')
+            }}
+          >
+            {params.arpEnabled ? '✓ ARP ON' : 'ARP OFF'}
+          </button>
+
+          {/* Mode */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>MODE:</div>
+            <select
+              value={params.arpMode || 'up'}
+              onChange={(e) => onParamChange('arpMode', e.target.value)}
+              style={{
+                fontSize: '8px',
+                fontWeight: '500',
+                padding: '6px 8px',
+                background: dark ? '#1a1a1a' : '#fff',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                color: dark ? '#fff' : '#000',
+                cursor: 'pointer'
+              }}
+              disabled={!params.arpEnabled}
+            >
+              <option value="up">UP</option>
+              <option value="down">DOWN</option>
+              <option value="updown">UP-DOWN</option>
+              <option value="random">RANDOM</option>
+              <option value="chord">CHORD</option>
+            </select>
+          </div>
+
+          {/* Rate */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>RATE:</div>
+            <select
+              value={params.arpRate || 8}
+              onChange={(e) => onParamChange('arpRate', parseInt(e.target.value))}
+              style={{
+                fontSize: '8px',
+                fontWeight: '500',
+                padding: '6px 8px',
+                background: dark ? '#1a1a1a' : '#fff',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                color: dark ? '#fff' : '#000',
+                cursor: 'pointer'
+              }}
+              disabled={!params.arpEnabled}
+            >
+              <option value={4}>1/4</option>
+              <option value={8}>1/8</option>
+              <option value={16}>1/16</option>
+              <option value={32}>1/32</option>
+            </select>
+          </div>
+
+          {/* Octaves */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>OCT:</div>
+            <select
+              value={params.arpOctaves || 1}
+              onChange={(e) => onParamChange('arpOctaves', parseInt(e.target.value))}
+              style={{
+                fontSize: '8px',
+                fontWeight: '500',
+                padding: '6px 8px',
+                background: dark ? '#1a1a1a' : '#fff',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                color: dark ? '#fff' : '#000',
+                cursor: 'pointer'
+              }}
+              disabled={!params.arpEnabled}
+            >
+              <option value={1}>1</option>
+              <option value={2}>2</option>
+              <option value={3}>3</option>
+            </select>
+          </div>
+
+          {/* Gate */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666' }}>GATE:</div>
+            <input
+              type="range"
+              min="0.1"
+              max="1"
+              step="0.1"
+              value={params.arpGate || 0.8}
+              onChange={(e) => onParamChange('arpGate', parseFloat(e.target.value))}
+              style={{
+                width: '60px',
+                cursor: 'pointer'
+              }}
+              disabled={!params.arpEnabled}
+            />
+            <div style={{ fontSize: '7px', fontWeight: '500', color: dark ? '#999' : '#666', minWidth: '30px' }}>
+              {Math.round((params.arpGate || 0.8) * 100)}%
+            </div>
+          </div>
+        </div>
+        
+        {params.arpEnabled && (
+          <div style={{
+            marginTop: '12px',
+            fontSize: '7px',
+            fontWeight: '500',
+            color: dark ? '#4ade80' : '#22c55e',
+            textAlign: 'center'
+          }}>
+            🎵 Arpeggiator active: Hold keys to arpeggiate • {heldNotes.size} note{heldNotes.size !== 1 ? 's' : ''} held
+          </div>
+        )}
+      </div>
+
       {/* Keyboard */}
       <div style={{
         display: 'flex',
@@ -5459,12 +5776,38 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
         {notes.filter(n => !n.isBlack).map((note, i) => (
           <button
             key={note.name + i + note.offset}
-            onPointerDown={(e) => { e.preventDefault(); playNote(note.name + note.offset, note.offset); }}
-            onPointerUp={(e) => { e.preventDefault(); stopNote(note.name + note.offset); }}
+            onPointerDown={(e) => { 
+              e.preventDefault();
+              if (params?.arpEnabled) {
+                setHeldNotes(prev => new Set([...prev, note.offset]));
+              } else {
+                playNote(note.name + note.offset, note.offset);
+              }
+            }}
+            onPointerUp={(e) => { 
+              e.preventDefault();
+              if (params?.arpEnabled) {
+                setHeldNotes(prev => {
+                  const newSet = new Set(prev);
+                  newSet.delete(note.offset);
+                  return newSet;
+                });
+              } else {
+                stopNote(note.name + note.offset);
+              }
+            }}
             onPointerLeave={(e) => { 
               if (e.buttons === 1) {
-                e.preventDefault(); 
-                stopNote(note.name + note.offset); 
+                e.preventDefault();
+                if (params?.arpEnabled) {
+                  setHeldNotes(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(note.offset);
+                    return newSet;
+                  });
+                } else {
+                  stopNote(note.name + note.offset);
+                }
               }
             }}
             style={{
@@ -5495,12 +5838,38 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
           return (
             <button
               key={note.name + i + note.offset}
-              onPointerDown={(e) => { e.preventDefault(); playNote(note.name + note.offset, note.offset); }}
-              onPointerUp={(e) => { e.preventDefault(); stopNote(note.name + note.offset); }}
+              onPointerDown={(e) => { 
+                e.preventDefault();
+                if (params?.arpEnabled) {
+                  setHeldNotes(prev => new Set([...prev, note.offset]));
+                } else {
+                  playNote(note.name + note.offset, note.offset);
+                }
+              }}
+              onPointerUp={(e) => { 
+                e.preventDefault();
+                if (params?.arpEnabled) {
+                  setHeldNotes(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(note.offset);
+                    return newSet;
+                  });
+                } else {
+                  stopNote(note.name + note.offset);
+                }
+              }}
               onPointerLeave={(e) => { 
                 if (e.buttons === 1) {
-                  e.preventDefault(); 
-                  stopNote(note.name + note.offset); 
+                  e.preventDefault();
+                  if (params?.arpEnabled) {
+                    setHeldNotes(prev => {
+                      const newSet = new Set(prev);
+                      newSet.delete(note.offset);
+                      return newSet;
+                    });
+                  } else {
+                    stopNote(note.name + note.offset);
+                  }
                 }
               }}
               style={{
@@ -5533,8 +5902,10 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       }}>
         {params.routingEnabled && params.routingTarget ? (
           <>ROUTING MODE: Playing drum sounds melodically • Adjust GridSeq mixer for tone</>
+        ) : params.arpEnabled ? (
+          <>ARP MODE: Hold keys to arpeggiate • {params.arpMode.toUpperCase()} pattern at {params.arpRate === 4 ? '1/4' : params.arpRate === 8 ? '1/8' : params.arpRate === 16 ? '1/16' : '1/32'} notes</>
         ) : (
-          <>QWERTY KEYS: A-K = Notes • ROUTING: Play drums like Salem "Trapdoor" bass • PANIC stops all</>
+          <>QWERTY KEYS: A-K = Notes • ARP: Automatic patterns • ROUTING: Melodic drums • PANIC stops all</>
         )}
       </div>
     </div>
@@ -5593,19 +5964,19 @@ function GridSeqMinimal({ dark, params, audioContext, masterGain, onParamChange 
       { name: 'GLITCH', freq: 3200, decay: 0.05, type: 'square' }    // Hyperpop glitchy
     ],
     hat: [
-      { name: 'TRAP', freq: 6000, decay: 0.04, type: 'square' },     // Trap - lowered from 9000
-      { name: 'JUNGLE', freq: 6800, decay: 0.03, type: 'square' },   // Jungle - lowered from 10000
-      { name: 'OPEN', freq: 5500, decay: 0.2, type: 'square' },      // House open - lowered from 8500
-      { name: 'GARAGE', freq: 6200, decay: 0.06, type: 'square' },   // UK Garage - lowered from 9500
-      { name: 'TECHNO', freq: 7000, decay: 0.035, type: 'square' },  // Techno - lowered from 11000
-      { name: 'DARK', freq: 4500, decay: 0.08, type: 'square' },     // Dubstep - lowered from 7000
-      { name: 'JUKE', freq: 7500, decay: 0.05, type: 'square' },     // Footwork - lowered from 12000
-      { name: '808', freq: 5000, decay: 0.05, type: 'square' },      // Classic - lowered from 8000
-      { name: 'TRANCE', freq: 6500, decay: 0.15, type: 'sawtooth' }, // Trance - lowered from 10500
-      { name: 'JERSEY', freq: 7800, decay: 0.04, type: 'square' },   // Jersey Club - lowered from 13000
-      { name: 'METAL', freq: 8500, decay: 0.025, type: 'square' },   // Draingang metallic
-      { name: 'GLITCH', freq: 9000, decay: 0.02, type: 'square' },   // Mechatok glitchy
-      { name: 'CRYSTAL', freq: 8000, decay: 0.06, type: 'triangle' } // Ethereal cloud rap
+      { name: 'TRAP', freq: 2800, decay: 0.04, type: 'square' },     // Trap - traditional crisp
+      { name: 'JUNGLE', freq: 3200, decay: 0.03, type: 'square' },   // Jungle - fast attack
+      { name: 'OPEN', freq: 2500, decay: 0.2, type: 'square' },      // House open - warm long
+      { name: 'GARAGE', freq: 2900, decay: 0.06, type: 'square' },   // UK Garage - classic
+      { name: 'TECHNO', freq: 3300, decay: 0.035, type: 'square' },  // Techno - bright
+      { name: 'DARK', freq: 2200, decay: 0.08, type: 'square' },     // Dubstep - deep dark
+      { name: 'JUKE', freq: 3400, decay: 0.05, type: 'square' },     // Footwork - fast
+      { name: '808', freq: 2400, decay: 0.05, type: 'square' },      // Classic - vintage
+      { name: 'TRANCE', freq: 3000, decay: 0.15, type: 'sawtooth' }, // Trance - cutting
+      { name: 'JERSEY', freq: 3500, decay: 0.04, type: 'square' },   // Jersey Club - bright
+      { name: 'METAL', freq: 3800, decay: 0.025, type: 'square' },   // Draingang - metallic but usable
+      { name: 'GLITCH', freq: 4000, decay: 0.02, type: 'square' },   // Mechatok - glitchy high
+      { name: 'CRYSTAL', freq: 3600, decay: 0.06, type: 'triangle' } // Ethereal - shimmery
     ],
     perc: [
       { name: 'CONGA', freq: 220, decay: 0.3, type: 'sine' },        // Latin
