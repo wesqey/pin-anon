@@ -5497,15 +5497,15 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       const arpAttack = 0.003; // 3ms attack to prevent clicks
       const arpRelease = 0.02; // 20ms release for smooth transitions
       
-      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.setValueAtTime(0.001, now); // Start just above 0 for exponential
       // Use exponentialRampToValueAtTime for smoother attack (no clicks)
       gainNode.gain.exponentialRampToValueAtTime(params.volume * 0.01, now + 0.001);
       gainNode.gain.exponentialRampToValueAtTime(params.volume, now + arpAttack);
       
       // Safety timeout for arp notes (in case stopNote never gets called)
       // Arp notes should be stopped by the arp engine, but this prevents infinite notes
-      const safetyTime = 5; // 5 seconds max for any arp note
-      gainNode.gain.linearRampToValueAtTime(0, now + safetyTime);
+      const safetyTime = 2; // 2 seconds max for any arp note
+      gainNode.gain.exponentialRampToValueAtTime(0.001, now + safetyTime);
       
       timeoutId = setTimeout(() => {
         try {
@@ -5522,20 +5522,22 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
         }
       }, safetyTime * 1000 + 100);
     } else {
-      // NORMAL MODE: Full ADSR envelope
-      gainNode.gain.setValueAtTime(0, now);
-      gainNode.gain.linearRampToValueAtTime(params.volume, now + params.attack);
+      // NORMAL MODE: Full ADSR envelope with smooth exponential ramps
+      gainNode.gain.setValueAtTime(0.001, now); // Start just above 0 for exponential
       
-      // Only sustain indefinitely if sustain is maxed (>= 0.99)
-      const sustainLevel = params.volume * params.sustain;
-      gainNode.gain.linearRampToValueAtTime(sustainLevel, now + params.attack + params.decay);
+      // Attack - exponential ramp for smooth start (no click)
+      gainNode.gain.exponentialRampToValueAtTime(params.volume, now + params.attack);
       
-      // ALWAYS add a safety auto-release (even for high sustain)
-      // High sustain = 30 seconds max, low sustain = 10 seconds max
-      const maxNoteTime = params.sustain >= 0.99 ? 30 : (params.attack + params.decay + 10);
+      // Decay to sustain level
+      const sustainLevel = Math.max(0.001, params.volume * params.sustain); // Keep above 0 for exponential
+      gainNode.gain.exponentialRampToValueAtTime(sustainLevel, now + params.attack + params.decay);
       
-      // Schedule auto-release
-      gainNode.gain.linearRampToValueAtTime(0, now + maxNoteTime);
+      // Safety auto-release - much shorter to prevent stuck notes
+      // Maximum 3 seconds for any note (prevents infinite notes if keyup missed)
+      const maxNoteTime = Math.min(3, params.attack + params.decay + 2);
+      
+      // Schedule auto-release with exponential ramp (smooth fadeout, no click)
+      gainNode.gain.exponentialRampToValueAtTime(0.001, now + maxNoteTime);
       
       // Timeout to stop oscillator and cleanup
       timeoutId = setTimeout(() => {
@@ -5590,28 +5592,24 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     const now = audioContext.currentTime;
     const isArpNote = noteName.startsWith('arp_');
     
-    // Arp notes use shorter, smoother release to prevent clicks
+    // Arp notes use shorter release, normal notes use user-set release
     const releaseTime = isArpNote ? 0.02 : (voice.params?.release || 0.3);
 
-    // Clear the auto-release timeout (only normal notes have this)
+    // Clear the auto-release timeout
     if (voice.timeoutId) {
       clearTimeout(voice.timeoutId);
     }
 
     try {
       voice.gainNode.gain.cancelScheduledValues(now);
-      voice.gainNode.gain.setValueAtTime(voice.gainNode.gain.value, now);
+      const currentGain = voice.gainNode.gain.value;
+      voice.gainNode.gain.setValueAtTime(currentGain, now);
       
-      // Use exponential ramp for arp notes (smoother, no clicks)
-      if (isArpNote) {
-        const currentGain = voice.gainNode.gain.value;
-        if (currentGain > 0.01) {
-          voice.gainNode.gain.exponentialRampToValueAtTime(0.01, now + releaseTime);
-        } else {
-          voice.gainNode.gain.setValueAtTime(0, now);
-        }
+      // ALWAYS use exponential ramp for smooth release (no clicks/pops)
+      if (currentGain > 0.001) {
+        voice.gainNode.gain.exponentialRampToValueAtTime(0.001, now + releaseTime);
       } else {
-        voice.gainNode.gain.linearRampToValueAtTime(0, now + releaseTime);
+        voice.gainNode.gain.setValueAtTime(0.001, now);
       }
     } catch (e) {
       console.log('Stop note error:', e);
@@ -5700,8 +5698,9 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
 
     // Calculate arp timing using BPM from params
     // setInterval has inherent drift - typically runs slightly slow
-    // To match GridSeq timing exactly, we don't compensate (let it drift the same way)
-    const bpm = params.bpm || 120;
+    // Add tiny compensation (0.5%) to better sync with GridSeq
+    const rawBpm = params.bpm || 120;
+    const bpm = rawBpm * 1.005; // 0.5% faster to compensate for setInterval drift
     const beatDuration = 60000 / bpm; // ms per beat
     const arpRate = params.arpRate || 8; // Default to eighth notes
     const arpMode = params.arpMode || 'up'; // Default to up
