@@ -5539,32 +5539,15 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     if (isArpNote) {
       // ARP MODE: Ultra-smooth envelope to prevent clicks/pops
       const arpAttack = 0.003; // 3ms attack to prevent clicks
-      const arpRelease = 0.02; // 20ms release for smooth transitions
       
       gainNode.gain.setValueAtTime(0.001, now); // Start just above 0 for exponential
       // Use exponentialRampToValueAtTime for smoother attack (no clicks)
       gainNode.gain.exponentialRampToValueAtTime(params.volume * 0.01, now + 0.001);
       gainNode.gain.exponentialRampToValueAtTime(params.volume, now + arpAttack);
       
-      // Safety timeout for arp notes (in case stopNote never gets called)
-      // Arp notes should be stopped by the arp engine, but this prevents infinite notes
-      const safetyTime = 2; // 2 seconds max for any arp note
-      gainNode.gain.exponentialRampToValueAtTime(0.001, now + safetyTime);
-      
-      timeoutId = setTimeout(() => {
-        try {
-          if (voicesRef.current.has(noteName)) {
-            const voice = voicesRef.current.get(noteName);
-            if (voice.osc && voice.osc.context.state === 'running') {
-              voice.osc.stop();
-            }
-            voicesRef.current.delete(noteName);
-            setActiveNotes(new Set([...voicesRef.current.keys()]));
-          }
-        } catch (e) {
-          console.log('Arp safety cleanup:', e);
-        }
-      }, safetyTime * 1000 + 100);
+      // NO safety timeout for arp notes - arp engine handles stopping via gate time
+      // This prevents accumulated timeouts from killing the arp after a few measures
+      timeoutId = undefined;
     } else {
       // NORMAL MODE: Full ADSR envelope with smooth exponential ramps
       gainNode.gain.setValueAtTime(0.001, now); // Start just above 0 for exponential
