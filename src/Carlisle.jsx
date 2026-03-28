@@ -4298,11 +4298,8 @@ function Sandbox({ onBack, dark }) {
       };
       reader.readAsDataURL(blob);
       
-      // Also download
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `carlisle-${Date.now()}.webm`;
-      a.click();
+      // Don't auto-download - user can download from recordings library
+      // Clean up the blob URL
       URL.revokeObjectURL(url);
     };
     
