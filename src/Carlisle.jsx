@@ -4281,7 +4281,20 @@ function Sandbox({ onBack, dark }) {
         };
         const updatedRecordings = [newRecording, ...recordings];
         setRecordings(updatedRecordings);
-        localStorage.setItem('carlisle_recordings', JSON.stringify(updatedRecordings));
+        
+        // Try to save to localStorage with error handling
+        try {
+          localStorage.setItem('carlisle_recordings', JSON.stringify(updatedRecordings));
+        } catch (e) {
+          console.error('Failed to save recording to localStorage:', e);
+          
+          // Check if it's a quota exceeded error
+          if (e.name === 'QuotaExceededError' || e.code === 22) {
+            alert('Storage quota exceeded! Your recording was saved for this session but won\'t persist after refresh. Delete old recordings to free up space.');
+          } else {
+            alert('Failed to save recording. It will be lost on refresh.');
+          }
+        }
       };
       reader.readAsDataURL(blob);
       
@@ -5002,15 +5015,32 @@ function Sandbox({ onBack, dark }) {
               borderBottom: `1px solid ${dark ? '#222' : '#f0f0f0'}`,
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'center'
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px'
             }}>
-              <div style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                letterSpacing: '0.1em',
-                color: dark ? '#fff' : '#000'
-              }}>
-                📼 RECORDINGS LIBRARY ({recordings.length})
+              <div>
+                <div style={{
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  letterSpacing: '0.1em',
+                  color: dark ? '#fff' : '#000'
+                }}>
+                  📼 RECORDINGS LIBRARY ({recordings.length})
+                </div>
+                <div style={{
+                  fontSize: '9px',
+                  color: dark ? '#666' : '#999',
+                  marginTop: '4px'
+                }}>
+                  {(() => {
+                    const storageSize = new Blob([JSON.stringify(recordings)]).size;
+                    const sizeMB = (storageSize / 1024 / 1024).toFixed(2);
+                    const quota = 10; // Approximate localStorage quota in MB
+                    const percent = Math.min(100, (storageSize / (quota * 1024 * 1024)) * 100).toFixed(0);
+                    return `${sizeMB} MB used (~${percent}% of storage)`;
+                  })()}
+                </div>
               </div>
               <button
                 onClick={() => setShowRecordingsLibrary(false)}
@@ -5100,7 +5130,11 @@ function Sandbox({ onBack, dark }) {
                                   r.id === recording.id ? { ...r, name: newName.trim() } : r
                                 );
                                 setRecordings(updated);
-                                localStorage.setItem('carlisle_recordings', JSON.stringify(updated));
+                                try {
+                                  localStorage.setItem('carlisle_recordings', JSON.stringify(updated));
+                                } catch (e) {
+                                  console.error('Failed to save renamed recording:', e);
+                                }
                               }
                             }}
                             style={{
@@ -5120,7 +5154,11 @@ function Sandbox({ onBack, dark }) {
                               if (confirm('Delete this recording?')) {
                                 const updated = recordings.filter(r => r.id !== recording.id);
                                 setRecordings(updated);
-                                localStorage.setItem('carlisle_recordings', JSON.stringify(updated));
+                                try {
+                                  localStorage.setItem('carlisle_recordings', JSON.stringify(updated));
+                                } catch (e) {
+                                  console.error('Failed to update recordings after delete:', e);
+                                }
                               }
                             }}
                             style={{
@@ -5341,6 +5379,12 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
   const [arpStepIndex, setArpStepIndex] = useState(0);
   const arpIntervalRef = React.useRef(null);
   const lastArpNoteRef = React.useRef(null);
+  const heldNotesRef = React.useRef(new Set()); // Ref for interval access
+  
+  // Keep ref in sync with state
+  React.useEffect(() => {
+    heldNotesRef.current = heldNotes;
+  }, [heldNotes]);
 
   const notes = [
     { name: 'C', offset: 0, isBlack: false, key: 'a' },
@@ -5677,23 +5721,26 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     }
   }, [params?.arpEnabled]);
 
-  // Arpeggiator effect
+  // Separate effect to stop arp when no notes held (without restarting the interval)
   React.useEffect(() => {
-    if (!params?.arpEnabled || heldNotes.size === 0 || !audioContext) {
-      // Stop arp when disabled or no notes held
-      if (arpIntervalRef.current) {
-        clearInterval(arpIntervalRef.current);
-        arpIntervalRef.current = null;
-      }
-      // Stop ALL arp notes (including chords)
+    if (heldNotes.size === 0 && arpIntervalRef.current) {
+      clearInterval(arpIntervalRef.current);
+      arpIntervalRef.current = null;
+      
+      // Stop ALL arp notes
       voicesRef.current.forEach((voice, noteName) => {
         if (noteName.startsWith('arp_')) {
           stopNote(noteName);
         }
       });
       lastArpNoteRef.current = null;
-      setArpStepIndex(0);
-      return;
+    }
+  }, [heldNotes]);
+
+  // Arpeggiator effect - timing critical, avoid restarts on note changes
+  React.useEffect(() => {
+    if (!params?.arpEnabled || !audioContext || heldNotes.size === 0) {
+      return; // Early return, cleanup handled by separate effect above
     }
 
     // Calculate arp timing using BPM from params
@@ -5723,7 +5770,8 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       }
     });
 
-    // Clear previous interval
+    // Clear previous interval ONLY if settings changed (not on chord change)
+    // This prevents timing disruption when adding/removing notes
     if (arpIntervalRef.current) {
       clearInterval(arpIntervalRef.current);
     }
@@ -5738,7 +5786,13 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       
       // Set up interval to retrigger chord
       arpIntervalRef.current = setInterval(() => {
-        pattern.forEach((offset, i) => {
+        // Use ref to get current heldNotes (not stale closure value)
+        const currentOffsets = Array.from(heldNotesRef.current);
+        const currentPattern = getArpPattern(currentOffsets, arpMode, arpOctaves);
+        
+        if (currentPattern.length === 0) return;
+        
+        currentPattern.forEach((offset, i) => {
           const noteName = `arp_chord_${i}`;
           stopNote(noteName);
           setTimeout(() => playNote(noteName, offset), 10);
@@ -5759,15 +5813,21 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     
     // Set up interval for subsequent notes
     arpIntervalRef.current = setInterval(() => {
+      // Use ref to get current heldNotes (not stale closure value)
+      const currentOffsets = Array.from(heldNotesRef.current);
+      const currentPattern = getArpPattern(currentOffsets, arpMode, arpOctaves);
+      
+      if (currentPattern.length === 0) return;
+      
       // Move to next step
-      currentIndex = (currentIndex + 1) % pattern.length;
+      currentIndex = (currentIndex + 1) % currentPattern.length;
       
       // Randomize if in random mode
       if (arpMode === 'random') {
-        currentIndex = Math.floor(Math.random() * pattern.length);
+        currentIndex = Math.floor(Math.random() * currentPattern.length);
       }
       
-      const offset = pattern[currentIndex];
+      const offset = currentPattern[currentIndex];
       const noteName = `arp_${currentIndex}_${Date.now()}`;
       
       // Start new note immediately (overlap for smooth transition)
@@ -5800,7 +5860,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       });
       lastArpNoteRef.current = null;
     };
-  }, [params?.arpEnabled, params?.arpMode, params?.arpRate, params?.arpOctaves, params?.arpGate, heldNotes, audioContext]);
+  }, [params?.arpEnabled, params?.arpMode, params?.arpRate, params?.arpOctaves, params?.arpGate, params?.bpm, audioContext]);
 
   // Add keyboard support
   React.useEffect(() => {
