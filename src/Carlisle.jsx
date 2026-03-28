@@ -5723,7 +5723,8 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
 
   // Separate effect to stop arp when no notes held (without restarting the interval)
   React.useEffect(() => {
-    if (heldNotes.size === 0 && arpIntervalRef.current) {
+    // Only stop if arp is enabled and we go from notes to no notes
+    if (params?.arpEnabled && heldNotes.size === 0 && arpIntervalRef.current) {
       clearInterval(arpIntervalRef.current);
       arpIntervalRef.current = null;
       
@@ -5735,93 +5736,109 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       });
       lastArpNoteRef.current = null;
     }
-  }, [heldNotes]);
+  }, [heldNotes.size, params?.arpEnabled]);
 
-  // Arpeggiator effect - timing critical, avoid restarts on note changes
+  // Arpeggiator effect - ONLY depends on settings, NOT on heldNotes
+  // Starts interval when enabled, stops when disabled
+  // Interval reads fresh notes from ref every tick
   React.useEffect(() => {
-    if (!params?.arpEnabled || !audioContext || heldNotes.size === 0) {
-      return; // Early return, cleanup handled by separate effect above
+    if (!params?.arpEnabled || !audioContext) {
+      // Disabled - cleanup
+      if (arpIntervalRef.current) {
+        clearInterval(arpIntervalRef.current);
+        arpIntervalRef.current = null;
+      }
+      voicesRef.current.forEach((voice, noteName) => {
+        if (noteName.startsWith('arp_')) {
+          stopNote(noteName);
+        }
+      });
+      lastArpNoteRef.current = null;
+      return;
     }
 
-    // If interval already exists, don't restart (preserves timing when notes change)
-    if (arpIntervalRef.current) {
-      return; // Interval running, notes will update via ref
-    }
-
-    // Calculate arp timing using BPM from params
-    // setInterval has inherent drift - typically runs slightly slow
-    // Add tiny compensation (0.5%) to better sync with GridSeq
+    // Calculate timing from params
     const rawBpm = params.bpm || 120;
-    const bpm = rawBpm * 1.005; // 0.5% faster to compensate for setInterval drift
-    const beatDuration = 60000 / bpm; // ms per beat
-    const arpRate = params.arpRate || 8; // Default to eighth notes
-    const arpMode = params.arpMode || 'up'; // Default to up
-    const arpOctaves = params.arpOctaves || 1; // Default to 1 octave
-    const arpGate = params.arpGate !== undefined ? params.arpGate : 0.8; // Default to 80%
+    const bpm = rawBpm * 1.005;
+    const beatDuration = 60000 / bpm;
+    const arpRate = params.arpRate || 8;
+    const arpMode = params.arpMode || 'up';
+    const arpOctaves = params.arpOctaves || 1;
+    const arpGate = params.arpGate !== undefined ? params.arpGate : 0.8;
     
-    const noteDuration = beatDuration / (arpRate / 4); // 4=quarter, 8=eighth, 16=sixteenth
+    const noteDuration = beatDuration / (arpRate / 4);
     const gateTime = noteDuration * arpGate;
 
-    // Get arp pattern
-    const noteOffsets = Array.from(heldNotes);
-    const pattern = getArpPattern(noteOffsets, arpMode, arpOctaves);
-    
-    if (pattern.length === 0) return;
+    // Clear previous interval (settings changed)
+    if (arpIntervalRef.current) {
+      clearInterval(arpIntervalRef.current);
+      arpIntervalRef.current = null;
+    }
 
-    // IMPORTANT: Stop all previous arp notes before starting new pattern
+    // Stop all previous arp notes
     voicesRef.current.forEach((voice, noteName) => {
       if (noteName.startsWith('arp_')) {
         stopNote(noteName);
       }
     });
 
-    // Chord mode - play all notes together
+    // Chord mode setup
     if (arpMode === 'chord') {
-      // Play all notes in the chord
-      pattern.forEach((offset, i) => {
-        const noteName = `arp_chord_${i}`;
-        playNote(noteName, offset);
-      });
+      let isFirstTick = true;
       
-      // Set up interval to retrigger chord
       arpIntervalRef.current = setInterval(() => {
-        // Use ref to get current heldNotes (not stale closure value)
         const currentOffsets = Array.from(heldNotesRef.current);
-        const currentPattern = getArpPattern(currentOffsets, arpMode, arpOctaves);
+        if (currentOffsets.length === 0) return;
         
-        if (currentPattern.length === 0) return;
+        const currentPattern = getArpPattern(currentOffsets, arpMode, arpOctaves);
         
         currentPattern.forEach((offset, i) => {
           const noteName = `arp_chord_${i}`;
-          stopNote(noteName);
-          setTimeout(() => playNote(noteName, offset), 10);
+          if (!isFirstTick) stopNote(noteName);
+          setTimeout(() => playNote(noteName, offset), isFirstTick ? 0 : 10);
         });
+        
+        isFirstTick = false;
       }, noteDuration);
+      
+      // Trigger first chord immediately
+      const initialOffsets = Array.from(heldNotesRef.current);
+      if (initialOffsets.length > 0) {
+        const initialPattern = getArpPattern(initialOffsets, arpMode, arpOctaves);
+        initialPattern.forEach((offset, i) => {
+          playNote(`arp_chord_${i}`, offset);
+        });
+      }
       
       return;
     }
 
-    // Sequential modes (up, down, updown, random)
+    // Sequential modes
     let currentIndex = 0;
+    let hasPlayedFirst = false;
     
-    // Trigger first note immediately
-    const firstOffset = pattern[currentIndex];
-    const firstName = `arp_${currentIndex}`;
-    playNote(firstName, firstOffset);
-    lastArpNoteRef.current = firstName;
-    
-    // Set up interval for subsequent notes
     arpIntervalRef.current = setInterval(() => {
-      // Use ref to get current heldNotes (not stale closure value)
       const currentOffsets = Array.from(heldNotesRef.current);
-      const currentPattern = getArpPattern(currentOffsets, arpMode, arpOctaves);
+      if (currentOffsets.length === 0) return;
       
+      const currentPattern = getArpPattern(currentOffsets, arpMode, arpOctaves);
       if (currentPattern.length === 0) return;
+      
+      // Play first note on first tick
+      if (!hasPlayedFirst) {
+        const firstOffset = currentPattern[0];
+        const firstName = `arp_0`;
+        playNote(firstName, firstOffset);
+        lastArpNoteRef.current = firstName;
+        hasPlayedFirst = true;
+        
+        setTimeout(() => stopNote(firstName), gateTime);
+        return;
+      }
       
       // Move to next step
       currentIndex = (currentIndex + 1) % currentPattern.length;
       
-      // Randomize if in random mode
       if (arpMode === 'random') {
         currentIndex = Math.floor(Math.random() * currentPattern.length);
       }
@@ -5829,21 +5846,16 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       const offset = currentPattern[currentIndex];
       const noteName = `arp_${currentIndex}_${Date.now()}`;
       
-      // Start new note immediately (overlap for smooth transition)
       playNote(noteName, offset);
       
-      // Stop previous note with slight delay for crossfade
       const prevNote = lastArpNoteRef.current;
       if (prevNote) {
-        setTimeout(() => stopNote(prevNote), 10); // 10ms crossfade
+        setTimeout(() => stopNote(prevNote), 10);
       }
       
       lastArpNoteRef.current = noteName;
       
-      // Auto-stop after gate time
-      setTimeout(() => {
-        stopNote(noteName);
-      }, gateTime);
+      setTimeout(() => stopNote(noteName), gateTime);
     }, noteDuration);
 
     // Cleanup
@@ -5852,7 +5864,6 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
         clearInterval(arpIntervalRef.current);
         arpIntervalRef.current = null;
       }
-      // Stop all arp notes (including all chord notes)
       voicesRef.current.forEach((voice, noteName) => {
         if (noteName.startsWith('arp_')) {
           stopNote(noteName);
@@ -5860,7 +5871,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       });
       lastArpNoteRef.current = null;
     };
-  }, [params?.arpEnabled, params?.arpMode, params?.arpRate, params?.arpOctaves, params?.arpGate, params?.bpm, heldNotes.size, audioContext]);
+  }, [params?.arpEnabled, params?.arpMode, params?.arpRate, params?.arpOctaves, params?.arpGate, params?.bpm, audioContext]);
 
   // Add keyboard support
   React.useEffect(() => {
