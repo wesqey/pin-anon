@@ -5743,6 +5743,11 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       return; // Early return, cleanup handled by separate effect above
     }
 
+    // If interval already exists, don't restart (preserves timing when notes change)
+    if (arpIntervalRef.current) {
+      return; // Interval running, notes will update via ref
+    }
+
     // Calculate arp timing using BPM from params
     // setInterval has inherent drift - typically runs slightly slow
     // Add tiny compensation (0.5%) to better sync with GridSeq
@@ -5769,12 +5774,6 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
         stopNote(noteName);
       }
     });
-
-    // Clear previous interval ONLY if settings changed (not on chord change)
-    // This prevents timing disruption when adding/removing notes
-    if (arpIntervalRef.current) {
-      clearInterval(arpIntervalRef.current);
-    }
 
     // Chord mode - play all notes together
     if (arpMode === 'chord') {
@@ -5851,6 +5850,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     return () => {
       if (arpIntervalRef.current) {
         clearInterval(arpIntervalRef.current);
+        arpIntervalRef.current = null;
       }
       // Stop all arp notes (including all chord notes)
       voicesRef.current.forEach((voice, noteName) => {
@@ -5860,7 +5860,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       });
       lastArpNoteRef.current = null;
     };
-  }, [params?.arpEnabled, params?.arpMode, params?.arpRate, params?.arpOctaves, params?.arpGate, params?.bpm, audioContext]);
+  }, [params?.arpEnabled, params?.arpMode, params?.arpRate, params?.arpOctaves, params?.arpGate, params?.bpm, heldNotes.size, audioContext]);
 
   // Add keyboard support
   React.useEffect(() => {
