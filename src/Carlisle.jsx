@@ -5740,6 +5740,17 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       return;
     }
 
+    // If we have no notes held, don't start interval yet
+    // (will be triggered when notes are added via dependency below)
+    if (heldNotesRef.current.size === 0) {
+      return;
+    }
+
+    // If interval already running and settings haven't changed, don't restart
+    // (This preserves timing when notes are added/removed)
+    // We'll restart only when this effect runs due to settings change
+    const hasIntervalRunning = arpIntervalRef.current !== null;
+    
     // Calculate timing from params
     const rawBpm = params.bpm || 120;
     const bpm = rawBpm * 1.005;
@@ -5752,12 +5763,13 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
     const noteDuration = beatDuration / (arpRate / 4);
     const gateTime = noteDuration * arpGate;
 
-    // Clear previous interval (settings changed)
-    if (arpIntervalRef.current) {
-      clearInterval(arpIntervalRef.current);
-      arpIntervalRef.current = null;
+    // Only clear interval if we actually need to restart (settings changed)
+    // If interval exists and we're just responding to hasNotes changing, skip
+    if (hasIntervalRunning) {
+      return; // Keep existing interval, it will read fresh notes from ref
     }
 
+    // No interval running, start one
     // Stop all previous arp notes
     voicesRef.current.forEach((voice, noteName) => {
       if (noteName.startsWith('arp_')) {
@@ -5854,7 +5866,7 @@ function PulseWaveMinimal({ dark, params, audioContext, masterGain, windows, ins
       });
       lastArpNoteRef.current = null;
     };
-  }, [params?.arpEnabled, params?.arpMode, params?.arpRate, params?.arpOctaves, params?.arpGate, params?.bpm, audioContext]);
+  }, [params?.arpEnabled, params?.arpMode, params?.arpRate, params?.arpOctaves, params?.arpGate, params?.bpm, heldNotes.size > 0, audioContext]);
 
   // Add keyboard support
   React.useEffect(() => {
