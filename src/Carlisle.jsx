@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import imageCompression from 'browser-image-compression';
 import { initializeApp } from "firebase/app";
 import { 
   getDatabase, 
