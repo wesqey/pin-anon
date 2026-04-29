@@ -9011,39 +9011,7 @@ function InviteGate({ onSignUp, onLogin, getColor }) {
 
         {/* Form Fields */}
         <div style={{ marginBottom: '20px' }}>
-          {/* Invite Code (signup only) */}
-          {mode === "signup" && (
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '9px',
-                letterSpacing: '0.1em',
-                color: getColor('textMuted'),
-                marginBottom: '8px'
-              }}>
-                INVITE CODE
-              </label>
-              <input
-                type="text"
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                placeholder="ABC123XYZ"
-                style={{
-                  width: '100%',
-                  fontSize: '14px',
-                  letterSpacing: '0.1em',
-                  padding: '12px',
-                  background: 'none',
-                  border: `1px solid ${getColor('border')}`,
-                  outline: 'none',
-                  color: getColor('text'),
-                  fontFamily: 'Helvetica Neue, Arial, sans-serif',
-                  boxSizing: 'border-box',
-                  textTransform: 'uppercase'
-                }}
-              />
-            </div>
-          )}
+
 
           {/* Username */}
           <div style={{ marginBottom: '20px' }}>
