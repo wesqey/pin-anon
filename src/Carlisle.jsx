@@ -288,7 +288,6 @@ export default function Carlisle() {
   // Create new account with username + password
   async function signUpUser(username, password, inviteCode) {
     try {
-      const upperCode = inviteCode.toUpperCase().trim();
       
       // Validate username
       const usernameError = validateUsername(username);
@@ -315,15 +314,6 @@ export default function Carlisle() {
       // Hash password
       const hashedPassword = await hashPassword(password);
       
-      // Verify invite code
-      const inviteRef = ref(database, `appState/inviteCodes/${upperCode}`);
-      const inviteSnapshot = await get(inviteRef);
-      
-      const inviteData = inviteSnapshot.val();
-      if (!inviteData || inviteData.used) {
-        alert("INVALID OR USED INVITE CODE");
-        return false;
-      }
       
       // Sign in anonymously to Firebase to get a UID
       const userCredential = await signInAnonymously(auth);
@@ -350,9 +340,6 @@ export default function Carlisle() {
       const updates = {};
       updates[`users/${firebaseUID}`] = newUser;
       updates[`appState/usernames/${usernameLower}`] = firebaseUID;
-      updates[`appState/inviteCodes/${upperCode}/used`] = true;
-      updates[`appState/inviteCodes/${upperCode}/usedBy`] = firebaseUID;
-      updates[`appState/inviteCodes/${upperCode}/usedAt`] = now();
       
       await update(ref(database), updates);
       
@@ -8883,11 +8870,11 @@ function InviteGate({ onSignUp, onLogin, getColor }) {
     setError("");
     
     if (mode === "signup") {
-      if (!username.trim() || !password.trim() || !inviteCode.trim()) {
+      if (!username.trim() || !password.trim()) {
         setError("PLEASE FILL IN ALL FIELDS");
         return;
       }
-      const success = await onSignUp(username, password, inviteCode);
+      const success = await onSignUp(username, password, "");
       if (!success) {
         // Error already shown by onSignUp
       }
