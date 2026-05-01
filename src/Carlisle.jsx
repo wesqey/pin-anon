@@ -1465,13 +1465,24 @@ export default function Carlisle() {
                         </div>
                       )}
                       {post.audioUrl && (
-                        <audio
-                          controls
-                          style={{ width: '100%', marginBottom: '20px' }}
-                        >
-                          <source src={post.audioUrl} />
-                          Your browser does not support audio.
-                        </audio>
+                        post.audioUrl.includes('spotify.com') ? (
+                          <iframe
+                            src={post.audioUrl.replace('open.spotify.com/', 'open.spotify.com/embed/')}
+                            width="100%"
+                            height="80"
+                            frameBorder="0"
+                            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                            style={{ marginBottom: '20px', borderRadius: '12px' }}
+                          />
+                        ) : (
+                          <audio
+                            controls
+                            style={{ width: '100%', marginBottom: '20px' }}
+                          >
+                            <source src={post.audioUrl} />
+                            Your browser does not support audio.
+                          </audio>
+                        )
                       )}
                       <div style={{ 
                         fontSize: layout === 'single' ? '13px' : '12px', 
