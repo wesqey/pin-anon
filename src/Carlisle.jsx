@@ -36,17 +36,16 @@ const auth = getAuth(app);
 
 // MinIO S3 Client
 const s3Client = new S3Client({
-  endpoint: 'https://api.pinanonarchive.com',
-  region: 'us-east-1',
+  endpoint: 'https://<bc00d057939b8bdd47f1caf138cb7d4f>.r2.cloudflarestorage.com',
+  region: 'auto',
   credentials: {
-    accessKeyId: import.meta.env.VITE_MINIO_ACCESS_KEY,
-    secretAccessKey: import.meta.env.VITE_MINIO_SECRET_KEY
-  },
-  forcePathStyle: true
+    accessKeyId: import.meta.env.VITE_R2_ACCESS_KEY,
+    secretAccessKey: import.meta.env.VITE_R2_SECRET_KEY
+  }
 });
 
-const MINIO_BUCKET = 'uploads';
-const MINIO_PUBLIC_URL = 'https://api.pinanonarchive.com';
+const MINIO_BUCKET = 'carlisle-uploads';
+const MINIO_PUBLIC_URL = 'https://pub-8fb636021a9e461886adfeb5ee060521.r2.dev';
 
 // ---------- Config & utils ----------
 const LS_USER = "carlisle_user";
