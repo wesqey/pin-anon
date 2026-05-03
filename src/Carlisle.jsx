@@ -43,6 +43,8 @@ const s3Client = new S3Client({
     secretAccessKey: import.meta.env.VITE_R2_SECRET_KEY
   }
 });
+console.log('R2 key loaded:', !!import.meta.env.VITE_R2_ACCESS_KEY);
+console.log('R2 secret loaded:', !!import.meta.env.VITE_R2_SECRET_KEY);
 
 const MINIO_BUCKET = 'carlisle-uploads';
 const MINIO_PUBLIC_URL = 'https://pub-8fb636021a9e461886adfeb5ee060521.r2.dev';
