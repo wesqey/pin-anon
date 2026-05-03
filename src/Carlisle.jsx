@@ -36,7 +36,7 @@ const auth = getAuth(app);
 
 // MinIO S3 Client
 const s3Client = new S3Client({
-  endpoint: 'https://<bc00d057939b8bdd47f1caf138cb7d4f>.r2.cloudflarestorage.com',
+  endpoint: 'https://bc00d057939b8bdd47f1caf138cb7d4f.r2.cloudflarestorage.com',
   region: 'auto',
   credentials: {
     accessKeyId: import.meta.env.VITE_R2_ACCESS_KEY,
