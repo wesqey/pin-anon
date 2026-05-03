@@ -2601,15 +2601,18 @@ function NewPostModal({ onClose, onPost, dark }) {
   const uploadImageToMinIO = async (file) => {
     try {
       const filename = `${Date.now()}_${file.name}`;
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
       const command = new PutObjectCommand({
         Bucket: MINIO_BUCKET,
         Key: filename,
-        Body: file,
+        Body: uint8Array,
         ContentType: file.type
       });
       
       await s3Client.send(command);
-      return `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${filename}`;
+      return `${MINIO_PUBLIC_URL}/${filename}`;
     } catch (error) {
       console.error('MinIO upload error:', error);
       throw error;
