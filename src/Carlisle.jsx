@@ -1305,12 +1305,8 @@ export default function Carlisle() {
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <ProfilePicture 
-                          authorId={post.authorId}
-                          author={post.author}
-                          size={32}
-                          dark={dark}
-                        />
+                      <ProfilePicture authorId={authorId} author={authorId} size={80} dark={dark} profileImage={userData.profileImage} />
+                        /
                         <div style={{ display: 'flex', gap: '15px', alignItems: 'baseline', flexWrap: 'wrap' }}>
                           <button
                             onClick={() => enterProfile(post.author)}
@@ -1572,12 +1568,28 @@ export default function Carlisle() {
 
 // ========== HELPER COMPONENTS ==========
 
-function ProfilePicture({ authorId, author, size = 32, dark }) {
+function ProfilePicture({ authorId, author, size = 32, dark, profileImage }) {
   const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B739', '#52B788'];
   const id = authorId || author;
   const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const color = colors[hash % colors.length];
   
+  if (profileImage) {
+    return (
+      <img
+        src={profileImage}
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: '50%',
+          objectFit: 'cover',
+          flexShrink: 0
+        }}
+        alt="profile"
+      />
+    );
+  }
+
   return (
     <div style={{
       width: `${size}px`,
@@ -2104,13 +2116,13 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
 
 function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, onEditProfile, onDeletePost, dark }) {
   const profileUser = allPosts.find(p => p.author === authorId);
-  const userData = profileUser ? {
-    username: profileUser.authorDisplayName || profileUser.author,
-    bio: null,
-    profileImage: null
-  } : { username: authorId, bio: null, profileImage: null };
-
   const isOwnProfile = authorId === user.id || (firebaseUser && authorId === firebaseUser.uid);
+  const userData = {
+    username: isOwnProfile ? user.username : (profileUser?.authorDisplayName || authorId),
+    bio: isOwnProfile ? user.bio : null,
+    profileImage: isOwnProfile ? user.profileImage : null
+  };
+
 
   return (
     <div>
