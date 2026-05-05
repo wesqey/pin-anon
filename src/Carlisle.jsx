@@ -1216,19 +1216,17 @@ export default function Carlisle() {
 
         {view === "profile" && profileView ? (
           <ProfilePage
-            authorId={profileView}
-            posts={(state.posts || []).filter((p) => p.author === profileView)}
-            allPosts={state.posts || []}
-            user={user}
-            firebaseUser={firebaseUser}
-            onBack={() => {
-              setProfileView(null);
-              setView(previousView);
-            }}
-            onEditProfile={() => setShowProfileEdit(true)}
-            onDeletePost={removePost}
-            dark={dark}
-          />
+          authorId={profileView}
+          posts={(state.posts || []).filter((p) => p.author === profileView)}
+          allPosts={state.posts || []}
+          user={user}
+          firebaseUser={firebaseUser}
+          onBack={() => { setProfileView(null); setView(previousView); }}
+          onEditProfile={() => setShowProfileEdit(true)}
+          onDeletePost={removePost}
+          onEnterRoom={enterRoom}
+          dark={dark}
+        />
         ) : view === "sounds" ? (
           <SoundsStudio
             onBack={() => setView("home")}
@@ -1434,10 +1432,9 @@ export default function Carlisle() {
                               width="100%"
                               height={layout === 'single' ? '400' : '250'}
                               src={post.videoUrl.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/')}
-                              frameBorder="0"
                               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                               allowFullScreen
-                              style={{ maxWidth: '100%' }}
+                              style={{ maxWidth: '100%', border: 'none' }}
                             />
                           ) : (
                             <video
@@ -1456,9 +1453,8 @@ export default function Carlisle() {
                             src={post.audioUrl.replace('open.spotify.com/', 'open.spotify.com/embed/')}
                             width="100%"
                             height="80"
-                            frameBorder="0"
                             allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                            style={{ marginBottom: '20px', borderRadius: '12px' }}
+                            style={{ marginBottom: '12px', borderRadius: '12px', border: 'none' }}
                           />
                         ) : (
                           <audio
@@ -2118,7 +2114,7 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
   );
 }
 
-function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, onEditProfile, onDeletePost, dark }) {
+function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, onEditProfile, onDeletePost, onEnterRoom, dark }) {
   const profileUser = allPosts.find(p => p.author === authorId);
   const isOwnProfile = authorId === user.id || (firebaseUser && authorId === firebaseUser.uid);
   const userData = {
@@ -2221,25 +2217,58 @@ function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, on
           }}>
             {posts.sort((a, b) => b.created - a.created).map(post => (
               <div
-                key={post.id}
-                style={{
-                  padding: '20px',
-                  border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-                  wordWrap: 'break-word',
-                  overflowWrap: 'break-word'
-                }}
-              >
+              key={post.id}
+              onClick={() => onEnterRoom(post.room)}
+              style={{
+                padding: '20px',
+                border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                wordWrap: 'break-word',
+                overflowWrap: 'break-word',
+                cursor: 'pointer',
+                transition: 'border-color 0.2s'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.borderColor = dark ? '#333' : '#e5e5e5'}
+              onMouseLeave={(e) => e.currentTarget.style.borderColor = dark ? '#1a1a1a' : '#f5f5f5'}
+            >
                 {post.image && (
                   <img
                     src={post.image}
-                    style={{
-                      width: '100%',
-                      maxHeight: '200px',
-                      objectFit: 'cover',
-                      marginBottom: '12px'
-                    }}
+                    style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', marginBottom: '12px' }}
                     alt="post"
                   />
+                )}
+                {post.videoUrl && (
+                  <div style={{ marginBottom: '12px' }}>
+                    {post.videoUrl.includes('youtube.com') || post.videoUrl.includes('youtu.be') ? (
+                      <iframe
+                        width="100%"
+                        height="180"
+                        src={post.videoUrl.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/')}
+                        style={{ border: 'none' }}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    ) : (
+                      <video controls style={{ width: '100%', maxHeight: '200px' }}>
+                        <source src={post.videoUrl} />
+                      </video>
+                    )}
+                  </div>
+                )}
+                {post.audioUrl && (
+                  post.audioUrl.includes('spotify.com') ? (
+                    <iframe
+                      src={post.audioUrl.replace('open.spotify.com/', 'open.spotify.com/embed/')}
+                      width="100%"
+                      height="80"
+                      allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                      style={{ marginBottom: '12px', borderRadius: '12px', border: 'none' }}
+                    />
+                  ) : (
+                    <audio controls style={{ width: '100%', marginBottom: '12px' }}>
+                      <source src={post.audioUrl} />
+                    </audio>
+                  )
                 )}
                 <div style={{
                   fontSize: '12px',
