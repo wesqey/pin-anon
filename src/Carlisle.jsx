@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import imageCompression from 'browser-image-compression';
 import { initializeApp } from "firebase/app";
 import { 
@@ -34,20 +33,6 @@ const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 const auth = getAuth(app);
 
-// MinIO S3 Client
-const s3Client = new S3Client({
-  endpoint: 'https://bc00d057939b8bdd47f1caf138cb7d4f.r2.cloudflarestorage.com',
-  region: 'auto',
-  credentials: {
-    accessKeyId: import.meta.env.VITE_R2_ACCESS_KEY,
-    secretAccessKey: import.meta.env.VITE_R2_SECRET_KEY
-  }
-});
-console.log('R2 key loaded:', !!import.meta.env.VITE_R2_ACCESS_KEY);
-console.log('R2 secret loaded:', !!import.meta.env.VITE_R2_SECRET_KEY);
-
-const MINIO_BUCKET = 'carlisle-uploads';
-const MINIO_PUBLIC_URL = 'https://pub-8fb636021a9e461886adfeb5ee060521.r2.dev';
 
 // ---------- Config & utils ----------
 const LS_USER = "carlisle_user";
@@ -3331,15 +3316,25 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
       let profileImageUrl = user.profileImage;
       
       if (imageFile) {
-        profileImageUrl = await uploadImageToMinIO(imageFile);
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': imageFile.type,
+            'x-filename': imageFile.name,
+          },
+          body: imageFile,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error);
+        profileImageUrl = data.url;
       }
-
+  
       onSave({
         ...user,
         bio: bio.trim() || null,
         profileImage: profileImageUrl
       });
-
+  
       onClose();
     } catch (error) {
       alert("UPLOAD FAILED");
