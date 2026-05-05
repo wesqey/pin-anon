@@ -1305,8 +1305,12 @@ export default function Carlisle() {
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <ProfilePicture authorId={authorId} author={authorId} size={80} dark={dark} profileImage={userData.profileImage} />
-                        /
+                      <ProfilePicture 
+                        authorId={post.authorId}
+                        author={post.author}
+                        size={32}
+                        dark={dark}
+                      />
                         <div style={{ display: 'flex', gap: '15px', alignItems: 'baseline', flexWrap: 'wrap' }}>
                           <button
                             onClick={() => enterProfile(post.author)}
