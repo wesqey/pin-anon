@@ -1,7 +1,7 @@
 import React from "react";
 import ProfilePicture from "./ProfilePicture";
 
-export function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, onEditProfile, onDeletePost, onEnterRoom, dark }) {
+export default function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, onEditProfile, onDeletePost, onEnterRoom, dark }) {
   const profileUser = allPosts.find(p => p.author === authorId);
   const isOwnProfile = authorId === user.id || (firebaseUser && authorId === firebaseUser.uid);
   const userData = {

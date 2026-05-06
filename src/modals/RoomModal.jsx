@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export function RoomModal({ onClose, onCreate, onJoin, dark }) {
+export default function RoomModal({ onClose, onCreate, onJoin, dark }) {
   const [mode, setMode] = useState("create");
   const [roomName, setRoomName] = useState("");
   const [inviteCode, setInviteCode] = useState("");

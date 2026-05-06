@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export function ProfileEditModal({ user, onSave, onClose, dark }) {
+export default function ProfileEditModal({ user, onSave, onClose, dark }) {
   const [bio, setBio] = useState(user.bio || "");
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(user.profileImage || null);

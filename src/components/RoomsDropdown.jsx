@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin, userJoinedRooms = [], userCreatedRooms = [] }) {
+export default function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin, userJoinedRooms = [], userCreatedRooms = [] }) {
   const [open, setOpen] = useState(false);
 
   const joinedRooms = rooms.filter(r => userJoinedRooms.includes(r.id));

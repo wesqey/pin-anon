@@ -1,6 +1,6 @@
 import React from "react";
 
-export function LogoutConfirmModal({ onConfirm, onCancel, dark }) {
+export default function LogoutConfirmModal({ onConfirm, onCancel, dark }) {
   return (
     <div
       onClick={onCancel}

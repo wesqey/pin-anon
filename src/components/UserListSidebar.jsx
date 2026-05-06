@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 import ProfilePicture from "./ProfilePicture";
 
-export function UserListSidebar({ posts, currentRoom, dark, windowWidth, onProfileClick }) {
+export default function UserListSidebar({ posts, currentRoom, dark, windowWidth, onProfileClick }) {
   if (windowWidth < 1024) return null;
 
   const postsInRoom = posts.filter(p => p.room === currentRoom);

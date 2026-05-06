@@ -1,6 +1,6 @@
 import React from "react";
 
-export function AdminPanel({ onClose, dark, user }) {
+export default function AdminPanel({ onClose, dark, user }) {
   return (
     <div
       onClick={onClose}

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export function SettingsModal({ dark, setDark, theme, setTheme, user, onGenerateInvite, onLogout, onClose }) {
+export default function SettingsModal({ dark, setDark, theme, setTheme, user, onGenerateInvite, onLogout, onClose }) {
   const [newCode, setNewCode] = useState(null);
 
   const themes = ['default', 'serika', 'retrocast', 'botanical', 'ocean', 'rose'];

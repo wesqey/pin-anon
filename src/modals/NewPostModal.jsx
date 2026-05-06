@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export function NewPostModal({ onClose, onPost, dark }) {
+export default function NewPostModal({ onClose, onPost, dark }) {
   const [text, setText] = useState("");
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);

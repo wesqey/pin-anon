@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { generateUsername } from "../utils";
 
-export function InviteGate({ onSignUp, onLogin, getColor }) {
+export default function InviteGate({ onSignUp, onLogin, getColor }) {
   const [mode, setMode] = useState("signup");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");

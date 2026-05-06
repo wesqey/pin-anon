@@ -1,6 +1,6 @@
 import React from "react";
 
-export function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, userJoinedRooms = [] }) {
+export default function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, userJoinedRooms = [] }) {
   const joinedRooms = rooms.filter(r => userJoinedRooms.includes(r.id));
   const otherRooms = rooms.filter(r => !userJoinedRooms.includes(r.id) && !r.isPrivate);
 
