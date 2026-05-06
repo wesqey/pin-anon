@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import ProfilePicture from "./ProfilePicture";
 
 export function UserListSidebar({ posts, currentRoom, dark, windowWidth, onProfileClick }) {
