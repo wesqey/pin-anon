@@ -514,6 +514,21 @@ export default function Carlisle() {
     [state.posts, room]
   );
 
+  useEffect(() => {
+    if (!targetPostId) return;
+    const el = document.getElementById(`post-${targetPostId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.style.outline = `2px solid ${dark ? '#fff' : '#000'}`;
+      el.style.outlineOffset = '4px';
+      setTimeout(() => {
+        el.style.outline = 'none';
+        el.style.outlineOffset = '0';
+      }, 2000);
+      setTargetPostId(null);
+    }
+  }, [targetPostId, visible]);
+
   function createRoom(name = "room", isPrivate = true, creatorOnly = false) {
     const invite = uid('room').slice(5, 11);
     const r = { 
@@ -660,9 +675,12 @@ export default function Carlisle() {
     return room?.creator === user.id;
   }
 
-  function enterRoom(roomId) {
+  const [targetPostId, setTargetPostId] = useState(null);
+
+  function enterRoom(roomId, postId = null) {
     setRoom(roomId);
     setView("room");
+    setTargetPostId(postId);
   }
 
   function enterProfile(authorId) {
@@ -1194,7 +1212,7 @@ export default function Carlisle() {
                 )}
 
                 {visible.map((post) => (
-                  <article key={post.id} style={{ 
+                  <article key={post.id} id={`post-${post.id}`} style={{ 
                     paddingBottom: layout === 'single' ? '60px' : '20px',
                     borderBottom: layout === 'single' ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
                     wordWrap: 'break-word',

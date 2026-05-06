@@ -105,7 +105,7 @@ export function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onB
             {posts.sort((a, b) => b.created - a.created).map(post => (
               <div
               key={post.id}
-              onClick={() => onEnterRoom(post.room)}
+              onClick={() => onEnterRoom(post.room, post.id)}
               style={{
                 padding: '20px',
                 border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
