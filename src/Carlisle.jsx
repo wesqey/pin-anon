@@ -626,7 +626,7 @@ export default function Carlisle() {
       }
     }, 100);
     return () => clearTimeout(timeout);
-  }, [targetPostId, visible]);
+  }, [targetPostId]);
 
   const postsInRoom = useMemo(
     () => (state.posts || []).filter((p) => p.room === room),
