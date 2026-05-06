@@ -91,6 +91,7 @@ export default function Carlisle() {
     return localStorage.getItem("carlisle_theme") || "default";
   });
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+  const [targetPostId, setTargetPostId] = useState(null);
 
   // Theme color palettes (imported from theme.js)
   const _themes = {
@@ -509,25 +510,28 @@ export default function Carlisle() {
     localStorage.setItem("carlisle_room", room);
   }, [room]);
 
+  useEffect(() => {
+    if (!targetPostId) return;
+    const timeout = setTimeout(() => {
+      const el = document.getElementById(`post-${targetPostId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.style.outline = `2px solid ${dark ? '#fff' : '#000'}`;
+        el.style.outlineOffset = '4px';
+        setTimeout(() => {
+          el.style.outline = 'none';
+          el.style.outlineOffset = '0';
+        }, 2000);
+        setTargetPostId(null);
+      }
+    }, 100);
+    return () => clearTimeout(timeout);
+  }, [targetPostId, visible]);
+
   const postsInRoom = useMemo(
     () => (state.posts || []).filter((p) => p.room === room),
     [state.posts, room]
   );
-
-  useEffect(() => {
-    if (!targetPostId) return;
-    const el = document.getElementById(`post-${targetPostId}`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.style.outline = `2px solid ${dark ? '#fff' : '#000'}`;
-      el.style.outlineOffset = '4px';
-      setTimeout(() => {
-        el.style.outline = 'none';
-        el.style.outlineOffset = '0';
-      }, 2000);
-      setTargetPostId(null);
-    }
-  }, [targetPostId, visible]);
 
   function createRoom(name = "room", isPrivate = true, creatorOnly = false) {
     const invite = uid('room').slice(5, 11);
@@ -675,12 +679,10 @@ export default function Carlisle() {
     return room?.creator === user.id;
   }
 
-  const [targetPostId, setTargetPostId] = useState(null);
-
   function enterRoom(roomId, postId = null) {
     setRoom(roomId);
     setView("room");
-    setTargetPostId(postId);
+    if (postId) setTargetPostId(postId);
   }
 
   function enterProfile(authorId) {
