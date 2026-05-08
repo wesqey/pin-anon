@@ -164,6 +164,7 @@ export default function Carlisle() {
   });
 
   const [showNew, setShowNew] = useState(false);
+  const [expandedPost, setExpandedPost] = useState(null);
   const [profileView, setProfileView] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash.startsWith('profile/')) return hash.split('/')[1] || null;
@@ -1326,6 +1327,24 @@ export default function Carlisle() {
                           >
                             {post.authorDisplayName || post.author?.toUpperCase() || 'UNKNOWN'}
                           </button>
+                          <button
+                            onClick={() => setExpandedPost(post)}
+                            style={{
+                              fontSize: '10px',
+                              letterSpacing: '0.1em',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: dark ? '#666' : '#999',
+                              padding: 0,
+                              transition: 'opacity 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                            onMouseLeave={(e) => e.target.style.opacity = '1'}
+                            title="Expand post"
+                          >
+                            ↗
+                          </button>
                         </div>
                         {!whisper && (
                           <div style={{ 
@@ -1416,11 +1435,13 @@ export default function Carlisle() {
                       {post.image && (
                         <img
                           src={post.image}
+                          onClick={() => setExpandedPost(post)}
                           style={{ 
                             width: '100%',
                             maxHeight: layout === 'single' ? '600px' : '300px',
                             objectFit: 'contain',
-                            marginBottom: '20px'
+                            marginBottom: '20px',
+                            cursor: 'pointer'
                           }}
                           alt="post"
                         />
@@ -1501,6 +1522,24 @@ export default function Carlisle() {
         )}
       </div>
 
+      {expandedPost && (
+        <PostExpandModal
+          post={expandedPost}
+          onClose={() => setExpandedPost(null)}
+          dark={dark}
+          user={user}
+          firebaseUser={firebaseUser}
+          legacyUserId={legacyUserId}
+          addComment={addComment}
+          removeComment={removeComment}
+          vote={vote}
+          removePost={removePost}
+          enterProfile={(id) => { setExpandedPost(null); enterProfile(id); }}
+          isRoomMod={isRoomMod(expandedPost.room)}
+          whisper={whisper}
+          layout={layout}
+        />
+      )}
       {showNew && (
         <NewPostModal
           onClose={() => setShowNew(false)}
@@ -2618,34 +2657,14 @@ function NewPostModal({ onClose, onPost, dark }) {
   const [audioUrl, setAudioUrl] = useState("");
   const [uploading, setUploading] = useState(false);
 
-  const handleImageChange = async (e) => {
+  const handleImageChange = (e) => {
     const file = e.target.files[0];
-    if (!file) return;
-
-    if (file.size > 20 * 1024 * 1024) {
-      alert('IMAGE TOO LARGE — maximum size is 20MB');
-      e.target.value = '';
-      return;
-    }
-
-    try {
-      let processed = file;
-      if (file.size > 3 * 1024 * 1024) {
-        processed = await imageCompression(file, {
-          maxSizeMB: 3,
-          maxWidthOrHeight: 2400,
-          useWebWorker: true,
-        });
-      }
-      setImageFile(processed);
-      const reader = new FileReader();
-      reader.onloadend = () => setImagePreview(reader.result);
-      reader.readAsDataURL(processed);
-    } catch (err) {
-      console.error('Compression error:', err);
+    if (file) {
       setImageFile(file);
       const reader = new FileReader();
-      reader.onloadend = () => setImagePreview(reader.result);
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -3344,34 +3363,14 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
   const [imagePreview, setImagePreview] = useState(user.profileImage || null);
   const [uploading, setUploading] = useState(false);
 
-  const handleImageChange = async (e) => {
+  const handleImageChange = (e) => {
     const file = e.target.files[0];
-    if (!file) return;
-
-    if (file.size > 20 * 1024 * 1024) {
-      alert('IMAGE TOO LARGE — maximum size is 20MB');
-      e.target.value = '';
-      return;
-    }
-
-    try {
-      let processed = file;
-      if (file.size > 3 * 1024 * 1024) {
-        processed = await imageCompression(file, {
-          maxSizeMB: 3,
-          maxWidthOrHeight: 2400,
-          useWebWorker: true,
-        });
-      }
-      setImageFile(processed);
-      const reader = new FileReader();
-      reader.onloadend = () => setImagePreview(reader.result);
-      reader.readAsDataURL(processed);
-    } catch (err) {
-      console.error('Compression error:', err);
+    if (file) {
       setImageFile(file);
       const reader = new FileReader();
-      reader.onloadend = () => setImagePreview(reader.result);
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -3787,6 +3786,111 @@ function AdminPanel({ onClose, dark, user }) {
         >
           CLOSE
         </button>
+      </div>
+    </div>
+  );
+}
+
+
+function PostExpandModal({ post, onClose, dark, user, firebaseUser, legacyUserId, addComment, removeComment, vote, removePost, enterProfile, isRoomMod, whisper }) {
+  const bg = dark ? '#000' : '#fff';
+  const border = dark ? '#222' : '#e5e5e5';
+  const text = dark ? '#fff' : '#000';
+  const muted = dark ? '#999' : '#666';
+  const dim = dark ? '#444' : '#ccc';
+  const [width, setWidth] = React.useState(window.innerWidth);
+  const hasMedia = post.image || post.videoUrl || post.audioUrl;
+
+  React.useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    const resize = () => setWidth(window.innerWidth);
+    window.addEventListener('keydown', handler);
+    window.addEventListener('resize', resize);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', handler);
+      window.removeEventListener('resize', resize);
+      document.body.style.overflow = '';
+    };
+  }, []);
+
+  const isMobile = width < 768;
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', width: '100%', height: '100%', maxWidth: '1400px', backgroundColor: bg, overflow: 'hidden' }}>
+        
+        {hasMedia && (
+          <div style={{ flex: isMobile ? 'none' : '1 1 60%', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: isMobile ? '40vh' : 'unset', maxHeight: isMobile ? '50vh' : 'unset', overflow: 'hidden' }}>
+            {post.image && <img src={post.image} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} alt="post" />}
+            {post.videoUrl && !post.image && (
+              post.videoUrl.includes('youtube.com') || post.videoUrl.includes('youtu.be') ? (
+                <iframe width="100%" height="100%" src={post.videoUrl.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/')} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ border: 'none', minHeight: '300px' }} />
+              ) : (
+                <video controls style={{ maxWidth: '100%', maxHeight: '100%' }}><source src={post.videoUrl} /></video>
+              )
+            )}
+            {post.audioUrl && !post.image && !post.videoUrl && (
+              <div style={{ padding: '40px', width: '100%' }}>
+                {post.audioUrl.includes('spotify.com') ? (
+                  <iframe src={post.audioUrl.replace('open.spotify.com/', 'open.spotify.com/embed/')} width="100%" height="80" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" style={{ border: 'none', borderRadius: '12px' }} />
+                ) : (
+                  <audio controls style={{ width: '100%' }}><source src={post.audioUrl} /></audio>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ flex: hasMedia ? '0 0 380px' : '1', display: 'flex', flexDirection: 'column', borderLeft: hasMedia && !isMobile ? `1px solid ${border}` : 'none', borderTop: hasMedia && isMobile ? `1px solid ${border}` : 'none', height: isMobile ? 'unset' : '100%', flex: isMobile ? '1' : (hasMedia ? '0 0 380px' : '1'), overflow: 'hidden' }}>
+          
+          <div style={{ padding: '16px 24px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <ProfilePicture authorId={post.authorId} author={post.author} size={28} dark={dark} />
+              <button onClick={() => enterProfile(post.author)} style={{ fontSize: '11px', letterSpacing: '0.05em', background: 'none', border: 'none', cursor: 'pointer', color: text, textDecoration: 'underline', padding: 0 }}>
+                {post.authorDisplayName || post.author?.toUpperCase() || 'UNKNOWN'}
+              </button>
+              {!whisper && <span style={{ fontSize: '10px', color: muted, letterSpacing: '0.05em' }}>{new Date(post.created).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })}</span>}
+            </div>
+            <button onClick={onClose} style={{ fontSize: '20px', background: 'none', border: 'none', cursor: 'pointer', color: muted, lineHeight: 1, padding: '0 4px' }}>×</button>
+          </div>
+
+          <div style={{ padding: '16px 24px', borderBottom: `1px solid ${border}`, flexShrink: 0 }}>
+            {post.image && post.audioUrl && (
+              <div style={{ marginBottom: '12px' }}>
+                {post.audioUrl.includes('spotify.com') ? (
+                  <iframe src={post.audioUrl.replace('open.spotify.com/', 'open.spotify.com/embed/')} width="100%" height="80" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" style={{ border: 'none', borderRadius: '12px' }} />
+                ) : (
+                  <audio controls style={{ width: '100%' }}><source src={post.audioUrl} /></audio>
+                )}
+              </div>
+            )}
+            {post.text && <div style={{ fontSize: '13px', lineHeight: '1.8', letterSpacing: '0.02em', color: text, whiteSpace: 'pre-wrap', wordWrap: 'break-word', marginBottom: '12px' }}>{post.text}</div>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button onClick={() => vote(post.id, 1)} style={{ fontSize: '13px', background: 'none', border: 'none', cursor: 'pointer', color: post.voters?.[user.id] === 1 ? text : dim }}>▲</button>
+              <span style={{ fontSize: '11px', color: text }}>{post.votes}</span>
+              <button onClick={() => vote(post.id, -1)} style={{ fontSize: '13px', background: 'none', border: 'none', cursor: 'pointer', color: post.voters?.[user.id] === -1 ? text : dim }}>▼</button>
+              {(user.isAdmin || post.author === user.id || (firebaseUser && post.authorId === firebaseUser.uid) || isRoomMod) && (
+                <button onClick={() => { removePost(post.id); onClose(); }} style={{ fontSize: '10px', letterSpacing: '0.1em', background: 'none', border: 'none', cursor: 'pointer', color: muted, marginLeft: 'auto' }}>DELETE</button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px' }}>
+            <CommentBlock
+              post={post}
+              addComment={addComment}
+              removeComment={removeComment}
+              whisper={whisper}
+              dark={dark}
+              user={user}
+              firebaseUser={firebaseUser}
+              legacyUserId={legacyUserId}
+              isRoomMod={isRoomMod}
+              enterProfile={enterProfile}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
