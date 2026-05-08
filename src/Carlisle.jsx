@@ -2659,14 +2659,19 @@ function NewPostModal({ onClose, onPost, dark }) {
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    
+    const maxMB = 20;
+    if (file.size > maxMB * 1024 * 1024) {
+      alert(`IMAGE TOO LARGE — maximum size is ${maxMB}MB`);
+      e.target.value = '';
+      return;
     }
+    
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file);
   };
 
   const uploadImageToMinIO = async (file) => {
@@ -3365,14 +3370,19 @@ function ProfileEditModal({ user, onSave, onClose, dark }) {
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    
+    const maxMB = 20;
+    if (file.size > maxMB * 1024 * 1024) {
+      alert(`IMAGE TOO LARGE — maximum size is ${maxMB}MB`);
+      e.target.value = '';
+      return;
     }
+    
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file);
   };
 
   const uploadImageToMinIO = async (file) => {

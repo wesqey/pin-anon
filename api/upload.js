@@ -35,3 +35,10 @@ export default async function handler(req, res) {
     res.status(500).json({ error: 'Upload failed' });
   }
 }
+
+export const config = {
+  api: {
+    bodyParser: false,
+    sizeLimit: '20mb',
+  },
+};
