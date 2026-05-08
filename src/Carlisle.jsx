@@ -39,31 +39,70 @@ const LS_USER = "carlisle_user";
 const DEFAULT_ROOM = "main";
 const ADMIN_PASSWORD = "EpicMan101";
 
-// Xbox 360-style username generator
 const adjectives = [
-  "Big", "Small", "Fast", "Slow", "Dead", "Sad", "Happy", "Angry",
-  "Quiet", "Loud", "Cold", "Hot", "Wet", "Dry", "Old", "New",
-  "Half", "Full", "Empty", "Broken", "Fixed", "Lost", "Found", "Hidden",
-  "Dizzy", "Sleepy", "Grumpy", "Fancy", "Plain", "Shiny", "Dull", "Tiny",
-  "Giant", "Mini", "Mega", "Ultra", "Super", "Hyper", "Turbo", "Extreme",
-  "Fuzzy", "Smooth", "Rough", "Sharp", "Blunt", "Thick", "Thin", "Wide"
+  "ancient","arctic","ashen","bare","bitter","blank","bleak","bold","brief","brittle",
+  "calm","careful","casual","cheap","clean","clear","clever","close","cold","cool",
+  "coarse","covert","cracked","crude","crushed","curious","damp","dark","dead","deep",
+  "dense","dim","dirty","distant","drab","dreary","dry","dull","dusty","earnest",
+  "elder","empty","even","faint","faded","fallen","false","far","feral","flat",
+  "fleeting","fluid","foggy","fond","foreign","forgotten","frail","frozen","faint","gentle",
+  "ghostly","grim","gravel","grey","gritty","hollow","honest","humble","idle","inland",
+  "inner","ironic","jaded","keen","kind","known","lanky","late","lean","light",
+  "little","lone","long","lost","loud","low","loyal","lunar","mellow","minor",
+  "mired","misty","muted","naive","narrow","neat","numb","obscure","odd","offhand",
+  "old","open","outer","pale","patient","plain","pointed","polite","poor","prime",
+  "proper","proud","pure","quiet","ragged","rare","raw","remote","rigid","rugged",
+  "rural","rustic","sad","shallow","sharp","shy","silent","simple","sincere","slim",
+  "slow","small","smart","soft","solemn","sour","spare","stark","steady","stern",
+  "still","stoic","strange","stray","subtle","sunken","swift","tall","tame","tender",
+  "thin","tired","torn","true","twilight","unknown","vacant","vague","vast","warm",
+  "wary","weathered","weary","weird","western","whole","wild","wise","worn","young"
 ];
 
 const nouns = [
-  "Dog", "Cat", "Fish", "Bird", "Mouse", "Frog", "Bear", "Wolf",
-  "Fox", "Deer", "Duck", "Goose", "Cow", "Pig", "Sheep", "Goat",
-  "Turtle", "Snail", "Crab", "Shrimp", "Clam", "Squid", "Whale", "Shark",
-  "Tree", "Rock", "Cloud", "Moon", "Star", "Sun", "Wind", "Rain",
-  "Box", "Cup", "Lamp", "Chair", "Table", "Door", "Window", "Wall",
-  "Car", "Truck", "Bike", "Boat", "Plane", "Train", "Bus", "Van",
-  "Pizza", "Taco", "Bread", "Cheese", "Apple", "Grape", "Melon", "Berry"
+  "alcove","arch","ash","avenue","barn","basin","bay","beam","bench","birch",
+  "blade","bloom","bluff","bog","bolt","bone","branch","brick","bridge","brook",
+  "burrow","cabin","canal","canyon","cape","cedar","cell","chalk","chapel","cliff",
+  "cloth","coast","cobble","cord","corner","cove","creek","crest","crow","current",
+  "dawn","deck","den","depot","desert","dew","dock","door","dune","dust",
+  "echo","edge","elm","ember","estuary","fen","ferry","field","flint","flood",
+  "floor","flute","foam","fog","ford","forge","fork","frost","gale","gate",
+  "glade","glare","glen","grain","gravel","grove","gulf","gust","harbor","hatch",
+  "haven","hazel","heath","hedge","helm","heron","hill","hollow","horn","hull",
+  "inlet","iron","isle","ivy","jetty","keel","kernel","kiln","knoll","lagoon",
+  "lane","lantern","larch","lattice","ledge","light","linen","loch","loft","loop",
+  "mast","meadow","mesa","mill","mire","mist","moat","moor","moss","mouth",
+  "mud","needle","nest","oak","oar","orbit","orchard","ore","outcrop","peat",
+  "pebble","perch","pine","plain","plank","plume","pool","port","quarry","quay",
+  "rail","ravine","reed","reef","ridge","rift","rivet","root","rope","ruin",
+  "rush","salt","sand","scarp","sedge","seep","shaft","shelf","shell","shore",
+  "shroud","sill","slate","slope","smoke","soil","span","spit","spring","spur",
+  "stalk","steep","stem","stone","storm","strand","stream","summit","swamp","sweep",
+  "tarn","thatch","thorn","tide","timber","torch","tower","trail","trench","vale",
+  "vault","vein","vent","vessel","vine","wake","wall","wave","well","wick",
+  "willow","wind","wire","wood","wreck","yard","yew"
+];
+
+const structures = [
+  (a, n) => `${a}_${n}`,
+  (a, n) => `${a}${n}`,
+  (a, n) => `${n}_${a}`,
+  (a, n) => `the_${n}`,
+  (a, n) => `${a}-${n}`,
+  (a, n) => `${n}${Math.floor(Math.random()*90)+10}`,
+  (a, n) => `${a}_${n}${Math.floor(Math.random()*9)+1}`,
+  (a, n) => `${n}_${Math.floor(Math.random()*999)+100}`,
+  (a, n) => `${a}${n}_${Math.floor(Math.random()*99)+1}`,
+  (a, n) => `${n}`,
+  (a, n) => `${a}_${n}_${['i','ii','iii','iv','v','vi'][Math.floor(Math.random()*6)]}`,
+  (a, n) => `${Math.floor(Math.random()*9)+1}_${a}_${n}`,
 ];
 
 function generateUsername() {
   const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
   const noun = nouns[Math.floor(Math.random() * nouns.length)];
-  const num = Math.floor(Math.random() * 100);
-  return `${adj}${noun}${num}`;
+  const structure = structures[Math.floor(Math.random() * structures.length)];
+  return structure(adj, noun);
 }
 
 function uid(prefix = "id") {
@@ -177,8 +216,6 @@ export default function Carlisle() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
-  const [showRoomSettings, setShowRoomSettings] = useState(false);
-  const [roomSettingsTarget, setRoomSettingsTarget] = useState(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("carlisle_dark") === "1";
@@ -187,7 +224,6 @@ export default function Carlisle() {
     return localStorage.getItem("carlisle_theme") || "default";
   });
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
-  const [targetPostId, setTargetPostId] = useState(null);
 
   // Theme color palettes
   const themes = {
@@ -610,24 +646,6 @@ export default function Carlisle() {
     localStorage.setItem("carlisle_room", room);
   }, [room]);
 
-  useEffect(() => {
-    if (!targetPostId) return;
-    const timeout = setTimeout(() => {
-      const el = document.getElementById(`post-${targetPostId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.style.outline = `2px solid ${dark ? '#fff' : '#000'}`;
-        el.style.outlineOffset = '4px';
-        setTimeout(() => {
-          el.style.outline = 'none';
-          el.style.outlineOffset = '0';
-        }, 2000);
-        setTargetPostId(null);
-      }
-    }, 100);
-    return () => clearTimeout(timeout);
-  }, [targetPostId]);
-
   const postsInRoom = useMemo(
     () => (state.posts || []).filter((p) => p.room === room),
     [state.posts, room]
@@ -779,10 +797,9 @@ export default function Carlisle() {
     return room?.creator === user.id;
   }
 
-  function enterRoom(roomId, postId = null) {
+  function enterRoom(roomId) {
     setRoom(roomId);
     setView("room");
-    if (postId) setTargetPostId(postId);
   }
 
   function enterProfile(authorId) {
@@ -814,17 +831,6 @@ export default function Carlisle() {
     const updates = {};
     updates['appState/rooms'] = newRooms;
     update(ref(database), updates);
-  }
-
-  function openRoomSettings(roomId) {
-    const r = (state.rooms || []).find(r => r.id === roomId);
-    if (r) { setRoomSettingsTarget(r); setShowRoomSettings(true); }
-  }
-
-  function saveRoomSettings(updatedRoom) {
-    const newRooms = (state.rooms || []).map(r => r.id === updatedRoom.id ? updatedRoom : r);
-    update(ref(database), { 'appState/rooms': newRooms });
-    setShowRoomSettings(false);
   }
 
   function handleAdminLogin() {
@@ -918,11 +924,6 @@ export default function Carlisle() {
     
     if (currentRoom?.creatorOnly && currentRoom.creator !== user.id && !user.isAdmin) {
       alert("ONLY THE ROOM CREATOR CAN POST IN THIS ROOM");
-      return;
-    }
-
-    if (currentRoom?.bannedUsers?.includes(user.id)) {
-      alert("YOU ARE BANNED FROM POSTING IN THIS ROOM");
       return;
     }
     
@@ -1180,7 +1181,6 @@ export default function Carlisle() {
                   if (code) joinRoom(code);
                 }}
                 onDeleteRoom={removeRoom}
-                onRoomSettings={openRoomSettings}
                 dark={dark}
                 isAdmin={user.isAdmin}
                 userJoinedRooms={user.joinedRooms}
@@ -1331,7 +1331,7 @@ export default function Carlisle() {
                 )}
 
                 {visible.map((post) => (
-                  <article key={post.id} id={`post-${post.id}`} style={{ 
+                  <article key={post.id} style={{ 
                     paddingBottom: layout === 'single' ? '60px' : '20px',
                     borderBottom: layout === 'single' ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
                     wordWrap: 'break-word',
@@ -1599,16 +1599,6 @@ export default function Carlisle() {
           onClose={() => setShowAdminPanel(false)}
           dark={dark}
           user={user}
-        />
-      )}
-      {showRoomSettings && roomSettingsTarget && (
-        <RoomSettingsModal
-          room={roomSettingsTarget}
-          onSave={saveRoomSettings}
-          onClose={() => setShowRoomSettings(false)}
-          dark={dark}
-          user={user}
-          state={state}
         />
       )}
     </div>
@@ -1927,7 +1917,7 @@ function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, u
   );
 }
 
-function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, onRoomSettings, dark, isAdmin, userJoinedRooms = [], userCreatedRooms = [] }) {
+function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCreateRoom, onJoinRoom, onDeleteRoom, dark, isAdmin, userJoinedRooms = [], userCreatedRooms = [] }) {
   const [open, setOpen] = useState(false);
 
   const joinedRooms = rooms.filter(r => userJoinedRooms.includes(r.id));
@@ -2041,49 +2031,26 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
                       {r.creatorOnly && <span style={{ color: dark ? '#666' : '#999', marginLeft: '8px' }}>👤</span>}
                     </button>
                     {(isAdmin || userCreatedRooms.includes(r.id)) && r.id !== 'main' && (
-                      <>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onRoomSettings(r.id);
-                            setOpen(false);
-                          }}
-                          style={{
-                            fontSize: '9px',
-                            color: dark ? '#666' : '#999',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            padding: '4px 6px',
-                            transition: 'opacity 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                          onMouseLeave={(e) => e.target.style.opacity = '1'}
-                          title="Room settings"
-                        >
-                          ⚙
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteRoom(r.id);
-                            setOpen(false);
-                          }}
-                          style={{
-                            fontSize: '9px',
-                            color: dark ? '#666' : '#999',
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            padding: '4px 8px',
-                            transition: 'opacity 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                          onMouseLeave={(e) => e.target.style.opacity = '1'}
-                        >
-                          ×
-                        </button>
-                      </>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteRoom(r.id);
+                          setOpen(false);
+                        }}
+                        style={{
+                          fontSize: '9px',
+                          color: dark ? '#666' : '#999',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '4px 8px',
+                          transition: 'opacity 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                        onMouseLeave={(e) => e.target.style.opacity = '1'}
+                      >
+                        ×
+                      </button>
                     )}
                   </div>
                 ))}
@@ -2290,7 +2257,7 @@ function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, on
             {posts.sort((a, b) => b.created - a.created).map(post => (
               <div
               key={post.id}
-              onClick={() => onEnterRoom(post.room, post.id)}
+              onClick={() => onEnterRoom(post.room)}
               style={{
                 padding: '20px',
                 border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
@@ -3819,83 +3786,6 @@ function AdminPanel({ onClose, dark, user }) {
         >
           CLOSE
         </button>
-      </div>
-    </div>
-  );
-}
-
-
-function RoomSettingsModal({ room, onSave, onClose, dark, user, state }) {
-  const [name, setName] = React.useState(room.name);
-  const [isPrivate, setIsPrivate] = React.useState(room.isPrivate || false);
-  const [creatorOnly, setCreatorOnly] = React.useState(room.creatorOnly || false);
-  const [bannedUsers, setBannedUsers] = React.useState(room.bannedUsers || []);
-
-  const roomPosts = (state.posts || []).filter(p => p.room === room.id);
-  const uniqueUsers = [...new Map(
-    roomPosts.map(p => [p.author, { id: p.author, username: p.authorDisplayName || p.author }])
-  ).values()];
-
-  const toggleBan = (userId) => {
-    if (userId === user.id) return;
-    setBannedUsers(prev =>
-      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
-    );
-  };
-
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ backgroundColor: dark ? '#000' : '#fff', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, maxWidth: '500px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '40px' }}>
-        <div style={{ fontSize: '16px', letterSpacing: '0.15em', marginBottom: '30px', color: dark ? '#fff' : '#000' }}>ROOM SETTINGS</div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: dark ? '#999' : '#666', marginBottom: '8px' }}>ROOM NAME</label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            style={{ width: '100%', fontSize: '13px', padding: '12px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, outline: 'none', color: dark ? '#fff' : '#000', fontFamily: 'inherit', boxSizing: 'border-box' }}
-          />
-        </div>
-
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px', letterSpacing: '0.05em', color: dark ? '#fff' : '#000', cursor: 'pointer', marginBottom: '12px' }}>
-            <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
-            PRIVATE (INVITE ONLY)
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px', letterSpacing: '0.05em', color: dark ? '#fff' : '#000', cursor: 'pointer' }}>
-            <input type="checkbox" checked={creatorOnly} onChange={(e) => setCreatorOnly(e.target.checked)} />
-            CREATOR ONLY POSTING
-          </label>
-        </div>
-
-        {uniqueUsers.length > 0 && (
-          <div style={{ marginBottom: '30px' }}>
-            <div style={{ fontSize: '9px', letterSpacing: '0.1em', color: dark ? '#999' : '#666', marginBottom: '12px' }}>MEMBERS ({uniqueUsers.length})</div>
-            <div style={{ border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, maxHeight: '200px', overflowY: 'auto' }}>
-              {uniqueUsers.map(u => (
-                <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
-                  <div style={{ fontSize: '11px', color: dark ? '#fff' : '#000' }}>
-                    {u.username}
-                    {u.id === user.id && <span style={{ fontSize: '9px', color: dark ? '#666' : '#999', marginLeft: '8px' }}>YOU</span>}
-                  </div>
-                  {u.id !== user.id && (
-                    <button
-                      onClick={() => toggleBan(u.id)}
-                      style={{ fontSize: '9px', letterSpacing: '0.1em', padding: '4px 10px', background: bannedUsers.includes(u.id) ? '#ef4444' : 'none', border: `1px solid ${bannedUsers.includes(u.id) ? '#ef4444' : (dark ? '#333' : '#e5e5e5')}`, cursor: 'pointer', color: bannedUsers.includes(u.id) ? '#fff' : (dark ? '#fff' : '#000'), transition: 'all 0.2s' }}
-                    >
-                      {bannedUsers.includes(u.id) ? 'BANNED' : 'BAN'}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: dark ? '#fff' : '#000' }}>CANCEL</button>
-          <button onClick={() => onSave({ ...room, name, isPrivate, creatorOnly, bannedUsers })} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', backgroundColor: dark ? '#fff' : '#000', border: 'none', cursor: 'pointer', color: dark ? '#000' : '#fff' }}>SAVE</button>
-        </div>
       </div>
     </div>
   );
