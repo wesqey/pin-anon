@@ -9,14 +9,24 @@ const s3 = new S3Client({
   },
 });
 
+const MAX_SIZE = 20 * 1024 * 1024; // 20MB
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   try {
     const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    const buffer = Buffer.concat(chunks);
+    let totalSize = 0;
 
+    for await (const chunk of req) {
+      totalSize += chunk.length;
+      if (totalSize > MAX_SIZE) {
+        return res.status(413).json({ error: 'File too large — maximum 20MB' });
+      }
+      chunks.push(chunk);
+    }
+
+    const buffer = Buffer.concat(chunks);
     const filename = `${Date.now()}_${req.headers['x-filename'] || 'upload'}`;
     const contentType = req.headers['content-type'] || 'application/octet-stream';
 
@@ -39,6 +49,5 @@ export default async function handler(req, res) {
 export const config = {
   api: {
     bodyParser: false,
-    sizeLimit: '20mb',
   },
 };
