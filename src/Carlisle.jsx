@@ -3873,8 +3873,14 @@ function CassettePlayer({ cassette, dark, compact }) {
 
   React.useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !tracks[currentIdx]?.url) return;
-    audio.src = tracks[currentIdx].url;
+    const track = tracks[currentIdx];
+    if (!audio || !track?.url) return;
+    const SC_CLIENT_ID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
+    let src = track.url;
+    if (track.source === 'soundcloud' && SC_CLIENT_ID && !src.includes('client_id')) {
+      src = src + (src.includes('?') ? '&' : '?') + 'client_id=' + SC_CLIENT_ID;
+    }
+    audio.src = src;
     audio.load();
     if (playing) audio.play().catch(() => {});
   }, [currentIdx]);
@@ -3972,6 +3978,7 @@ function CassettePlayer({ cassette, dark, compact }) {
                 >
                   <span style={{ fontSize: '9px', color: muted, minWidth: '14px' }}>{i + 1}</span>
                   <span style={{ fontSize: '10px', letterSpacing: '0.08em', color: i === currentIdx ? stroke : muted, textDecoration: i === currentIdx ? 'underline' : 'none', textTransform: 'uppercase', flex: 1 }}>{t.title}</span>
+                  {t.duration && <span style={{ fontSize: '9px', color: muted }}>{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>}
                 </div>
               ))}
             </div>
@@ -4059,7 +4066,18 @@ function NewCassetteModal({ onClose, onPost, dark }) {
 
 
 function CassetteBuilder({ tapeName, setTapeName, tracks, setTracks, onPost, onClose, dark, editMode, existingPostId, onUpdate }) {
-  const MAX_TRACKS = 24;
+  const MAX_MINUTES = 90;
+  const SC_CLIENT_ID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
+
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [searchResults, setSearchResults] = React.useState([]);
+  const [searching, setSearching] = React.useState(false);
+  const [searchError, setSearchError] = React.useState('');
+  const searchTimeout = React.useRef(null);
+
+  const totalMinutes = tracks.reduce((sum, t) => sum + (t.duration || 0), 0) / 60;
+  const minutesLeft = Math.max(0, MAX_MINUTES - totalMinutes);
+
   const inputStyle = {
     fontSize: '12px', padding: '10px', background: 'none',
     border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, outline: 'none',
@@ -4067,9 +4085,57 @@ function CassetteBuilder({ tapeName, setTapeName, tracks, setTracks, onPost, onC
     boxSizing: 'border-box', letterSpacing: '0.05em', width: '100%'
   };
 
-  function addTrack() {
-    if (tracks.length >= MAX_TRACKS) return;
-    setTracks([...tracks, { title: '', url: '' }]);
+  async function searchSoundCloud(q) {
+    if (!q.trim()) { setSearchResults([]); return; }
+    setSearching(true);
+    setSearchError('');
+    try {
+      const res = await fetch(
+        `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(q)}&limit=8&client_id=${SC_CLIENT_ID}`
+      );
+      if (!res.ok) throw new Error('Search failed');
+      const data = await res.json();
+      setSearchResults(data.collection || []);
+    } catch (err) {
+      setSearchError('SEARCH UNAVAILABLE');
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function handleSearchInput(e) {
+    const q = e.target.value;
+    setSearchQuery(q);
+    clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => searchSoundCloud(q), 500);
+  }
+
+  function addFromSoundCloud(track) {
+    const durationSec = Math.floor((track.duration || 0) / 1000);
+    if (totalMinutes + durationSec / 60 > MAX_MINUTES) {
+      alert('ADDING THIS TRACK WOULD EXCEED THE 90 MINUTE LIMIT');
+      return;
+    }
+    const streamUrl = track.stream_url
+      ? `${track.stream_url}?client_id=${SC_CLIENT_ID}`
+      : track.media?.transcodings?.find(t => t.format?.protocol === 'progressive')?.url
+        ? null
+        : null;
+
+    setTracks([...tracks, {
+      title: `${track.title} — ${track.user?.username || ''}`.toUpperCase(),
+      url: streamUrl || '',
+      duration: durationSec,
+      source: 'soundcloud',
+      permalink: track.permalink_url,
+    }]);
+    setSearchQuery('');
+    setSearchResults([]);
+  }
+
+  function addManualTrack() {
+    setTracks([...tracks, { title: '', url: '', duration: 0 }]);
   }
 
   function updateTrack(i, field, val) {
@@ -4080,10 +4146,16 @@ function CassetteBuilder({ tapeName, setTapeName, tracks, setTracks, onPost, onC
     setTracks(tracks.filter((_, idx) => idx !== i));
   }
 
+  function fmtDur(sec) {
+    if (!sec) return '';
+    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
   function handleSubmit() {
-    const validTracks = tracks.filter(t => t.title.trim() && t.url.trim());
+    const validTracks = tracks.filter(t => t.title.trim());
     if (!tapeName.trim()) { alert('NAME YOUR CASSETTE'); return; }
-    if (validTracks.length === 0) { alert('ADD AT LEAST ONE TRACK WITH A TITLE AND URL'); return; }
+    if (validTracks.length === 0) { alert('ADD AT LEAST ONE TRACK'); return; }
     if (editMode && onUpdate) {
       onUpdate(existingPostId, tapeName.trim().toUpperCase(), validTracks);
     } else {
@@ -4091,58 +4163,114 @@ function CassetteBuilder({ tapeName, setTapeName, tracks, setTracks, onPost, onC
     }
   }
 
+  const border = dark ? '#333' : '#e5e5e5';
+  const muted = dark ? '#666' : '#999';
+  const text = dark ? '#fff' : '#000';
+  const dimBg = dark ? '#0a0a0a' : '#fafafa';
+
   return (
     <div>
+      {/* Tape name */}
       <div style={{ marginBottom: '20px' }}>
-        <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: dark ? '#999' : '#666', marginBottom: '8px' }}>TAPE NAME</label>
+        <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: muted, marginBottom: '8px' }}>TAPE NAME</label>
         <input value={tapeName} onChange={e => setTapeName(e.target.value.toUpperCase())} style={inputStyle} maxLength={20} placeholder="SIDE A" />
       </div>
 
-      <div style={{ marginBottom: '8px' }}>
-        <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: dark ? '#999' : '#666', marginBottom: '12px' }}>
-          TRACKS — {tracks.length}/{MAX_TRACKS}
-        </label>
-        {tracks.map((t, i) => (
-          <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-            <span style={{ fontSize: '10px', color: dark ? '#666' : '#999', minWidth: '20px', textAlign: 'right' }}>{i + 1}</span>
-            <input
-              value={t.title}
-              onChange={e => updateTrack(i, 'title', e.target.value)}
-              placeholder="TRACK TITLE"
-              style={{ ...inputStyle, width: '35%' }}
-            />
-            <input
-              value={t.url}
-              onChange={e => updateTrack(i, 'url', e.target.value)}
-              placeholder="AUDIO URL (.MP3, .M4A...)"
-              style={{ ...inputStyle, flex: 1 }}
-            />
-            {tracks.length > 1 && (
-              <button onClick={() => removeTrack(i)} style={{ fontSize: '16px', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#666' : '#999', padding: '0 4px', lineHeight: 1 }}>×</button>
-            )}
-          </div>
-        ))}
+      {/* Time remaining */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '9px', letterSpacing: '0.1em', color: muted }}>
+        <span>{tracks.length} TRACK{tracks.length !== 1 ? 'S' : ''}</span>
+        <span style={{ color: minutesLeft < 10 ? '#ef4444' : muted }}>
+          {minutesLeft.toFixed(1)} MIN REMAINING
+        </span>
+      </div>
 
-        {tracks.length < MAX_TRACKS && (
-          <button
-            onClick={addTrack}
-            style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '8px 16px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: dark ? '#fff' : '#000', marginTop: '4px' }}
-          >
-            + ADD TRACK
-          </button>
+      {/* SoundCloud search */}
+      <div style={{ marginBottom: '20px', position: 'relative' }}>
+        <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: muted, marginBottom: '8px' }}>SEARCH SOUNDCLOUD</label>
+        <input
+          value={searchQuery}
+          onChange={handleSearchInput}
+          placeholder="ARTIST OR TRACK NAME..."
+          style={inputStyle}
+        />
+        {searching && (
+          <div style={{ fontSize: '9px', letterSpacing: '0.1em', color: muted, marginTop: '6px' }}>SEARCHING...</div>
+        )}
+        {searchError && (
+          <div style={{ fontSize: '9px', letterSpacing: '0.1em', color: '#ef4444', marginTop: '6px' }}>{searchError}</div>
+        )}
+        {searchResults.length > 0 && (
+          <div style={{ border: `1px solid ${border}`, background: dark ? '#000' : '#fff', marginTop: '4px', maxHeight: '280px', overflowY: 'auto' }}>
+            {searchResults.map((track, i) => (
+              <div
+                key={track.id || i}
+                onClick={() => addFromSoundCloud(track)}
+                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, cursor: 'pointer', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = dimBg}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                {track.artwork_url && (
+                  <img src={track.artwork_url.replace('-large', '-small')} style={{ width: '36px', height: '36px', objectFit: 'cover', flexShrink: 0 }} alt="" />
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '11px', color: text, letterSpacing: '0.03em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title}</div>
+                  <div style={{ fontSize: '10px', color: muted, letterSpacing: '0.03em' }}>{track.user?.username}</div>
+                </div>
+                <div style={{ fontSize: '10px', color: muted, flexShrink: 0 }}>{fmtDur(Math.floor((track.duration || 0) / 1000))}</div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
-      <div style={{ fontSize: '9px', letterSpacing: '0.05em', color: dark ? '#666' : '#999', marginBottom: '24px', marginTop: '12px', lineHeight: '1.6' }}>
-        USE DIRECT AUDIO LINKS (.MP3, .M4A, .WAV) FOR MOBILE BACKGROUND PLAYBACK.
-        {!editMode && tracks.length < MAX_TRACKS && ' YOU CAN ADD MORE TRACKS LATER FROM YOUR PROFILE.'}
+      {/* Track list */}
+      {tracks.length > 0 && (
+        <div style={{ marginBottom: '16px', border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
+          {tracks.map((t, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderBottom: i < tracks.length - 1 ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none' }}>
+              <span style={{ fontSize: '10px', color: muted, minWidth: '18px' }}>{i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <input
+                  value={t.title}
+                  onChange={e => updateTrack(i, 'title', e.target.value)}
+                  placeholder="TRACK TITLE"
+                  style={{ ...inputStyle, padding: '4px 0', border: 'none', borderBottom: `1px solid ${border}`, fontSize: '11px' }}
+                />
+                {!t.source && (
+                  <input
+                    value={t.url}
+                    onChange={e => updateTrack(i, 'url', e.target.value)}
+                    placeholder="AUDIO URL"
+                    style={{ ...inputStyle, padding: '4px 0', border: 'none', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, fontSize: '10px', marginTop: '4px', color: muted }}
+                  />
+                )}
+                {t.source === 'soundcloud' && (
+                  <div style={{ fontSize: '10px', color: muted, marginTop: '2px', letterSpacing: '0.05em' }}>SOUNDCLOUD{t.duration ? ` · ${fmtDur(t.duration)}` : ''}</div>
+                )}
+              </div>
+              <button onClick={() => removeTrack(i)} style={{ fontSize: '16px', background: 'none', border: 'none', cursor: 'pointer', color: muted, padding: '0 4px', lineHeight: 1, flexShrink: 0 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button
+        onClick={addManualTrack}
+        style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '8px 16px', background: 'none', border: `1px solid ${border}`, cursor: 'pointer', color: text, marginBottom: '20px' }}
+      >
+        + ADD TRACK MANUALLY
+      </button>
+
+      <div style={{ fontSize: '9px', letterSpacing: '0.05em', color: muted, marginBottom: '24px', lineHeight: '1.6' }}>
+        SEARCH SOUNDCLOUD TO ADD TRACKS, OR PASTE DIRECT AUDIO URLS MANUALLY.
+        {!editMode && ' YOU CAN ADD MORE TRACKS LATER FROM YOUR PROFILE UP TO 90 MINUTES.'}
       </div>
 
       <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
         {onClose && (
-          <button onClick={onClose} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: dark ? '#fff' : '#000' }}>CANCEL</button>
+          <button onClick={onClose} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', background: 'none', border: `1px solid ${border}`, cursor: 'pointer', color: text }}>CANCEL</button>
         )}
-        <button onClick={handleSubmit} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', backgroundColor: dark ? '#fff' : '#000', border: 'none', cursor: 'pointer', color: dark ? '#000' : '#fff' }}>
+        <button onClick={handleSubmit} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', backgroundColor: text, border: 'none', cursor: 'pointer', color: dark ? '#000' : '#fff' }}>
           {editMode ? 'SAVE CHANGES' : 'POST CASSETTE'}
         </button>
       </div>
