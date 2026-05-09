@@ -98,6 +98,8 @@ const EMPTY = {
 // Add CSS for animations
 const styleSheet = document.createElement("style");
 styleSheet.textContent = `
+  @keyframes spin-l { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes spin-r { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
@@ -164,8 +166,7 @@ export default function Carlisle() {
   });
 
   const [showNew, setShowNew] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState([]);
+  const [showNewCassette, setShowNewCassette] = useState(false);
   const [profileView, setProfileView] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash.startsWith('profile/')) return hash.split('/')[1] || null;
@@ -556,24 +557,6 @@ export default function Carlisle() {
   }, [user]);
 
   useEffect(() => {
-    if (!user.id) return;
-    const notifRef = ref(database, `notifications/${user.id}`);
-    const unsubscribe = onValue(notifRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const list = Object.entries(data)
-          .map(([id, n]) => ({ id, ...n }))
-          .sort((a, b) => b.created - a.created)
-          .slice(0, 30);
-        setNotifications(list);
-      } else {
-        setNotifications([]);
-      }
-    });
-    return () => unsubscribe();
-  }, [user.id]);
-
-  useEffect(() => {
     localStorage.setItem("carlisle_dark", dark ? "1" : "0");
   }, [dark]);
 
@@ -713,42 +696,6 @@ export default function Carlisle() {
     const newComments = [...(post.comments || []), newComment];
     const updates = {};
     updates[`appState/posts/${postIndex}/comments`] = newComments;
-
-    // Notify post author if someone else commented
-    if (post.author !== user.id) {
-      const notifId = uid('n');
-      updates[`notifications/${post.author}/${notifId}`] = {
-        id: notifId,
-        type: 'comment',
-        fromUser: user.username,
-        postId,
-        postRoom: post.room,
-        postText: (post.text || '').slice(0, 60),
-        commentText: text.slice(0, 80),
-        created: now(),
-        read: false,
-      };
-    }
-
-    // Notify parent comment author if this is a reply
-    if (parentId) {
-      const parentComment = (post.comments || []).find(c => c.id === parentId);
-      if (parentComment && parentComment.author !== user.id && parentComment.author !== post.author) {
-        const notifId = uid('n');
-        updates[`notifications/${parentComment.author}/${notifId}`] = {
-          id: notifId,
-          type: 'reply',
-          fromUser: user.username,
-          postId,
-          postRoom: post.room,
-          postText: (post.text || '').slice(0, 60),
-          commentText: text.slice(0, 80),
-          created: now(),
-          read: false,
-        };
-      }
-    }
-
     update(ref(database), updates);
   }
   
@@ -865,7 +812,6 @@ export default function Carlisle() {
   }
 
   function handleLogout() {
-    setShowNotifications(false);
     setShowLogoutConfirm(true);
   }
 
@@ -972,6 +918,36 @@ export default function Carlisle() {
         ...prev, 
         createdPosts: [...(prev.createdPosts || []), postId]
       };
+      saveUser(u);
+      return u;
+    });
+  }
+
+  function postCassette({ tapeName, tracks }) {
+    const postId = crypto.randomUUID();
+    const post = {
+      id: postId,
+      author: user.id,
+      authorId: user.id,
+      authorDisplayName: user.username,
+      text: '',
+      image: null,
+      videoUrl: null,
+      audioUrl: null,
+      room: DEFAULT_ROOM,
+      type: 'cassette',
+      cassette: { name: tapeName, tracks },
+      created: Date.now(),
+      votes: 0,
+      voters: {},
+      comments: [],
+    };
+    const newPosts = [post, ...(state.posts || [])];
+    const updates = {};
+    updates['appState/posts'] = newPosts;
+    update(ref(database), updates);
+    setUser((prev) => {
+      const u = { ...prev, createdPosts: [...(prev.createdPosts || []), postId] };
       saveUser(u);
       return u;
     });
@@ -1105,129 +1081,6 @@ export default function Carlisle() {
               >
                 SOUNDS
               </button>
-              <div style={{ position: 'relative' }}>
-                <button
-                  onClick={() => {
-                    setShowNotifications(!showNotifications);
-                    if (!showNotifications) {
-                      const updates = {};
-                      notifications.filter(n => !n.read).forEach(n => {
-                        updates[`notifications/${user.id}/${n.id}/read`] = true;
-                      });
-                      if (Object.keys(updates).length > 0) update(ref(database), updates);
-                    }
-                  }}
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.15em',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: dark ? '#fff' : '#000',
-                    transition: 'opacity 0.2s',
-                    position: 'relative',
-                    padding: '0'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  &#9825;
-                  {notifications.filter(n => !n.read).length > 0 && (
-                    <span style={{
-                      position: 'absolute',
-                      top: '-6px',
-                      right: '-8px',
-                      backgroundColor: dark ? '#fff' : '#000',
-                      color: dark ? '#000' : '#fff',
-                      borderRadius: '50%',
-                      width: '14px',
-                      height: '14px',
-                      fontSize: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: '600',
-                      pointerEvents: 'none'
-                    }}>
-                      {notifications.filter(n => !n.read).length > 9 ? '9+' : notifications.filter(n => !n.read).length}
-                    </span>
-                  )}
-                </button>
-
-                {showNotifications && (
-                  <>
-                    <div onClick={() => setShowNotifications(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} />
-                    <div style={{
-                      position: 'absolute',
-                      top: '100%',
-                      right: 0,
-                      marginTop: '12px',
-                      width: '320px',
-                      backgroundColor: dark ? '#000' : '#fff',
-                      border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                      zIndex: 999,
-                      maxHeight: '400px',
-                      overflowY: 'auto',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-                    }}>
-                      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, fontSize: '10px', letterSpacing: '0.15em', color: dark ? '#999' : '#666', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        NOTIFICATIONS
-                        {notifications.length > 0 && (
-                          <button
-                            onClick={() => {
-                              const updates = {};
-                              notifications.forEach(n => { updates[`notifications/${user.id}/${n.id}`] = null; });
-                              update(ref(database), updates);
-                              setShowNotifications(false);
-                            }}
-                            style={{ fontSize: '9px', letterSpacing: '0.1em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#666' : '#999' }}
-                          >
-                            CLEAR ALL
-                          </button>
-                        )}
-                      </div>
-                      {notifications.length === 0 ? (
-                        <div style={{ padding: '24px 16px', fontSize: '11px', color: dark ? '#666' : '#999', textAlign: 'center', letterSpacing: '0.05em' }}>
-                          NO NOTIFICATIONS
-                        </div>
-                      ) : (
-                        notifications.map(n => (
-                          <div
-                            key={n.id}
-                            onClick={() => {
-                              setShowNotifications(false);
-                              enterRoom(n.postRoom, n.postId);
-                            }}
-                            style={{
-                              padding: '12px 16px',
-                              borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-                              cursor: 'pointer',
-                              backgroundColor: n.read ? 'transparent' : (dark ? '#0a0a0a' : '#fafafa'),
-                              transition: 'background-color 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = dark ? '#111' : '#f0f0f0'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = n.read ? 'transparent' : (dark ? '#0a0a0a' : '#fafafa')}
-                          >
-                            <div style={{ fontSize: '11px', color: dark ? '#fff' : '#000', marginBottom: '4px', letterSpacing: '0.02em' }}>
-                              <span style={{ fontWeight: '500' }}>{n.fromUser}</span>
-                              {n.type === 'reply' ? ' replied to your comment' : ' commented on your post'}
-                            </div>
-                            {n.commentText && (
-                              <div style={{ fontSize: '10px', color: dark ? '#999' : '#666', letterSpacing: '0.02em', marginBottom: '4px', fontStyle: 'italic' }}>
-                                "{n.commentText.slice(0, 60)}{n.commentText.length > 60 ? '...' : ''}"
-                              </div>
-                            )}
-                            <div style={{ fontSize: '9px', color: dark ? '#666' : '#aaa', letterSpacing: '0.05em' }}>
-                              {new Date(n.created).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-
               <button
                 onClick={() => setShowSettings(true)}
                 style={{
@@ -1391,6 +1244,24 @@ export default function Carlisle() {
             title="New Post"
           >
             +
+          </button>
+          <button
+            onClick={() => setShowNewCassette(true)}
+            style={{
+              fontSize: '14px',
+              letterSpacing: '0.1em',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: dark ? '#999' : '#666',
+              transition: 'all 0.2s',
+              padding: '0',
+            }}
+            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+            onMouseLeave={(e) => e.target.style.opacity = '1'}
+            title="New Cassette"
+          >
+            &#9676; CASSETTE
           </button>
         </div>
 
@@ -1646,6 +1517,10 @@ export default function Carlisle() {
                           </audio>
                         )
                       )}
+                      {post.type === 'cassette' && post.cassette && (
+                        <CassettePlayer cassette={post.cassette} dark={dark} />
+                      )}
+                      {post.text && (
                       <div style={{ 
                         fontSize: layout === 'single' ? '13px' : '12px', 
                         lineHeight: '1.8',
@@ -1656,6 +1531,7 @@ export default function Carlisle() {
                       }}>
                         {post.text}
                       </div>
+                      )}
                     </div>
 
                     <div style={{ marginTop: '30px' }}>
@@ -1681,6 +1557,13 @@ export default function Carlisle() {
         )}
       </div>
 
+      {showNewCassette && (
+        <NewCassetteModal
+          onClose={() => setShowNewCassette(false)}
+          onPost={postCassette}
+          dark={dark}
+        />
+      )}
       {showNew && (
         <NewPostModal
           onClose={() => setShowNew(false)}
@@ -2410,6 +2293,11 @@ function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, on
               onMouseEnter={(e) => e.currentTarget.style.borderColor = dark ? '#333' : '#e5e5e5'}
               onMouseLeave={(e) => e.currentTarget.style.borderColor = dark ? '#1a1a1a' : '#f5f5f5'}
             >
+                {post.type === 'cassette' && post.cassette && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <CassettePlayer cassette={post.cassette} dark={dark} compact />
+                  </div>
+                )}
                 {post.image && (
                   <img
                     src={post.image}
@@ -3927,6 +3815,220 @@ function AdminPanel({ onClose, dark, user }) {
         >
           CLOSE
         </button>
+      </div>
+    </div>
+  );
+}
+
+
+function CassettePlayer({ cassette, dark, compact }) {
+  const [currentIdx, setCurrentIdx] = React.useState(0);
+  const [playing, setPlaying] = React.useState(false);
+  const [progress, setProgress] = React.useState(0);
+  const [currentTime, setCurrentTime] = React.useState(0);
+  const [duration, setDuration] = React.useState(0);
+  const audioRef = React.useRef(null);
+  const tracks = cassette.tracks || [];
+
+  React.useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onTime = () => {
+      setCurrentTime(audio.currentTime);
+      setProgress(audio.duration ? (audio.currentTime / audio.duration) * 100 : 0);
+    };
+    const onMeta = () => setDuration(audio.duration || 0);
+    const onEnd = () => {
+      if (currentIdx < tracks.length - 1) { setCurrentIdx(i => i + 1); }
+      else setPlaying(false);
+    };
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('loadedmetadata', onMeta);
+    audio.addEventListener('ended', onEnd);
+    return () => { audio.removeEventListener('timeupdate', onTime); audio.removeEventListener('loadedmetadata', onMeta); audio.removeEventListener('ended', onEnd); };
+  }, [currentIdx, tracks.length]);
+
+  React.useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !tracks[currentIdx]?.url) return;
+    audio.src = tracks[currentIdx].url;
+    audio.load();
+    if (playing) audio.play().catch(() => {});
+  }, [currentIdx]);
+
+  function togglePlay() {
+    const audio = audioRef.current;
+    if (!audio || !tracks[currentIdx]?.url) return;
+    if (playing) { audio.pause(); setPlaying(false); }
+    else { audio.play().catch(() => {}); setPlaying(true); }
+  }
+
+  function seek(e) {
+    const audio = audioRef.current;
+    if (!audio || !audio.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
+  }
+
+  function fmt(s) {
+    if (!s || isNaN(s)) return '0:00';
+    const m = Math.floor(s / 60), ss = Math.floor(s % 60);
+    return m + ':' + (ss < 10 ? '0' : '') + ss;
+  }
+
+  const stroke = dark ? '#fff' : '#000';
+  const bg = dark ? '#000' : '#fff';
+  const muted = dark ? '#666' : '#999';
+  const currentTrack = tracks[currentIdx];
+
+  return (
+    <div style={{ fontFamily: 'Helvetica Neue, Arial, sans-serif' }}>
+      <audio ref={audioRef} />
+      <svg
+        viewBox="0 0 500 280"
+        style={{ width: '100%', cursor: 'pointer', display: 'block' }}
+        onClick={togglePlay}
+      >
+        <rect x="20" y="20" width="460" height="240" rx="10" fill={bg} stroke={stroke} strokeWidth="1.5" />
+        <rect x="140" y="34" width="220" height="80" rx="4" fill="none" stroke={stroke} strokeWidth="1" />
+        <text x="250" y="66" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="11" letterSpacing="3" fill={stroke}>
+          {(cassette.name || 'CASSETTE').toUpperCase()}
+        </text>
+        <text x="250" y="86" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="9" letterSpacing="2" fill={muted}>
+          {currentTrack ? currentTrack.title.toUpperCase().slice(0, 28) : 'NO TRACKS'}
+        </text>
+        <rect x="130" y="130" width="240" height="55" rx="3" fill="none" stroke={stroke} strokeWidth="0.75" />
+        <circle cx="175" cy="157" r="3" fill="none" stroke={stroke} strokeWidth="0.75" />
+        <circle cx="325" cy="157" r="3" fill="none" stroke={stroke} strokeWidth="0.75" />
+        <line x1="178" y1="157" x2="322" y2="157" stroke={stroke} strokeWidth="0.75" />
+        <g style={{ transformOrigin: '145px 185px', transformBox: 'fill-box', animation: playing ? 'spin-l 2.2s linear infinite' : 'none' }}>
+          <circle cx="145" cy="185" r="62" fill="none" stroke={stroke} strokeWidth="1" />
+          <circle cx="145" cy="185" r="20" fill="none" stroke={stroke} strokeWidth="1" />
+          <circle cx="145" cy="185" r="5" fill={stroke} />
+          {[0,60,120,180,240,300].map(a => {
+            const rad = a * Math.PI / 180;
+            return <line key={a} x1={145 + 20 * Math.cos(rad)} y1={185 + 20 * Math.sin(rad)} x2={145 + 62 * Math.cos(rad)} y2={185 + 62 * Math.sin(rad)} stroke={stroke} strokeWidth="0.75" />;
+          })}
+        </g>
+        <g style={{ transformOrigin: '355px 185px', transformBox: 'fill-box', animation: playing ? 'spin-r 1.8s linear infinite' : 'none' }}>
+          <circle cx="355" cy="185" r="62" fill="none" stroke={stroke} strokeWidth="1" />
+          <circle cx="355" cy="185" r="20" fill="none" stroke={stroke} strokeWidth="1" />
+          <circle cx="355" cy="185" r="5" fill={stroke} />
+          {[0,60,120,180,240,300].map(a => {
+            const rad = a * Math.PI / 180;
+            return <line key={a} x1={355 + 20 * Math.cos(rad)} y1={185 + 20 * Math.sin(rad)} x2={355 + 62 * Math.cos(rad)} y2={185 + 62 * Math.sin(rad)} stroke={stroke} strokeWidth="0.75" />;
+          })}
+        </g>
+        <text x="250" y="255" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="9" letterSpacing="2" fill={muted}>
+          {playing ? '▌▌ PAUSE' : '▶ PLAY'}
+        </text>
+      </svg>
+
+      {!compact && (
+        <>
+          <div style={{ marginTop: '8px' }}>
+            <div
+              onClick={seek}
+              style={{ height: '1px', background: dark ? '#333' : '#e5e5e5', cursor: 'pointer', position: 'relative', margin: '0 0 4px' }}
+            >
+              <div style={{ height: '1px', background: stroke, width: progress + '%' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: muted, letterSpacing: '0.05em' }}>
+              <span>{fmt(currentTime)}</span>
+              <span>{fmt(duration)}</span>
+            </div>
+          </div>
+
+          {tracks.length > 1 && (
+            <div style={{ marginTop: '8px', borderTop: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
+              {tracks.map((t, i) => (
+                <div
+                  key={i}
+                  onClick={() => { setCurrentIdx(i); setPlaying(true); setTimeout(() => { if (audioRef.current) audioRef.current.play().catch(() => {}); }, 50); }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 0', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, cursor: 'pointer' }}
+                >
+                  <span style={{ fontSize: '9px', color: muted, minWidth: '14px' }}>{i + 1}</span>
+                  <span style={{ fontSize: '10px', letterSpacing: '0.08em', color: i === currentIdx ? stroke : muted, textDecoration: i === currentIdx ? 'underline' : 'none', textTransform: 'uppercase', flex: 1 }}>{t.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function NewCassetteModal({ onClose, onPost, dark }) {
+  const [tapeName, setTapeName] = React.useState('SIDE A');
+  const [tracks, setTracks] = React.useState([{ title: '', url: '' }]);
+  const [posting, setPosting] = React.useState(false);
+
+  function addTrack() { setTracks([...tracks, { title: '', url: '' }]); }
+  function updateTrack(i, field, val) {
+    const t = [...tracks]; t[i][field] = val; setTracks(t);
+  }
+  function removeTrack(i) { setTracks(tracks.filter((_, idx) => idx !== i)); }
+
+  function handlePost() {
+    const validTracks = tracks.filter(t => t.title.trim() && t.url.trim());
+    if (!tapeName.trim()) { alert('NAME YOUR CASSETTE'); return; }
+    if (validTracks.length === 0) { alert('ADD AT LEAST ONE TRACK WITH A TITLE AND URL'); return; }
+    setPosting(true);
+    onPost({ tapeName: tapeName.trim().toUpperCase(), tracks: validTracks });
+    onClose();
+  }
+
+  const inputStyle = { width: '100%', fontSize: '12px', padding: '10px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, outline: 'none', color: dark ? '#fff' : '#000', fontFamily: 'Helvetica Neue, Arial, sans-serif', boxSizing: 'border-box', letterSpacing: '0.05em' };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+      <div onClick={e => e.stopPropagation()} style={{ backgroundColor: dark ? '#000' : '#fff', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, maxWidth: '560px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '40px' }}>
+        <div style={{ fontSize: '16px', letterSpacing: '0.15em', marginBottom: '30px', color: dark ? '#fff' : '#000' }}>NEW CASSETTE</div>
+
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: dark ? '#999' : '#666', marginBottom: '8px' }}>TAPE NAME</label>
+          <input value={tapeName} onChange={e => setTapeName(e.target.value.toUpperCase())} style={inputStyle} maxLength={20} placeholder="SIDE A" />
+        </div>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: dark ? '#999' : '#666', marginBottom: '12px' }}>TRACKS</label>
+          {tracks.map((t, i) => (
+            <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', color: dark ? '#666' : '#999', minWidth: '16px' }}>{i + 1}</span>
+              <input
+                value={t.title}
+                onChange={e => updateTrack(i, 'title', e.target.value)}
+                placeholder="TRACK TITLE"
+                style={{ ...inputStyle, width: '35%' }}
+              />
+              <input
+                value={t.url}
+                onChange={e => updateTrack(i, 'url', e.target.value)}
+                placeholder="AUDIO URL (.MP3, .M4A...)"
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              {tracks.length > 1 && (
+                <button onClick={() => removeTrack(i)} style={{ fontSize: '14px', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#666' : '#999', padding: '0 4px' }}>×</button>
+              )}
+            </div>
+          ))}
+          <button
+            onClick={addTrack}
+            style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '8px 16px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: dark ? '#fff' : '#000', marginTop: '4px' }}
+          >
+            + ADD TRACK
+          </button>
+        </div>
+
+        <div style={{ fontSize: '9px', letterSpacing: '0.05em', color: dark ? '#666' : '#999', marginBottom: '24px', lineHeight: '1.6' }}>
+          USE DIRECT AUDIO LINKS (.MP3, .M4A, .WAV) FOR BACKGROUND PLAYBACK ON MOBILE.
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: dark ? '#fff' : '#000' }}>CANCEL</button>
+          <button onClick={handlePost} disabled={posting} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', backgroundColor: dark ? '#fff' : '#000', border: 'none', cursor: 'pointer', color: dark ? '#000' : '#fff' }}>POST CASSETTE</button>
+        </div>
       </div>
     </div>
   );
