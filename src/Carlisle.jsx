@@ -3910,154 +3910,198 @@ function CassettePlayer({ cassette, dark, compact }) {
   }
 
   const pct = progress / 100;
-  const MIN_R = 18;
-  const MAX_R = 88;
-  const leftR = MAX_R - (MAX_R - MIN_R) * pct;
+  const HUB_R = 10;
+  const MIN_R = 20;
+  const MAX_R = 62;
+  const leftR  = MAX_R - (MAX_R - MIN_R) * pct;
   const rightR = MIN_R + (MAX_R - MIN_R) * pct;
-  const leftSpeed = 3 + pct * 4;
-  const rightSpeed = 3 + (1 - pct) * 4;
 
-  const stroke = dark ? '#fff' : '#000';
-  const bg = dark ? '#000' : '#fff';
-  const dim = dark ? '#333' : '#e0e0e0';
-  const muted = dark ? '#555' : '#bbb';
-  const currentTrack = tracks[currentIdx];
+  // TE-style warm cassette colors
+  const bodyFill  = dark ? '#1a1a1a' : '#f0ebe0';
+  const bodyStroke = dark ? '#fff' : '#111';
+  const windowFill = dark ? '#0a0a0a' : '#ddd5c0';
+  const reelFill   = dark ? '#1a1a1a' : '#f0ebe0';
+  const reelStroke = dark ? '#fff' : '#111';
+  const labelFill  = dark ? '#111' : '#fff';
+  const labelText  = dark ? '#fff' : '#111';
+  const mutedText  = dark ? '#555' : '#aaa';
 
-  // Wound tape rings inside a reel
-  function TapeRings({ r, cx, cy }) {
+  // left reel spins CW, right reel spins CCW — TE-style
+  const leftSpd  = (2 + (1 - pct) * 3).toFixed(1);
+  const rightSpd = (2 + pct * 3).toFixed(1);
+
+  function ReelWinding({ r, cx, cy, id }) {
     const rings = [];
-    const hubR = 14;
-    const step = 5;
-    for (let rr = hubR + step; rr < r - 2; rr += step) {
-      const opacity = 0.15 + (rr / r) * 0.35;
-      rings.push(
-        <circle key={rr} cx={cx} cy={cy} r={rr} fill="none" stroke={stroke} strokeWidth="0.75" opacity={opacity} />
-      );
+    for (let rr = HUB_R + 4; rr < r; rr += 4) {
+      const op = 0.2 + (rr / r) * 0.5;
+      rings.push(<circle key={rr} cx={cx} cy={cy} r={rr} fill="none" stroke={reelStroke} strokeWidth="1" opacity={op}/>);
     }
     return <>{rings}</>;
   }
 
+  const currentTrack = tracks[currentIdx];
+  const WIN_CX_L = 148;
+  const WIN_CX_R = 332;
+  const WIN_CY   = 152;
+  const WIN_R    = 70;
+
   return (
     <div style={{ fontFamily: 'Helvetica Neue, Arial, sans-serif' }}>
-      <audio ref={audioRef} />
+      <audio ref={audioRef}/>
 
-      {/* OP-1 style tape screen */}
       <svg
-        viewBox="0 0 480 220"
+        viewBox="0 0 480 290"
         style={{ width: '100%', display: 'block', cursor: 'pointer' }}
         onClick={togglePlay}
       >
-        {/* Background panel */}
-        <rect x="0" y="0" width="480" height="220" rx="3" fill={bg} stroke={stroke} strokeWidth="1"/>
+        <defs>
+          {/* Clip each reel to its circular window */}
+          <clipPath id="lwin">
+            <circle cx={WIN_CX_L} cy={WIN_CY} r={WIN_R}/>
+          </clipPath>
+          <clipPath id="rwin">
+            <circle cx={WIN_CX_R} cy={WIN_CY} r={WIN_R}/>
+          </clipPath>
+        </defs>
 
-        {/* Tape name — top left */}
-        <text x="14" y="22" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="9" letterSpacing="3" fill={stroke} opacity="0.5">
+        {/* ── Cassette body ── */}
+        <rect x="12" y="8" width="456" height="268" rx="14" fill={bodyFill} stroke={bodyStroke} strokeWidth="1.5"/>
+
+        {/* Inner border line */}
+        <rect x="22" y="18" width="436" height="248" rx="9" fill="none" stroke={bodyStroke} strokeWidth="0.5" opacity="0.4"/>
+
+        {/* Corner screw holes */}
+        {[[32,28],[448,28],[32,264],[448,264]].map(([cx,cy],i)=>(
+          <g key={i}>
+            <circle cx={cx} cy={cy} r="8" fill={windowFill} stroke={bodyStroke} strokeWidth="1"/>
+            <line x1={cx-4} y1={cy-4} x2={cx+4} y2={cy+4} stroke={bodyStroke} strokeWidth="0.75" opacity="0.6"/>
+            <line x1={cx+4} y1={cy-4} x2={cx-4} y2={cy+4} stroke={bodyStroke} strokeWidth="0.75" opacity="0.6"/>
+          </g>
+        ))}
+
+        {/* Label area */}
+        <rect x="52" y="22" width="376" height="68" rx="3" fill={labelFill} stroke={bodyStroke} strokeWidth="0.75"/>
+        {/* Tape name */}
+        <text x="240" y="50" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="11" fontWeight="500" letterSpacing="5" fill={labelText}>
           {(cassette.name || 'SIDE A').toUpperCase()}
         </text>
-
-        {/* Time — top right */}
-        <text x="466" y="22" textAnchor="end" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="9" letterSpacing="2" fill={stroke} opacity="0.5">
-          {fmt(currentTime)} / {fmt(duration)}
+        {/* Current track */}
+        <text x="240" y="70" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={labelText} opacity="0.6">
+          {currentTrack ? currentTrack.title.slice(0, 36).toUpperCase() : 'NO TRACKS'}
         </text>
 
-        {/* Tape band — horizontal lines between reels */}
-        <line x1={110 + leftR} y1={102} x2={370 - rightR} y2={102} stroke={stroke} strokeWidth="1" opacity="0.6"/>
-        <line x1={110 + leftR} y1={118} x2={370 - rightR} y2={118} stroke={stroke} strokeWidth="1" opacity="0.6"/>
-        {/* Tape band fill */}
-        <rect x={110 + leftR} y={102} width={Math.max(0, (370 - rightR) - (110 + leftR))} height={16} fill={dim} opacity="0.4"/>
+        {/* Reel window panel — dark inset */}
+        <rect x="52" y="98" width="376" height="120" rx="6" fill={windowFill} stroke={bodyStroke} strokeWidth="0.75"/>
 
+        {/* Tape bridge between reel windows */}
+        {/* Left bridge */}
+        <path
+          d={`M ${WIN_CX_L + WIN_R} ${WIN_CY - 8} Q ${WIN_CX_L + WIN_R + 20} ${WIN_CY} ${WIN_CX_L + WIN_R} ${WIN_CY + 8}`}
+          fill={bodyFill} stroke={bodyStroke} strokeWidth="0.75"
+        />
+        {/* Right bridge */}
+        <path
+          d={`M ${WIN_CX_R - WIN_R} ${WIN_CY - 8} Q ${WIN_CX_R - WIN_R - 20} ${WIN_CY} ${WIN_CX_R - WIN_R} ${WIN_CY + 8}`}
+          fill={bodyFill} stroke={bodyStroke} strokeWidth="0.75"
+        />
+        {/* Tape band lines */}
+        <line x1={WIN_CX_L + WIN_R} y1={WIN_CY - 8} x2={WIN_CX_R - WIN_R} y2={WIN_CY - 8} stroke={bodyStroke} strokeWidth="0.75" opacity="0.7"/>
+        <line x1={WIN_CX_L + WIN_R} y1={WIN_CY + 8} x2={WIN_CX_R - WIN_R} y2={WIN_CY + 8} stroke={bodyStroke} strokeWidth="0.75" opacity="0.7"/>
         {/* Tape head marker */}
-        <line x1="240" y1="94" x2="240" y2="126" stroke={stroke} strokeWidth="1.5" opacity="0.4"/>
+        <rect x="237" y={WIN_CY - 14} width="6" height="28" rx="1" fill={bodyFill} stroke={bodyStroke} strokeWidth="0.75"/>
 
-        {/* Left reel (supply) — shrinks as tape plays */}
+        {/* Left reel window circle */}
+        <circle cx={WIN_CX_L} cy={WIN_CY} r={WIN_R} fill={reelFill} stroke={bodyStroke} strokeWidth="1"/>
+
+        {/* Left reel — spins CW */}
         <g
-          transform="translate(110, 110)"
-          style={{
-            transformBox: 'fill-box',
-            transformOrigin: 'center',
-            animation: playing ? `cassette-spin-slow ${leftSpeed.toFixed(1)}s linear infinite` : 'none'
-          }}
+          clipPath="url(#lwin)"
+          style={{ transformBox: 'fill-box', transformOrigin: `${WIN_CX_L}px ${WIN_CY}px`, animation: playing ? `cassette-spin-slow ${leftSpd}s linear infinite` : 'none' }}
         >
-          <circle cx="0" cy="0" r={leftR} fill={bg} stroke={stroke} strokeWidth="1.2"/>
-          <TapeRings r={leftR} cx={0} cy={0} />
-          <circle cx="0" cy="0" r="14" fill={bg} stroke={stroke} strokeWidth="1"/>
-          {/* Reel spokes */}
-          {[0, 120, 240].map(a => {
+          <ReelWinding r={leftR} cx={WIN_CX_L} cy={WIN_CY}/>
+          <circle cx={WIN_CX_L} cy={WIN_CY} r={leftR} fill="none" stroke={reelStroke} strokeWidth="1.2"/>
+          {[0,120,240].map(a => {
             const rad = a * Math.PI / 180;
             return <line key={a}
-              x1={(14) * Math.cos(rad)} y1={(14) * Math.sin(rad)}
-              x2={leftR * Math.cos(rad)} y2={leftR * Math.sin(rad)}
-              stroke={stroke} strokeWidth="1" opacity="0.5"
+              x1={WIN_CX_L + HUB_R * Math.cos(rad)} y1={WIN_CY + HUB_R * Math.sin(rad)}
+              x2={WIN_CX_L + leftR * Math.cos(rad)} y2={WIN_CY + leftR * Math.sin(rad)}
+              stroke={reelStroke} strokeWidth="1" opacity="0.5"
             />;
           })}
-          <circle cx="0" cy="0" r="5" fill={stroke}/>
+          <circle cx={WIN_CX_L} cy={WIN_CY} r={HUB_R} fill={reelFill} stroke={reelStroke} strokeWidth="1"/>
+          <circle cx={WIN_CX_L} cy={WIN_CY} r="4" fill={reelStroke}/>
         </g>
+        {/* Window border ring */}
+        <circle cx={WIN_CX_L} cy={WIN_CY} r={WIN_R} fill="none" stroke={bodyStroke} strokeWidth="1"/>
 
-        {/* Right reel (take-up) — grows as tape plays */}
+        {/* Right reel window circle */}
+        <circle cx={WIN_CX_R} cy={WIN_CY} r={WIN_R} fill={reelFill} stroke={bodyStroke} strokeWidth="1"/>
+
+        {/* Right reel — spins CCW */}
         <g
-          transform="translate(370, 110)"
-          style={{
-            transformBox: 'fill-box',
-            transformOrigin: 'center',
-            animation: playing ? `cassette-spin-fast ${rightSpeed.toFixed(1)}s linear infinite` : 'none'
-          }}
+          clipPath="url(#rwin)"
+          style={{ transformBox: 'fill-box', transformOrigin: `${WIN_CX_R}px ${WIN_CY}px`, animation: playing ? `cassette-spin-fast ${rightSpd}s linear infinite` : 'none' }}
         >
-          <circle cx="0" cy="0" r={rightR} fill={bg} stroke={stroke} strokeWidth="1.2"/>
-          <TapeRings r={rightR} cx={0} cy={0} />
-          <circle cx="0" cy="0" r="14" fill={bg} stroke={stroke} strokeWidth="1"/>
-          {[0, 120, 240].map(a => {
+          <ReelWinding r={rightR} cx={WIN_CX_R} cy={WIN_CY}/>
+          <circle cx={WIN_CX_R} cy={WIN_CY} r={rightR} fill="none" stroke={reelStroke} strokeWidth="1.2"/>
+          {[0,120,240].map(a => {
             const rad = a * Math.PI / 180;
             return <line key={a}
-              x1={(14) * Math.cos(rad)} y1={(14) * Math.sin(rad)}
-              x2={rightR * Math.cos(rad)} y2={rightR * Math.sin(rad)}
-              stroke={stroke} strokeWidth="1" opacity="0.5"
+              x1={WIN_CX_R + HUB_R * Math.cos(rad)} y1={WIN_CY + HUB_R * Math.sin(rad)}
+              x2={WIN_CX_R + rightR * Math.cos(rad)} y2={WIN_CY + rightR * Math.sin(rad)}
+              stroke={reelStroke} strokeWidth="1" opacity="0.5"
             />;
           })}
-          <circle cx="0" cy="0" r="5" fill={stroke}/>
+          <circle cx={WIN_CX_R} cy={WIN_CY} r={HUB_R} fill={reelFill} stroke={reelStroke} strokeWidth="1"/>
+          <circle cx={WIN_CX_R} cy={WIN_CY} r="4" fill={reelStroke}/>
         </g>
+        <circle cx={WIN_CX_R} cy={WIN_CY} r={WIN_R} fill="none" stroke={bodyStroke} strokeWidth="1"/>
 
-        {/* Progress bar — bottom */}
-        <rect x="14" y="195" width="452" height="1" fill={dim}/>
-        <rect x="14" y="195" width={452 * pct} height="1" fill={stroke}/>
+        {/* Bottom tape opening trapezoid */}
+        <path d="M 158 228 L 322 228 L 305 272 L 175 272 Z" fill={windowFill} stroke={bodyStroke} strokeWidth="0.75"/>
+        {/* Alignment holes */}
+        {[210, 232, 268, 290].map((cx,i)=>(
+          <circle key={i} cx={cx} cy={254} r="6" fill={bodyFill} stroke={bodyStroke} strokeWidth="0.75"/>
+        ))}
 
-        {/* Current track name — bottom */}
-        <text x="14" y="212" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={stroke} opacity="0.7">
-          {currentTrack ? currentTrack.title.slice(0, 40).toUpperCase() : 'NO TRACKS'}
+        {/* Bottom drive hubs */}
+        {[[52,260],[428,260]].map(([cx,cy],i)=>(
+          <g key={i}>
+            <circle cx={cx} cy={cy} r="16" fill={windowFill} stroke={bodyStroke} strokeWidth="1"/>
+            <circle cx={cx} cy={cy} r="9" fill={bodyStroke}/>
+            <circle cx={cx} cy={cy} r="4" fill={bodyFill}/>
+          </g>
+        ))}
+
+        {/* Time + status */}
+        <text x="60" y="285" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={bodyStroke} opacity="0.5">
+          {fmt(currentTime)}
         </text>
-
-        {/* Play/pause — bottom right */}
-        <text x="466" y="212" textAnchor="end" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="3" fill={stroke} opacity="0.5">
-          {playing ? 'PAUSE' : 'PLAY'}
+        <text x="240" y="285" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="3" fill={bodyStroke} opacity="0.35">
+          {playing ? '▌▌' : '▶'}
+        </text>
+        <text x="420" y="285" textAnchor="end" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={bodyStroke} opacity="0.5">
+          {fmt(duration)}
         </text>
       </svg>
 
-      {/* Seek bar (clickable, below SVG) */}
       {!compact && (
         <>
-          <div
-            onClick={seek}
-            style={{ height: '1px', background: dark ? '#333' : '#e5e5e5', cursor: 'pointer', margin: '6px 0' }}
-          >
-            <div style={{ height: '1px', background: stroke, width: progress + '%', pointerEvents: 'none' }} />
+          <div onClick={seek} style={{ height: '1px', background: dark ? '#333' : '#e5e5e5', cursor: 'pointer', margin: '6px 0', position: 'relative' }}>
+            <div style={{ height: '1px', background: dark ? '#fff' : '#000', width: progress + '%' }}/>
           </div>
-
-          {/* Track list */}
           {tracks.length > 0 && (
             <div style={{ borderTop: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, marginTop: '4px' }}>
               {tracks.map((t, i) => (
-                <div
-                  key={i}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCurrentIdx(i);
-                    setPlaying(true);
-                    setTimeout(() => { if (audioRef.current) audioRef.current.play().catch(() => {}); }, 50);
-                  }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 0', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, cursor: 'pointer' }}
-                >
-                  <span style={{ fontSize: '9px', color: muted, minWidth: '14px' }}>{i + 1}</span>
-                  <span style={{ fontSize: '10px', letterSpacing: '0.08em', color: i === currentIdx ? stroke : muted, textDecoration: i === currentIdx ? 'underline' : 'none', textTransform: 'uppercase', flex: 1 }}>{t.title}</span>
-                  {t.duration && <span style={{ fontSize: '9px', color: muted }}>{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>}
+                <div key={i} onClick={(e) => {
+                  e.stopPropagation();
+                  setCurrentIdx(i);
+                  setPlaying(true);
+                  setTimeout(() => { if (audioRef.current) audioRef.current.play().catch(() => {}); }, 50);
+                }} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 0', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, cursor: 'pointer' }}>
+                  <span style={{ fontSize: '9px', color: dark ? '#555' : '#bbb', minWidth: '14px' }}>{i + 1}</span>
+                  <span style={{ fontSize: '10px', letterSpacing: '0.08em', color: i === currentIdx ? (dark ? '#fff' : '#000') : (dark ? '#555' : '#bbb'), textDecoration: i === currentIdx ? 'underline' : 'none', textTransform: 'uppercase', flex: 1 }}>{t.title}</span>
+                  {t.duration && <span style={{ fontSize: '9px', color: dark ? '#555' : '#bbb' }}>{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>}
                 </div>
               ))}
             </div>
