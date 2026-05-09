@@ -164,7 +164,8 @@ export default function Carlisle() {
   });
 
   const [showNew, setShowNew] = useState(false);
-  const [expandedPost, setExpandedPost] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([]);
   const [profileView, setProfileView] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash.startsWith('profile/')) return hash.split('/')[1] || null;
@@ -555,6 +556,24 @@ export default function Carlisle() {
   }, [user]);
 
   useEffect(() => {
+    if (!user.id) return;
+    const notifRef = ref(database, `notifications/${user.id}`);
+    const unsubscribe = onValue(notifRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.entries(data)
+          .map(([id, n]) => ({ id, ...n }))
+          .sort((a, b) => b.created - a.created)
+          .slice(0, 30);
+        setNotifications(list);
+      } else {
+        setNotifications([]);
+      }
+    });
+    return () => unsubscribe();
+  }, [user.id]);
+
+  useEffect(() => {
     localStorage.setItem("carlisle_dark", dark ? "1" : "0");
   }, [dark]);
 
@@ -694,6 +713,42 @@ export default function Carlisle() {
     const newComments = [...(post.comments || []), newComment];
     const updates = {};
     updates[`appState/posts/${postIndex}/comments`] = newComments;
+
+    // Notify post author if someone else commented
+    if (post.author !== user.id) {
+      const notifId = uid('n');
+      updates[`notifications/${post.author}/${notifId}`] = {
+        id: notifId,
+        type: 'comment',
+        fromUser: user.username,
+        postId,
+        postRoom: post.room,
+        postText: (post.text || '').slice(0, 60),
+        commentText: text.slice(0, 80),
+        created: now(),
+        read: false,
+      };
+    }
+
+    // Notify parent comment author if this is a reply
+    if (parentId) {
+      const parentComment = (post.comments || []).find(c => c.id === parentId);
+      if (parentComment && parentComment.author !== user.id && parentComment.author !== post.author) {
+        const notifId = uid('n');
+        updates[`notifications/${parentComment.author}/${notifId}`] = {
+          id: notifId,
+          type: 'reply',
+          fromUser: user.username,
+          postId,
+          postRoom: post.room,
+          postText: (post.text || '').slice(0, 60),
+          commentText: text.slice(0, 80),
+          created: now(),
+          read: false,
+        };
+      }
+    }
+
     update(ref(database), updates);
   }
   
@@ -810,6 +865,7 @@ export default function Carlisle() {
   }
 
   function handleLogout() {
+    setShowNotifications(false);
     setShowLogoutConfirm(true);
   }
 
@@ -1049,6 +1105,129 @@ export default function Carlisle() {
               >
                 SOUNDS
               </button>
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => {
+                    setShowNotifications(!showNotifications);
+                    if (!showNotifications) {
+                      const updates = {};
+                      notifications.filter(n => !n.read).forEach(n => {
+                        updates[`notifications/${user.id}/${n.id}/read`] = true;
+                      });
+                      if (Object.keys(updates).length > 0) update(ref(database), updates);
+                    }
+                  }}
+                  style={{
+                    fontSize: '10px',
+                    letterSpacing: '0.15em',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: dark ? '#fff' : '#000',
+                    transition: 'opacity 0.2s',
+                    position: 'relative',
+                    padding: '0'
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                  onMouseLeave={(e) => e.target.style.opacity = '1'}
+                >
+                  &#9825;
+                  {notifications.filter(n => !n.read).length > 0 && (
+                    <span style={{
+                      position: 'absolute',
+                      top: '-6px',
+                      right: '-8px',
+                      backgroundColor: dark ? '#fff' : '#000',
+                      color: dark ? '#000' : '#fff',
+                      borderRadius: '50%',
+                      width: '14px',
+                      height: '14px',
+                      fontSize: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: '600',
+                      pointerEvents: 'none'
+                    }}>
+                      {notifications.filter(n => !n.read).length > 9 ? '9+' : notifications.filter(n => !n.read).length}
+                    </span>
+                  )}
+                </button>
+
+                {showNotifications && (
+                  <>
+                    <div onClick={() => setShowNotifications(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} />
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      right: 0,
+                      marginTop: '12px',
+                      width: '320px',
+                      backgroundColor: dark ? '#000' : '#fff',
+                      border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                      zIndex: 999,
+                      maxHeight: '400px',
+                      overflowY: 'auto',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                    }}>
+                      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, fontSize: '10px', letterSpacing: '0.15em', color: dark ? '#999' : '#666', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        NOTIFICATIONS
+                        {notifications.length > 0 && (
+                          <button
+                            onClick={() => {
+                              const updates = {};
+                              notifications.forEach(n => { updates[`notifications/${user.id}/${n.id}`] = null; });
+                              update(ref(database), updates);
+                              setShowNotifications(false);
+                            }}
+                            style={{ fontSize: '9px', letterSpacing: '0.1em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#666' : '#999' }}
+                          >
+                            CLEAR ALL
+                          </button>
+                        )}
+                      </div>
+                      {notifications.length === 0 ? (
+                        <div style={{ padding: '24px 16px', fontSize: '11px', color: dark ? '#666' : '#999', textAlign: 'center', letterSpacing: '0.05em' }}>
+                          NO NOTIFICATIONS
+                        </div>
+                      ) : (
+                        notifications.map(n => (
+                          <div
+                            key={n.id}
+                            onClick={() => {
+                              setShowNotifications(false);
+                              enterRoom(n.postRoom, n.postId);
+                            }}
+                            style={{
+                              padding: '12px 16px',
+                              borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
+                              cursor: 'pointer',
+                              backgroundColor: n.read ? 'transparent' : (dark ? '#0a0a0a' : '#fafafa'),
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = dark ? '#111' : '#f0f0f0'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = n.read ? 'transparent' : (dark ? '#0a0a0a' : '#fafafa')}
+                          >
+                            <div style={{ fontSize: '11px', color: dark ? '#fff' : '#000', marginBottom: '4px', letterSpacing: '0.02em' }}>
+                              <span style={{ fontWeight: '500' }}>{n.fromUser}</span>
+                              {n.type === 'reply' ? ' replied to your comment' : ' commented on your post'}
+                            </div>
+                            {n.commentText && (
+                              <div style={{ fontSize: '10px', color: dark ? '#999' : '#666', letterSpacing: '0.02em', marginBottom: '4px', fontStyle: 'italic' }}>
+                                "{n.commentText.slice(0, 60)}{n.commentText.length > 60 ? '...' : ''}"
+                              </div>
+                            )}
+                            <div style={{ fontSize: '9px', color: dark ? '#666' : '#aaa', letterSpacing: '0.05em' }}>
+                              {new Date(n.created).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
               <button
                 onClick={() => setShowSettings(true)}
                 style={{
@@ -1327,24 +1506,6 @@ export default function Carlisle() {
                           >
                             {post.authorDisplayName || post.author?.toUpperCase() || 'UNKNOWN'}
                           </button>
-                          <button
-                            onClick={() => setExpandedPost(post)}
-                            style={{
-                              fontSize: '10px',
-                              letterSpacing: '0.1em',
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              color: dark ? '#666' : '#999',
-                              padding: 0,
-                              transition: 'opacity 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                            onMouseLeave={(e) => e.target.style.opacity = '1'}
-                            title="Expand post"
-                          >
-                            ↗
-                          </button>
                         </div>
                         {!whisper && (
                           <div style={{ 
@@ -1435,13 +1596,11 @@ export default function Carlisle() {
                       {post.image && (
                         <img
                           src={post.image}
-                          onClick={() => setExpandedPost(post)}
                           style={{ 
                             width: '100%',
                             maxHeight: layout === 'single' ? '600px' : '300px',
                             objectFit: 'contain',
-                            marginBottom: '20px',
-                            cursor: 'pointer'
+                            marginBottom: '20px'
                           }}
                           alt="post"
                         />
@@ -1522,24 +1681,6 @@ export default function Carlisle() {
         )}
       </div>
 
-      {expandedPost && (
-        <PostExpandModal
-          post={expandedPost}
-          onClose={() => setExpandedPost(null)}
-          dark={dark}
-          user={user}
-          firebaseUser={firebaseUser}
-          legacyUserId={legacyUserId}
-          addComment={addComment}
-          removeComment={removeComment}
-          vote={vote}
-          removePost={removePost}
-          enterProfile={(id) => { setExpandedPost(null); enterProfile(id); }}
-          isRoomMod={isRoomMod(expandedPost.room)}
-          whisper={whisper}
-          layout={layout}
-        />
-      )}
       {showNew && (
         <NewPostModal
           onClose={() => setShowNew(false)}
@@ -3786,111 +3927,6 @@ function AdminPanel({ onClose, dark, user }) {
         >
           CLOSE
         </button>
-      </div>
-    </div>
-  );
-}
-
-
-function PostExpandModal({ post, onClose, dark, user, firebaseUser, legacyUserId, addComment, removeComment, vote, removePost, enterProfile, isRoomMod, whisper }) {
-  const bg = dark ? '#000' : '#fff';
-  const border = dark ? '#222' : '#e5e5e5';
-  const text = dark ? '#fff' : '#000';
-  const muted = dark ? '#999' : '#666';
-  const dim = dark ? '#444' : '#ccc';
-  const [width, setWidth] = React.useState(window.innerWidth);
-  const hasMedia = post.image || post.videoUrl || post.audioUrl;
-
-  React.useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose(); };
-    const resize = () => setWidth(window.innerWidth);
-    window.addEventListener('keydown', handler);
-    window.addEventListener('resize', resize);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', handler);
-      window.removeEventListener('resize', resize);
-      document.body.style.overflow = '';
-    };
-  }, []);
-
-  const isMobile = width < 768;
-
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', width: '100%', height: '100%', maxWidth: '1400px', backgroundColor: bg, overflow: 'hidden' }}>
-        
-        {hasMedia && (
-          <div style={{ flex: isMobile ? 'none' : '1 1 60%', backgroundColor: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: isMobile ? '40vh' : 'unset', maxHeight: isMobile ? '50vh' : 'unset', overflow: 'hidden' }}>
-            {post.image && <img src={post.image} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} alt="post" />}
-            {post.videoUrl && !post.image && (
-              post.videoUrl.includes('youtube.com') || post.videoUrl.includes('youtu.be') ? (
-                <iframe width="100%" height="100%" src={post.videoUrl.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/')} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ border: 'none', minHeight: '300px' }} />
-              ) : (
-                <video controls style={{ maxWidth: '100%', maxHeight: '100%' }}><source src={post.videoUrl} /></video>
-              )
-            )}
-            {post.audioUrl && !post.image && !post.videoUrl && (
-              <div style={{ padding: '40px', width: '100%' }}>
-                {post.audioUrl.includes('spotify.com') ? (
-                  <iframe src={post.audioUrl.replace('open.spotify.com/', 'open.spotify.com/embed/')} width="100%" height="80" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" style={{ border: 'none', borderRadius: '12px' }} />
-                ) : (
-                  <audio controls style={{ width: '100%' }}><source src={post.audioUrl} /></audio>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div style={{ flex: hasMedia ? '0 0 380px' : '1', display: 'flex', flexDirection: 'column', borderLeft: hasMedia && !isMobile ? `1px solid ${border}` : 'none', borderTop: hasMedia && isMobile ? `1px solid ${border}` : 'none', height: isMobile ? 'unset' : '100%', flex: isMobile ? '1' : (hasMedia ? '0 0 380px' : '1'), overflow: 'hidden' }}>
-          
-          <div style={{ padding: '16px 24px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <ProfilePicture authorId={post.authorId} author={post.author} size={28} dark={dark} />
-              <button onClick={() => enterProfile(post.author)} style={{ fontSize: '11px', letterSpacing: '0.05em', background: 'none', border: 'none', cursor: 'pointer', color: text, textDecoration: 'underline', padding: 0 }}>
-                {post.authorDisplayName || post.author?.toUpperCase() || 'UNKNOWN'}
-              </button>
-              {!whisper && <span style={{ fontSize: '10px', color: muted, letterSpacing: '0.05em' }}>{new Date(post.created).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })}</span>}
-            </div>
-            <button onClick={onClose} style={{ fontSize: '20px', background: 'none', border: 'none', cursor: 'pointer', color: muted, lineHeight: 1, padding: '0 4px' }}>×</button>
-          </div>
-
-          <div style={{ padding: '16px 24px', borderBottom: `1px solid ${border}`, flexShrink: 0 }}>
-            {post.image && post.audioUrl && (
-              <div style={{ marginBottom: '12px' }}>
-                {post.audioUrl.includes('spotify.com') ? (
-                  <iframe src={post.audioUrl.replace('open.spotify.com/', 'open.spotify.com/embed/')} width="100%" height="80" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" style={{ border: 'none', borderRadius: '12px' }} />
-                ) : (
-                  <audio controls style={{ width: '100%' }}><source src={post.audioUrl} /></audio>
-                )}
-              </div>
-            )}
-            {post.text && <div style={{ fontSize: '13px', lineHeight: '1.8', letterSpacing: '0.02em', color: text, whiteSpace: 'pre-wrap', wordWrap: 'break-word', marginBottom: '12px' }}>{post.text}</div>}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <button onClick={() => vote(post.id, 1)} style={{ fontSize: '13px', background: 'none', border: 'none', cursor: 'pointer', color: post.voters?.[user.id] === 1 ? text : dim }}>▲</button>
-              <span style={{ fontSize: '11px', color: text }}>{post.votes}</span>
-              <button onClick={() => vote(post.id, -1)} style={{ fontSize: '13px', background: 'none', border: 'none', cursor: 'pointer', color: post.voters?.[user.id] === -1 ? text : dim }}>▼</button>
-              {(user.isAdmin || post.author === user.id || (firebaseUser && post.authorId === firebaseUser.uid) || isRoomMod) && (
-                <button onClick={() => { removePost(post.id); onClose(); }} style={{ fontSize: '10px', letterSpacing: '0.1em', background: 'none', border: 'none', cursor: 'pointer', color: muted, marginLeft: 'auto' }}>DELETE</button>
-              )}
-            </div>
-          </div>
-
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px' }}>
-            <CommentBlock
-              post={post}
-              addComment={addComment}
-              removeComment={removeComment}
-              whisper={whisper}
-              dark={dark}
-              user={user}
-              firebaseUser={firebaseUser}
-              legacyUserId={legacyUserId}
-              isRoomMod={isRoomMod}
-              enterProfile={enterProfile}
-            />
-          </div>
-        </div>
       </div>
     </div>
   );
