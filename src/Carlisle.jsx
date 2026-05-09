@@ -166,7 +166,6 @@ export default function Carlisle() {
   });
 
   const [showNew, setShowNew] = useState(false);
-  const [showNewCassette, setShowNewCassette] = useState(false);
   const [profileView, setProfileView] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash.startsWith('profile/')) return hash.split('/')[1] || null;
@@ -180,6 +179,7 @@ export default function Carlisle() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [editingCassette, setEditingCassette] = useState(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("carlisle_dark") === "1";
@@ -923,6 +923,14 @@ export default function Carlisle() {
     });
   }
 
+  function updateCassette(postId, tapeName, tracks) {
+    const postIndex = (state.posts || []).findIndex(p => p.id === postId);
+    if (postIndex === -1) return;
+    const updates = {};
+    updates[`appState/posts/${postIndex}/cassette`] = { name: tapeName, tracks };
+    update(ref(database), updates);
+  }
+
   function postCassette({ tapeName, tracks }) {
     const postId = crypto.randomUUID();
     const post = {
@@ -1245,24 +1253,7 @@ export default function Carlisle() {
           >
             +
           </button>
-          <button
-            onClick={() => setShowNewCassette(true)}
-            style={{
-              fontSize: '14px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              transition: 'all 0.2s',
-              padding: '0',
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
-            title="New Cassette"
-          >
-            &#9676; CASSETTE
-          </button>
+
         </div>
 
         {view === "profile" && profileView ? (
@@ -1276,6 +1267,7 @@ export default function Carlisle() {
           onEditProfile={() => setShowProfileEdit(true)}
           onDeletePost={removePost}
           onEnterRoom={enterRoom}
+          onEditCassette={(post) => setEditingCassette(post)}
           dark={dark}
         />
         ) : view === "sounds" ? (
@@ -1557,17 +1549,11 @@ export default function Carlisle() {
         )}
       </div>
 
-      {showNewCassette && (
-        <NewCassetteModal
-          onClose={() => setShowNewCassette(false)}
-          onPost={postCassette}
-          dark={dark}
-        />
-      )}
       {showNew && (
         <NewPostModal
           onClose={() => setShowNew(false)}
           onPost={postNew}
+          onPostCassette={postCassette}
           dark={dark}
         />
       )}
@@ -2177,7 +2163,7 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
   );
 }
 
-function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, onEditProfile, onDeletePost, onEnterRoom, dark }) {
+function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, onEditProfile, onDeletePost, onEnterRoom, onEditCassette, dark }) {
   const profileUser = allPosts.find(p => p.author === authorId);
   const isOwnProfile = authorId === user.id || (firebaseUser && authorId === firebaseUser.uid);
   const userData = {
@@ -2355,6 +2341,16 @@ function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, on
                   color: dark ? '#666' : '#999'
                 }}>
                   <span>{new Date(post.created).toLocaleDateString()}</span>
+                  {isOwnProfile && post.type === 'cassette' && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onEditCassette(post); }}
+                      style={{ fontSize: '10px', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#666' : '#999', transition: 'opacity 0.2s', marginRight: '8px' }}
+                      onMouseEnter={(e) => e.target.style.opacity = '0.5'}
+                      onMouseLeave={(e) => e.target.style.opacity = '1'}
+                    >
+                      EDIT
+                    </button>
+                  )}
                   {isOwnProfile && (
                     <button
                       onClick={() => onDeletePost(post.id)}
@@ -2678,13 +2674,16 @@ function CommentThread({ comment, allComments, postId, addComment, removeComment
 
 // ========== MODAL COMPONENTS ==========
 
-function NewPostModal({ onClose, onPost, dark }) {
+function NewPostModal({ onClose, onPost, onPostCassette, dark }) {
+  const [mode, setMode] = useState('post');
   const [text, setText] = useState("");
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [videoUrl, setVideoUrl] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [tapeName, setTapeName] = useState('SIDE A');
+  const [tracks, setTracks] = useState([{ title: '', url: '' }]);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -2775,15 +2774,37 @@ function NewPostModal({ onClose, onPost, dark }) {
           padding: '40px'
         }}
       >
-        <div style={{
-          fontSize: '16px',
-          letterSpacing: '0.15em',
-          marginBottom: '30px',
-          color: dark ? '#fff' : '#000'
-        }}>
-          NEW POST
+        {/* Mode tabs */}
+        <div style={{ display: 'flex', gap: '0', marginBottom: '30px', borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}` }}>
+          {['POST', 'CASSETTE'].map(m => (
+            <button
+              key={m}
+              onClick={() => setMode(m.toLowerCase())}
+              style={{
+                fontSize: '10px', letterSpacing: '0.15em', padding: '0 0 12px',
+                marginRight: '24px', background: 'none', border: 'none',
+                borderBottom: mode === m.toLowerCase() ? `2px solid ${dark ? '#fff' : '#000'}` : '2px solid transparent',
+                cursor: 'pointer', color: mode === m.toLowerCase() ? (dark ? '#fff' : '#000') : (dark ? '#666' : '#999'),
+                marginBottom: '-1px', transition: 'all 0.2s'
+              }}
+            >
+              {m}
+            </button>
+          ))}
         </div>
 
+        {mode === 'cassette' ? (
+          <CassetteBuilder
+            tapeName={tapeName}
+            setTapeName={setTapeName}
+            tracks={tracks}
+            setTracks={setTracks}
+            onPost={(data) => { onPostCassette(data); onClose(); }}
+            onClose={onClose}
+            dark={dark}
+          />
+        ) : (
+        <>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -2937,6 +2958,8 @@ function NewPostModal({ onClose, onPost, dark }) {
             {uploading ? 'UPLOADING...' : 'POST'}
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
@@ -4029,6 +4052,123 @@ function NewCassetteModal({ onClose, onPost, dark }) {
           <button onClick={onClose} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: dark ? '#fff' : '#000' }}>CANCEL</button>
           <button onClick={handlePost} disabled={posting} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', backgroundColor: dark ? '#fff' : '#000', border: 'none', cursor: 'pointer', color: dark ? '#000' : '#fff' }}>POST CASSETTE</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+function CassetteBuilder({ tapeName, setTapeName, tracks, setTracks, onPost, onClose, dark, editMode, existingPostId, onUpdate }) {
+  const MAX_TRACKS = 24;
+  const inputStyle = {
+    fontSize: '12px', padding: '10px', background: 'none',
+    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, outline: 'none',
+    color: dark ? '#fff' : '#000', fontFamily: 'Helvetica Neue, Arial, sans-serif',
+    boxSizing: 'border-box', letterSpacing: '0.05em', width: '100%'
+  };
+
+  function addTrack() {
+    if (tracks.length >= MAX_TRACKS) return;
+    setTracks([...tracks, { title: '', url: '' }]);
+  }
+
+  function updateTrack(i, field, val) {
+    const t = [...tracks]; t[i][field] = val; setTracks(t);
+  }
+
+  function removeTrack(i) {
+    setTracks(tracks.filter((_, idx) => idx !== i));
+  }
+
+  function handleSubmit() {
+    const validTracks = tracks.filter(t => t.title.trim() && t.url.trim());
+    if (!tapeName.trim()) { alert('NAME YOUR CASSETTE'); return; }
+    if (validTracks.length === 0) { alert('ADD AT LEAST ONE TRACK WITH A TITLE AND URL'); return; }
+    if (editMode && onUpdate) {
+      onUpdate(existingPostId, tapeName.trim().toUpperCase(), validTracks);
+    } else {
+      onPost({ tapeName: tapeName.trim().toUpperCase(), tracks: validTracks });
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: '20px' }}>
+        <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: dark ? '#999' : '#666', marginBottom: '8px' }}>TAPE NAME</label>
+        <input value={tapeName} onChange={e => setTapeName(e.target.value.toUpperCase())} style={inputStyle} maxLength={20} placeholder="SIDE A" />
+      </div>
+
+      <div style={{ marginBottom: '8px' }}>
+        <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: dark ? '#999' : '#666', marginBottom: '12px' }}>
+          TRACKS — {tracks.length}/{MAX_TRACKS}
+        </label>
+        {tracks.map((t, i) => (
+          <div key={i} style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+            <span style={{ fontSize: '10px', color: dark ? '#666' : '#999', minWidth: '20px', textAlign: 'right' }}>{i + 1}</span>
+            <input
+              value={t.title}
+              onChange={e => updateTrack(i, 'title', e.target.value)}
+              placeholder="TRACK TITLE"
+              style={{ ...inputStyle, width: '35%' }}
+            />
+            <input
+              value={t.url}
+              onChange={e => updateTrack(i, 'url', e.target.value)}
+              placeholder="AUDIO URL (.MP3, .M4A...)"
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            {tracks.length > 1 && (
+              <button onClick={() => removeTrack(i)} style={{ fontSize: '16px', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#666' : '#999', padding: '0 4px', lineHeight: 1 }}>×</button>
+            )}
+          </div>
+        ))}
+
+        {tracks.length < MAX_TRACKS && (
+          <button
+            onClick={addTrack}
+            style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '8px 16px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: dark ? '#fff' : '#000', marginTop: '4px' }}
+          >
+            + ADD TRACK
+          </button>
+        )}
+      </div>
+
+      <div style={{ fontSize: '9px', letterSpacing: '0.05em', color: dark ? '#666' : '#999', marginBottom: '24px', marginTop: '12px', lineHeight: '1.6' }}>
+        USE DIRECT AUDIO LINKS (.MP3, .M4A, .WAV) FOR MOBILE BACKGROUND PLAYBACK.
+        {!editMode && tracks.length < MAX_TRACKS && ' YOU CAN ADD MORE TRACKS LATER FROM YOUR PROFILE.'}
+      </div>
+
+      <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+        {onClose && (
+          <button onClick={onClose} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: dark ? '#fff' : '#000' }}>CANCEL</button>
+        )}
+        <button onClick={handleSubmit} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', backgroundColor: dark ? '#fff' : '#000', border: 'none', cursor: 'pointer', color: dark ? '#000' : '#fff' }}>
+          {editMode ? 'SAVE CHANGES' : 'POST CASSETTE'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CassetteEditModal({ post, onSave, onClose, dark }) {
+  const [tapeName, setTapeName] = React.useState(post.cassette?.name || 'SIDE A');
+  const [tracks, setTracks] = React.useState(post.cassette?.tracks || [{ title: '', url: '' }]);
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+      <div onClick={e => e.stopPropagation()} style={{ backgroundColor: dark ? '#000' : '#fff', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, maxWidth: '600px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '40px' }}>
+        <div style={{ fontSize: '16px', letterSpacing: '0.15em', marginBottom: '30px', color: dark ? '#fff' : '#000' }}>EDIT CASSETTE</div>
+        <CassetteBuilder
+          tapeName={tapeName}
+          setTapeName={setTapeName}
+          tracks={tracks}
+          setTracks={setTracks}
+          editMode
+          existingPostId={post.id}
+          onUpdate={(postId, name, tracks) => { onSave(postId, name, tracks); onClose(); }}
+          onClose={onClose}
+          dark={dark}
+        />
       </div>
     </div>
   );
