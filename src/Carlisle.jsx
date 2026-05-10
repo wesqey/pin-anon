@@ -490,7 +490,10 @@ export default function Carlisle() {
           ...EMPTY,
           ...data,
           posts: Array.isArray(data.posts) ? data.posts : (data.posts ? Object.values(data.posts) : []),
-          rooms: Array.isArray(data.rooms) ? data.rooms : (data.rooms ? Object.values(data.rooms) : EMPTY.rooms),
+          rooms: (() => {
+        const r = Array.isArray(data.rooms) ? data.rooms : (data.rooms ? Object.values(data.rooms) : EMPTY.rooms);
+        return r.some(x => x.id === 'birds') ? r : [...r, { id: 'birds', name: 'birds', invite: 'birds', permanent: true }];
+      })(),
           inviteCodes: data.inviteCodes || {},
           usernames: data.usernames || {}
         });
@@ -8745,14 +8748,14 @@ function BirdsRoom({ posts, dark }) {
     });
     const palette = seen.size > 0 ? [...seen.values()] : COLORS;
 
-    const N = 600;
+    const N = 500;
     const W = () => canvas.width;
     const H = () => canvas.height;
 
     // Spawn birds in a compact cluster at center
     const boids = Array.from({ length: N }, (_, i) => {
       const a = Math.random() * Math.PI * 2;
-      const r = Math.random() * 80;
+      const r = Math.random() * 120;
       const d = Math.random() * Math.PI * 2;
       const s = 1.5 + Math.random();
       return { x: W()/2 + Math.cos(a)*r, y: H()/2 + Math.sin(a)*r,
@@ -8820,10 +8823,14 @@ function BirdsRoom({ posts, dark }) {
       const gcx=W()/2,gcy=H()/2;
       const gdx=gcx-b.x,gdy=gcy-b.y;
       const gd=Math.sqrt(gdx*gdx+gdy*gdy);
-      if(gd>100){const p=0.00025*(gd-100);fx+=gdx*p;fy+=gdy*p;}
+      if(gd>60){const p=0.0002*(gd-60);fx+=gdx*p;fy+=gdy*p;}
 
-      // Vortex — perpendicular to center gives swirling murmuration shape
-      if(gd>0){const px=-gdy/gd,py=gdx/gd;fx+=px*0.05;fy+=py*0.05;}
+      // Very subtle vortex — just enough to add organic swirling
+      if(gd>0){const px=-gdy/gd,py=gdx/gd;fx+=px*0.008;fy+=py*0.008;}
+
+      // Random wander — prevents orbit locking
+      fx += (Math.random()-0.5)*0.06;
+      fy += (Math.random()-0.5)*0.06;
 
       // Predator perturbation
       if(perturbT>0){
