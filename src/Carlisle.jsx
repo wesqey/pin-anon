@@ -98,8 +98,6 @@ const EMPTY = {
 // Add CSS for animations
 const styleSheet = document.createElement("style");
 styleSheet.textContent = `
-  @keyframes cassette-spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-  @keyframes cassette-spin-fast { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
@@ -179,7 +177,6 @@ export default function Carlisle() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
-  const [editingCassette, setEditingCassette] = useState(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("carlisle_dark") === "1";
@@ -923,44 +920,6 @@ export default function Carlisle() {
     });
   }
 
-  function updateCassette(postId, tapeName, tracks) {
-    const postIndex = (state.posts || []).findIndex(p => p.id === postId);
-    if (postIndex === -1) return;
-    const updates = {};
-    updates[`appState/posts/${postIndex}/cassette`] = { name: tapeName, tracks };
-    update(ref(database), updates);
-  }
-
-  function postCassette({ tapeName, tracks }) {
-    const postId = crypto.randomUUID();
-    const post = {
-      id: postId,
-      author: user.id,
-      authorId: user.id,
-      authorDisplayName: user.username,
-      text: '',
-      image: null,
-      videoUrl: null,
-      audioUrl: null,
-      room: DEFAULT_ROOM,
-      type: 'cassette',
-      cassette: { name: tapeName, tracks },
-      created: Date.now(),
-      votes: 0,
-      voters: {},
-      comments: [],
-    };
-    const newPosts = [post, ...(state.posts || [])];
-    const updates = {};
-    updates['appState/posts'] = newPosts;
-    update(ref(database), updates);
-    setUser((prev) => {
-      const u = { ...prev, createdPosts: [...(prev.createdPosts || []), postId] };
-      saveUser(u);
-      return u;
-    });
-  }
-
   const currentRoomName = useMemo(() => {
     const r = (state.rooms || []).find(r => r.id === room);
     return r?.name || "MAIN ROOM";
@@ -1267,7 +1226,6 @@ export default function Carlisle() {
           onEditProfile={() => setShowProfileEdit(true)}
           onDeletePost={removePost}
           onEnterRoom={enterRoom}
-          onEditCassette={(post) => setEditingCassette(post)}
           dark={dark}
         />
         ) : view === "sounds" ? (
@@ -1509,10 +1467,6 @@ export default function Carlisle() {
                           </audio>
                         )
                       )}
-                      {post.type === 'cassette' && post.cassette && (
-                        <CassettePlayer cassette={post.cassette} dark={dark} />
-                      )}
-                      {post.text && (
                       <div style={{ 
                         fontSize: layout === 'single' ? '13px' : '12px', 
                         lineHeight: '1.8',
@@ -1523,7 +1477,6 @@ export default function Carlisle() {
                       }}>
                         {post.text}
                       </div>
-                      )}
                     </div>
 
                     <div style={{ marginTop: '30px' }}>
@@ -1553,7 +1506,6 @@ export default function Carlisle() {
         <NewPostModal
           onClose={() => setShowNew(false)}
           onPost={postNew}
-          onPostCassette={postCassette}
           dark={dark}
         />
       )}
@@ -2163,7 +2115,7 @@ function RoomsDropdown({ rooms, currentRoom, currentRoomName, onSelectRoom, onCr
   );
 }
 
-function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, onEditProfile, onDeletePost, onEnterRoom, onEditCassette, dark }) {
+function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, onEditProfile, onDeletePost, onEnterRoom, dark }) {
   const profileUser = allPosts.find(p => p.author === authorId);
   const isOwnProfile = authorId === user.id || (firebaseUser && authorId === firebaseUser.uid);
   const userData = {
@@ -2279,11 +2231,6 @@ function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, on
               onMouseEnter={(e) => e.currentTarget.style.borderColor = dark ? '#333' : '#e5e5e5'}
               onMouseLeave={(e) => e.currentTarget.style.borderColor = dark ? '#1a1a1a' : '#f5f5f5'}
             >
-                {post.type === 'cassette' && post.cassette && (
-                  <div style={{ marginBottom: '12px' }}>
-                    <CassettePlayer cassette={post.cassette} dark={dark} compact />
-                  </div>
-                )}
                 {post.image && (
                   <img
                     src={post.image}
@@ -2341,16 +2288,6 @@ function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, on
                   color: dark ? '#666' : '#999'
                 }}>
                   <span>{new Date(post.created).toLocaleDateString()}</span>
-                  {isOwnProfile && post.type === 'cassette' && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onEditCassette(post); }}
-                      style={{ fontSize: '10px', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#666' : '#999', transition: 'opacity 0.2s', marginRight: '8px' }}
-                      onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                      onMouseLeave={(e) => e.target.style.opacity = '1'}
-                    >
-                      EDIT
-                    </button>
-                  )}
                   {isOwnProfile && (
                     <button
                       onClick={() => onDeletePost(post.id)}
@@ -2674,16 +2611,13 @@ function CommentThread({ comment, allComments, postId, addComment, removeComment
 
 // ========== MODAL COMPONENTS ==========
 
-function NewPostModal({ onClose, onPost, onPostCassette, dark }) {
-  const [mode, setMode] = useState('post');
+function NewPostModal({ onClose, onPost, dark }) {
   const [text, setText] = useState("");
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [videoUrl, setVideoUrl] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [tapeName, setTapeName] = useState('SIDE A');
-  const [tracks, setTracks] = useState([{ title: '', url: '' }]);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -2774,37 +2708,7 @@ function NewPostModal({ onClose, onPost, onPostCassette, dark }) {
           padding: '40px'
         }}
       >
-        {/* Mode tabs */}
-        <div style={{ display: 'flex', gap: '0', marginBottom: '30px', borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}` }}>
-          {['POST', 'CASSETTE'].map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m.toLowerCase())}
-              style={{
-                fontSize: '10px', letterSpacing: '0.15em', padding: '0 0 12px',
-                marginRight: '24px', background: 'none', border: 'none',
-                borderBottom: mode === m.toLowerCase() ? `2px solid ${dark ? '#fff' : '#000'}` : '2px solid transparent',
-                cursor: 'pointer', color: mode === m.toLowerCase() ? (dark ? '#fff' : '#000') : (dark ? '#666' : '#999'),
-                marginBottom: '-1px', transition: 'all 0.2s'
-              }}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
 
-        {mode === 'cassette' ? (
-          <CassetteBuilder
-            tapeName={tapeName}
-            setTapeName={setTapeName}
-            tracks={tracks}
-            setTracks={setTracks}
-            onPost={(data) => { onPostCassette(data); onClose(); }}
-            onClose={onClose}
-            dark={dark}
-          />
-        ) : (
-        <>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -2958,8 +2862,6 @@ function NewPostModal({ onClose, onPost, onPostCassette, dark }) {
             {uploading ? 'UPLOADING...' : 'POST'}
           </button>
         </div>
-        </>
-        )}
       </div>
     </div>
   );
@@ -3844,529 +3746,6 @@ function AdminPanel({ onClose, dark, user }) {
 }
 
 
-function CassettePlayer({ cassette, dark, compact }) {
-  const [currentIdx, setCurrentIdx] = React.useState(0);
-  const [playing, setPlaying] = React.useState(false);
-  const [progress, setProgress] = React.useState(0);
-  const [currentTime, setCurrentTime] = React.useState(0);
-  const [duration, setDuration] = React.useState(0);
-  const [loadError, setLoadError] = React.useState(false);
-  const audioRef   = React.useRef(null);
-  const leftAngle  = React.useRef(0);
-  const rightAngle = React.useRef(0);
-  const rafRef     = React.useRef(null);
-  const lastTs     = React.useRef(null);
-  const [, tick]   = React.useReducer(x => x + 1, 0);
-  const tracks = cassette.tracks || [];
-
-  React.useEffect(() => {
-    if (!playing) { if (rafRef.current) cancelAnimationFrame(rafRef.current); return; }
-    lastTs.current = null;
-    const loop = (ts) => {
-      if (lastTs.current !== null) {
-        const dt = (ts - lastTs.current) / 1000;
-        leftAngle.current  = (leftAngle.current  + dt * 60) % 360;
-        rightAngle.current = (rightAngle.current - dt * 72 + 720) % 360;
-        tick();
-      }
-      lastTs.current = ts;
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [playing]);
-
-  React.useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    const onTime  = () => { setCurrentTime(a.currentTime); setProgress(a.duration ? (a.currentTime / a.duration) * 100 : 0); };
-    const onMeta  = () => setDuration(a.duration || 0);
-    const onEnd   = () => { if (currentIdx < tracks.length - 1) setCurrentIdx(i => i + 1); else setPlaying(false); };
-    const onErr   = () => { setLoadError(true); setPlaying(false); };
-    a.addEventListener('timeupdate', onTime);
-    a.addEventListener('loadedmetadata', onMeta);
-    a.addEventListener('ended', onEnd);
-    a.addEventListener('error', onErr);
-    return () => {
-      a.removeEventListener('timeupdate', onTime);
-      a.removeEventListener('loadedmetadata', onMeta);
-      a.removeEventListener('ended', onEnd);
-      a.removeEventListener('error', onErr);
-    };
-  }, [currentIdx, tracks.length]);
-
-  React.useEffect(() => {
-    const a = audioRef.current;
-    const t = tracks[currentIdx];
-    if (!a) return;
-    setLoadError(false);
-    if (!t?.url) { a.src = ''; setProgress(0); setCurrentTime(0); setDuration(0); return; }
-    const CID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
-    let src = t.url;
-    if (t.source === 'soundcloud' && CID && !src.includes('client_id')) {
-      src += (src.includes('?') ? '&' : '?') + 'client_id=' + CID;
-    }
-    setProgress(0); setCurrentTime(0); setDuration(0);
-    a.crossOrigin = 'anonymous';
-    a.src = src;
-    a.load();
-    if (playing) {
-      const fn = () => { a.play().catch(() => setLoadError(true)); a.removeEventListener('canplay', fn); };
-      a.addEventListener('canplay', fn);
-      return () => a.removeEventListener('canplay', fn);
-    }
-  }, [currentIdx]);
-
-  function togglePlay() {
-    const a = audioRef.current;
-    const t = tracks[currentIdx];
-    if (!a || !t?.url) return;
-    setLoadError(false);
-    if (playing) { a.pause(); setPlaying(false); }
-    else {
-      if (!a.src || a.src === window.location.href) {
-        const CID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
-        let src = t.url;
-        if (t.source === 'soundcloud' && CID && !src.includes('client_id')) src += (src.includes('?') ? '&' : '?') + 'client_id=' + CID;
-        a.crossOrigin = 'anonymous';
-        a.src = src; a.load();
-      }
-      a.play().catch(() => setLoadError(true));
-      setPlaying(true);
-    }
-  }
-
-  function seek(e) {
-    const a = audioRef.current;
-    if (!a?.duration) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    a.currentTime = ((e.clientX - r.left) / r.width) * a.duration;
-  }
-
-  function fmtTime(s) {
-    if (!s || isNaN(s)) return '0:00';
-    return Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0');
-  }
-
-  const pct = progress / 100;
-  const REEL_R = 46; // both reels same size
-  const s   = dark ? '#fff' : '#000';
-  const RED  = '#ff3030';
-  const BLUE = '#30ccff';
-  const mut  = dark ? '#444' : '#ccc';
-
-  // CRT fringe helpers
-  const crt_c = (cx, cy, r, sw=1.2, fill='none') => (
-    <>
-      <circle cx={cx-0.7} cy={cy+0.5} r={r} fill="none" stroke={RED}  strokeWidth={sw} opacity="0.35"/>
-      <circle cx={cx+0.7} cy={cy-0.5} r={r} fill="none" stroke={BLUE} strokeWidth={sw} opacity="0.35"/>
-      <circle cx={cx} cy={cy} r={r} fill={fill} stroke={s} strokeWidth={sw}/>
-    </>
-  );
-  const crt_l = (x1,y1,x2,y2,sw=1) => (
-    <>
-      <line x1={x1-.7} y1={y1+.5} x2={x2-.7} y2={y2+.5} stroke={RED}  strokeWidth={sw} opacity="0.35"/>
-      <line x1={x1+.7} y1={y1-.5} x2={x2+.7} y2={y2-.5} stroke={BLUE} strokeWidth={sw} opacity="0.35"/>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={s} strokeWidth={sw}/>
-    </>
-  );
-
-  const LX = 118, RX = 358, RY = 72;
-
-  function Reel({ cx, cy, angle }) {
-    const spokes = [angle, angle + 130, angle + 248].map(a => a * Math.PI / 180);
-    return (
-      <>
-        {crt_c(cx, cy, REEL_R, 1.2)}
-        {spokes.map((a, i) => (
-          <React.Fragment key={i}>
-            <line x1={cx-.7+20*Math.cos(a)} y1={cy+.5+20*Math.sin(a)} x2={cx-.7+REEL_R*Math.cos(a)} y2={cy+.5+REEL_R*Math.sin(a)} stroke={RED}  strokeWidth="1" opacity="0.35"/>
-            <line x1={cx+.7+20*Math.cos(a)} y1={cy-.5+20*Math.sin(a)} x2={cx+.7+REEL_R*Math.cos(a)} y2={cy-.5+REEL_R*Math.sin(a)} stroke={BLUE} strokeWidth="1" opacity="0.35"/>
-            <line x1={cx+20*Math.cos(a)} y1={cy+20*Math.sin(a)} x2={cx+REEL_R*Math.cos(a)} y2={cy+REEL_R*Math.sin(a)} stroke={s} strokeWidth="1"/>
-          </React.Fragment>
-        ))}
-        {crt_c(cx, cy, 20, 1)}
-        {crt_c(cx, cy, 12, 1)}
-        {crt_c(cx, cy,  5, 1, s)}
-      </>
-    );
-  }
-
-  // Tape path positions
-  const TPY = 132;
-  const L1 = { x: 84,  y: TPY + 6 };
-  const L2 = { x: 142, y: TPY + 10 };
-  const L3 = { x: 190, y: TPY + 4 };
-  const CH = { x: 238, y: TPY };
-  const R3 = { x: 286, y: TPY + 4 };
-  const R2 = { x: 334, y: TPY + 10 };
-  const R1 = { x: 392, y: TPY + 6 };
-
-  const currentTrack = tracks[currentIdx];
-  const textColor = dark ? '#fff' : '#000';
-  const dimColor  = dark ? '#555' : '#aaa';
-
-  return (
-    <div style={{ fontFamily: 'Helvetica Neue, Arial, sans-serif' }}>
-      <audio ref={audioRef} crossOrigin="anonymous"/>
-
-      {/* Cassette name */}
-      <div style={{ fontSize: '10px', letterSpacing: '0.15em', color: dimColor, marginBottom: '8px', textTransform: 'uppercase' }}>
-        {cassette.name || 'SIDE A'}
-      </div>
-
-      {/* OP-1 style reel display — transparent background */}
-      <svg
-        viewBox="0 0 476 158"
-        style={{ width: '100%', maxWidth: '500px', display: 'block', overflow: 'visible' }}
-        shapeRendering="crispEdges"
-      >
-        {/* Track number box */}
-        <rect x="4" y="4" width="24" height="20" fill="none" stroke={s} strokeWidth="1"/>
-        <text x="16" y="18" textAnchor="middle" fill={s} fontFamily="'Courier New', monospace" fontSize="13" fontWeight="bold">
-          {currentIdx + 1}
-        </text>
-
-        {/* Playing indicator dot */}
-        <circle cx="464" cy="12" r="5" fill={playing ? '#ff3030' : mut} opacity={playing ? 1 : 0.4}/>
-
-        {/* Current track name */}
-        <text x="238" y="16" textAnchor="middle" fill={s} fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" opacity="0.6">
-          {currentTrack ? currentTrack.title.slice(0, 34).toUpperCase() : 'NO TRACKS'}
-        </text>
-
-        {/* ── REELS ── */}
-        <Reel cx={LX} cy={RY} angle={leftAngle.current}/>
-        <Reel cx={RX} cy={RY} angle={rightAngle.current}/>
-
-        {/* ── TAPE PATH ── */}
-        {crt_l(LX - 6, RY + REEL_R - 3, L1.x, L1.y)}
-        {crt_l(LX + 6, RY + REEL_R - 3, L2.x, L2.y - 4)}
-        {crt_c(L1.x, L1.y, 4, 1)}
-        {crt_c(L2.x, L2.y, 8, 1)}
-        {crt_l(L2.x + 6, L2.y, L3.x, L3.y + 3)}
-        {crt_c(L3.x, L3.y, 4, 1)}
-        {crt_l(L3.x + 4, L3.y, CH.x - 12, CH.y + 3)}
-        {/* Tape head */}
-        {crt_l(CH.x - 12, CH.y - 7, CH.x - 12, CH.y + 12, 1.5)}
-        {crt_l(CH.x + 12, CH.y - 7, CH.x + 12, CH.y + 12, 1.5)}
-        <rect x={CH.x - 5} y={CH.y - 3} width="10" height="9" fill="none" stroke={s} strokeWidth="1"/>
-        <>
-          <rect x={CH.x-5-.7} y={CH.y-3+.5} width="10" height="9" fill="none" stroke={RED}  strokeWidth="1" opacity="0.35"/>
-          <rect x={CH.x-5+.7} y={CH.y-3-.5} width="10" height="9" fill="none" stroke={BLUE} strokeWidth="1" opacity="0.35"/>
-        </>
-        {crt_l(CH.x, CH.y + 8, CH.x, CH.y + 18, 1.5)}
-        {crt_l(CH.x + 12, CH.y + 3, R3.x - 4, R3.y)}
-        {crt_c(R3.x, R3.y, 4, 1)}
-        {crt_l(R3.x + 4, R3.y, R2.x - 6, R2.y)}
-        {crt_c(R2.x, R2.y, 8, 1)}
-        {crt_l(R2.x + 6, R2.y, R1.x, R1.y)}
-        {crt_l(RX - 6, RY + REEL_R - 3, R2.x, R2.y - 4)}
-        {crt_l(RX + 6, RY + REEL_R - 3, R1.x, R1.y)}
-        {crt_c(R1.x, R1.y, 4, 1)}
-
-        {/* Progress bar */}
-        <rect x="0" y="148" width="476" height="2" fill={mut} opacity="0.3"/>
-        <rect x="0" y="148" width={476 * pct} height="2" fill={s} opacity="0.6"/>
-      </svg>
-
-      {/* Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '8px' }}>
-        <button
-          onClick={togglePlay}
-          style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: textColor, padding: '6px 16px', transition: 'all 0.2s' }}
-          onMouseEnter={e => { e.target.style.borderColor = s; }}
-          onMouseLeave={e => { e.target.style.borderColor = dark ? '#333' : '#e5e5e5'; }}
-        >
-          {playing ? '▌▌ PAUSE' : '▶ PLAY'}
-        </button>
-        <span style={{ fontSize: '10px', color: dimColor, letterSpacing: '0.05em' }}>
-          {fmtTime(currentTime)} {duration ? '/ ' + fmtTime(duration) : ''}
-        </span>
-        {loadError && <span style={{ fontSize: '10px', color: '#ef4444', letterSpacing: '0.05em' }}>CANNOT LOAD AUDIO</span>}
-        {/* Seek */}
-        <div onClick={seek} style={{ flex: 1, height: '1px', background: mut, cursor: 'pointer', position: 'relative' }}>
-          <div style={{ height: '1px', background: s, width: progress + '%' }}/>
-        </div>
-      </div>
-
-      {!compact && tracks.length > 0 && (
-        <div style={{ borderTop: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, marginTop: '8px' }}>
-          {tracks.map((t, i) => (
-            <div key={i} onClick={() => { setCurrentIdx(i); setPlaying(true); setTimeout(() => { if (audioRef.current) audioRef.current.play().catch(() => {}); }, 50); }}
-              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 0', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, cursor: 'pointer' }}>
-              <span style={{ fontSize: '9px', color: dimColor, minWidth: '14px' }}>{i + 1}</span>
-              <span style={{ fontSize: '10px', letterSpacing: '0.08em', color: i === currentIdx ? textColor : dimColor, textDecoration: i === currentIdx ? 'underline' : 'none', textTransform: 'uppercase', flex: 1 }}>{t.title}</span>
-              {t.duration && <span style={{ fontSize: '9px', color: dimColor }}>{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CassetteBuilder({ tapeName, setTapeName, tracks, setTracks, onPost, onClose, dark, editMode, existingPostId, onUpdate }) {
-  const MAX_MINUTES = 90;
-  const SC_CLIENT_ID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
-
-  const [searchQuery, setSearchQuery] = React.useState('');
-  const [searchResults, setSearchResults] = React.useState([]);
-  const [searching, setSearching] = React.useState(false);
-  const [searchError, setSearchError] = React.useState('');
-  const searchTimeout = React.useRef(null);
-
-  const totalMinutes = tracks.reduce((sum, t) => sum + (t.duration || 0), 0) / 60;
-  const minutesLeft = Math.max(0, MAX_MINUTES - totalMinutes);
-
-  const inputStyle = {
-    fontSize: '12px', padding: '10px', background: 'none',
-    border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, outline: 'none',
-    color: dark ? '#fff' : '#000', fontFamily: 'Helvetica Neue, Arial, sans-serif',
-    boxSizing: 'border-box', letterSpacing: '0.05em', width: '100%'
-  };
-
-  async function searchSoundCloud(q) {
-    if (!q.trim()) { setSearchResults([]); return; }
-    setSearching(true);
-    setSearchError('');
-    try {
-      const res = await fetch(
-        `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(q)}&limit=8&client_id=${SC_CLIENT_ID}`
-      );
-      if (!res.ok) throw new Error('Search failed');
-      const data = await res.json();
-      setSearchResults(data.collection || []);
-    } catch (err) {
-      setSearchError('SEARCH UNAVAILABLE');
-      setSearchResults([]);
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  function handleSearchInput(e) {
-    const q = e.target.value;
-    setSearchQuery(q);
-    clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => searchSoundCloud(q), 500);
-  }
-
-  function addFromSoundCloud(track) {
-    const durationSec = Math.floor((track.duration || 0) / 1000);
-    if (totalMinutes + durationSec / 60 > MAX_MINUTES) {
-      alert('ADDING THIS TRACK WOULD EXCEED THE 90 MINUTE LIMIT');
-      return;
-    }
-    const streamUrl = track.stream_url
-      ? `${track.stream_url}?client_id=${SC_CLIENT_ID}`
-      : track.media?.transcodings?.find(t => t.format?.protocol === 'progressive')?.url
-        ? null
-        : null;
-
-    setTracks([...tracks, {
-      title: `${track.title} — ${track.user?.username || ''}`.toUpperCase(),
-      url: streamUrl || '',
-      duration: durationSec,
-      source: 'soundcloud',
-      permalink: track.permalink_url,
-    }]);
-    setSearchQuery('');
-    setSearchResults([]);
-  }
-
-  function addManualTrack() {
-    setTracks([...tracks, { title: '', url: '', duration: 0 }]);
-  }
-
-  function updateTrack(i, field, val) {
-    const t = [...tracks]; t[i][field] = val; setTracks(t);
-  }
-
-  function removeTrack(i) {
-    setTracks(tracks.filter((_, idx) => idx !== i));
-  }
-
-  function fmtDur(sec) {
-    if (!sec) return '';
-    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
-
-  function handleSubmit() {
-    const validTracks = tracks.filter(t => t.title.trim());
-    if (!tapeName.trim()) { alert('NAME YOUR CASSETTE'); return; }
-    if (validTracks.length === 0) { alert('ADD AT LEAST ONE TRACK'); return; }
-    if (editMode && onUpdate) {
-      onUpdate(existingPostId, tapeName.trim().toUpperCase(), validTracks);
-    } else {
-      onPost({ tapeName: tapeName.trim().toUpperCase(), tracks: validTracks });
-    }
-  }
-
-  const border = dark ? '#333' : '#e5e5e5';
-  const muted = dark ? '#666' : '#999';
-  const text = dark ? '#fff' : '#000';
-  const dimBg = dark ? '#0a0a0a' : '#fafafa';
-
-  return (
-    <div>
-      {/* Tape name */}
-      <div style={{ marginBottom: '20px' }}>
-        <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: muted, marginBottom: '8px' }}>TAPE NAME</label>
-        <input value={tapeName} onChange={e => setTapeName(e.target.value.toUpperCase())} style={inputStyle} maxLength={20} placeholder="SIDE A" />
-      </div>
-
-      {/* Time remaining */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '9px', letterSpacing: '0.1em', color: muted }}>
-        <span>{tracks.length} TRACK{tracks.length !== 1 ? 'S' : ''}</span>
-        <span style={{ color: minutesLeft < 10 ? '#ef4444' : muted }}>
-          {minutesLeft.toFixed(1)} MIN REMAINING
-        </span>
-      </div>
-
-      {/* SoundCloud search */}
-      <div style={{ marginBottom: '20px', position: 'relative' }}>
-        <label style={{ display: 'block', fontSize: '9px', letterSpacing: '0.1em', color: muted, marginBottom: '8px' }}>SEARCH SOUNDCLOUD</label>
-        <input
-          value={searchQuery}
-          onChange={handleSearchInput}
-          placeholder="ARTIST OR TRACK NAME..."
-          style={inputStyle}
-        />
-        {searching && (
-          <div style={{ fontSize: '9px', letterSpacing: '0.1em', color: muted, marginTop: '6px' }}>SEARCHING...</div>
-        )}
-        {searchError && (
-          <div style={{ fontSize: '9px', letterSpacing: '0.1em', color: '#ef4444', marginTop: '6px' }}>{searchError}</div>
-        )}
-        {searchResults.length > 0 && (
-          <div style={{ border: `1px solid ${border}`, background: dark ? '#000' : '#fff', marginTop: '4px', maxHeight: '280px', overflowY: 'auto' }}>
-            {searchResults.map((track, i) => (
-              <div
-                key={track.id || i}
-                onClick={() => addFromSoundCloud(track)}
-                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, cursor: 'pointer', transition: 'background 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.background = dimBg}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                {track.artwork_url && (
-                  <img src={track.artwork_url.replace('-large', '-small')} style={{ width: '36px', height: '36px', objectFit: 'cover', flexShrink: 0 }} alt="" />
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '11px', color: text, letterSpacing: '0.03em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.title}</div>
-                  <div style={{ fontSize: '10px', color: muted, letterSpacing: '0.03em' }}>{track.user?.username}</div>
-                </div>
-                <div style={{ fontSize: '10px', color: muted, flexShrink: 0 }}>{fmtDur(Math.floor((track.duration || 0) / 1000))}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Track list */}
-      {tracks.length > 0 && (
-        <div style={{ marginBottom: '16px', border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` }}>
-          {tracks.map((t, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderBottom: i < tracks.length - 1 ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none' }}>
-              <span style={{ fontSize: '10px', color: muted, minWidth: '18px' }}>{i + 1}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <input
-                  value={t.title}
-                  onChange={e => updateTrack(i, 'title', e.target.value)}
-                  placeholder="TRACK TITLE"
-                  style={{ ...inputStyle, padding: '4px 0', border: 'none', borderBottom: `1px solid ${border}`, fontSize: '11px' }}
-                />
-                {!t.source && (
-                  <input
-                    value={t.url}
-                    onChange={e => updateTrack(i, 'url', e.target.value)}
-                    placeholder="PASTE URL OR USE UPLOAD BUTTON →"
-                    style={{ ...inputStyle, padding: '4px 0', border: 'none', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, fontSize: '10px', marginTop: '4px', color: muted }}
-                  />
-                )}
-                {t.source === 'soundcloud' && (
-                  <div style={{ fontSize: '10px', color: muted, marginTop: '2px', letterSpacing: '0.05em' }}>SOUNDCLOUD{t.duration ? ` · ${fmtDur(t.duration)}` : ''}</div>
-                )}
-                {t.source === 'upload' && (
-                  <div style={{ fontSize: '10px', color: muted, marginTop: '2px', letterSpacing: '0.05em' }}>UPLOADED ✓</div>
-                )}
-              </div>
-              {!t.source && (
-                <label style={{ fontSize: '9px', letterSpacing: '0.08em', padding: '6px 8px', background: 'none', border: `1px solid ${border}`, cursor: 'pointer', color: text, whiteSpace: 'nowrap', flexShrink: 0 }}
-                  title="Upload audio file">
-                  ↑ UPLOAD
-                  <input type="file" accept="audio/*" style={{ display: 'none' }} onChange={async (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return;
-                    if (file.size > 20 * 1024 * 1024) { alert('FILE TOO LARGE — MAX 20MB'); return; }
-                    const name = file.name.replace(/\.[^.]+$/, '').toUpperCase();
-                    if (!t.title) updateTrack(i, 'title', name);
-                    try {
-                      const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': file.type, 'x-filename': file.name }, body: file });
-                      const data = await res.json();
-                      if (!res.ok) throw new Error(data.error);
-                      updateTrack(i, 'url', data.url);
-                      updateTrack(i, 'source', 'upload');
-                    } catch { alert('UPLOAD FAILED'); }
-                  }}/>
-                </label>
-              )}
-              <button onClick={() => removeTrack(i)} style={{ fontSize: '16px', background: 'none', border: 'none', cursor: 'pointer', color: muted, padding: '0 4px', lineHeight: 1, flexShrink: 0 }}>×</button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <button
-        onClick={addManualTrack}
-        style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '8px 16px', background: 'none', border: `1px solid ${border}`, cursor: 'pointer', color: text, marginBottom: '20px' }}
-      >
-        + ADD TRACK MANUALLY
-      </button>
-
-      <div style={{ fontSize: '9px', letterSpacing: '0.05em', color: muted, marginBottom: '24px', lineHeight: '1.6' }}>
-        SEARCH SOUNDCLOUD TO ADD TRACKS, OR PASTE DIRECT AUDIO URLS MANUALLY.
-        {!editMode && ' YOU CAN ADD MORE TRACKS LATER FROM YOUR PROFILE UP TO 90 MINUTES.'}
-      </div>
-
-      <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-        {onClose && (
-          <button onClick={onClose} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', background: 'none', border: `1px solid ${border}`, cursor: 'pointer', color: text }}>CANCEL</button>
-        )}
-        <button onClick={handleSubmit} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', backgroundColor: text, border: 'none', cursor: 'pointer', color: dark ? '#000' : '#fff' }}>
-          {editMode ? 'SAVE CHANGES' : 'POST CASSETTE'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function CassetteEditModal({ post, onSave, onClose, dark }) {
-  const [tapeName, setTapeName] = React.useState(post.cassette?.name || 'SIDE A');
-  const [tracks, setTracks] = React.useState(post.cassette?.tracks || [{ title: '', url: '' }]);
-
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-      <div onClick={e => e.stopPropagation()} style={{ backgroundColor: dark ? '#000' : '#fff', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, maxWidth: '600px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '40px' }}>
-        <div style={{ fontSize: '16px', letterSpacing: '0.15em', marginBottom: '30px', color: dark ? '#fff' : '#000' }}>EDIT CASSETTE</div>
-        <CassetteBuilder
-          tapeName={tapeName}
-          setTapeName={setTapeName}
-          tracks={tracks}
-          setTracks={setTracks}
-          editMode
-          existingPostId={post.id}
-          onUpdate={(postId, name, tracks) => { onSave(postId, name, tracks); onClose(); }}
-          onClose={onClose}
-          dark={dark}
-        />
-      </div>
-    </div>
-  );
-}
-
-// Pattern Library Component - Save/load/export/import patterns
 function PatternLibrary({ dark, onLoadPattern }) {
   const [savedPatterns, setSavedPatterns] = useState(() => {
     const saved = localStorage.getItem('carlisle_pattern_library');
