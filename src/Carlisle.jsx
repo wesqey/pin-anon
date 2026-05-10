@@ -490,7 +490,10 @@ export default function Carlisle() {
           ...EMPTY,
           ...data,
           posts: Array.isArray(data.posts) ? data.posts : (data.posts ? Object.values(data.posts) : []),
-          rooms: Array.isArray(data.rooms) ? data.rooms : (data.rooms ? Object.values(data.rooms) : EMPTY.rooms),
+          rooms: (() => {
+  const r = Array.isArray(data.rooms) ? data.rooms : (data.rooms ? Object.values(data.rooms) : EMPTY.rooms);
+  return r.some(x => x.id === 'birds') ? r : [...r, { id: 'birds', name: 'birds', invite: 'birds', permanent: true }];
+})(),
           inviteCodes: data.inviteCodes || {},
           usernames: data.usernames || {}
         });
