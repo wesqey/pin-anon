@@ -3851,7 +3851,36 @@ function CassettePlayer({ cassette, dark, compact }) {
   const [currentTime, setCurrentTime] = React.useState(0);
   const [duration, setDuration] = React.useState(0);
   const audioRef = React.useRef(null);
+  const leftAngle = React.useRef(0);
+  const rightAngle = React.useRef(0);
+  const rafRef = React.useRef(null);
+  const lastTime = React.useRef(null);
+  const [, forceUpdate] = React.useReducer(x => x + 1, 0);
   const tracks = cassette.tracks || [];
+
+  // Animation loop — pure RAF, no CSS animations
+  React.useEffect(() => {
+    if (!playing) {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      return;
+    }
+    lastTime.current = null;
+    const pct = progress / 100;
+    const loop = (ts) => {
+      if (lastTime.current !== null) {
+        const dt = (ts - lastTime.current) / 1000;
+        const leftSpeed  = 40 + (1 - pct) * 60;
+        const rightSpeed = 40 + pct * 60;
+        leftAngle.current  = (leftAngle.current  + dt * leftSpeed)  % 360;
+        rightAngle.current = (rightAngle.current - dt * rightSpeed + 360) % 360;
+        forceUpdate();
+      }
+      lastTime.current = ts;
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [playing]);
 
   React.useEffect(() => {
     const audio = audioRef.current;
@@ -3861,7 +3890,7 @@ function CassettePlayer({ cassette, dark, compact }) {
       setProgress(audio.duration ? (audio.currentTime / audio.duration) * 100 : 0);
     };
     const onMeta = () => setDuration(audio.duration || 0);
-    const onEnd = () => {
+    const onEnd  = () => {
       if (currentIdx < tracks.length - 1) setCurrentIdx(i => i + 1);
       else setPlaying(false);
     };
@@ -3878,22 +3907,40 @@ function CassettePlayer({ cassette, dark, compact }) {
   React.useEffect(() => {
     const audio = audioRef.current;
     const track = tracks[currentIdx];
-    if (!audio || !track?.url) return;
+    if (!audio) return;
+    if (!track?.url) { audio.src = ''; setProgress(0); setCurrentTime(0); setDuration(0); return; }
     const SC_CLIENT_ID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
     let src = track.url;
     if (track.source === 'soundcloud' && SC_CLIENT_ID && !src.includes('client_id')) {
       src = src + (src.includes('?') ? '&' : '?') + 'client_id=' + SC_CLIENT_ID;
     }
+    setProgress(0); setCurrentTime(0); setDuration(0);
     audio.src = src;
     audio.load();
-    if (playing) audio.play().catch(() => {});
+    if (playing) {
+      const onCanPlay = () => { audio.play().catch(()=>{}); audio.removeEventListener('canplay', onCanPlay); };
+      audio.addEventListener('canplay', onCanPlay);
+      return () => audio.removeEventListener('canplay', onCanPlay);
+    }
   }, [currentIdx]);
 
   function togglePlay() {
     const audio = audioRef.current;
-    if (!audio || !tracks[currentIdx]?.url) return;
+    const track = tracks[currentIdx];
+    if (!audio || !track?.url) return;
     if (playing) { audio.pause(); setPlaying(false); }
-    else { audio.play().catch(() => {}); setPlaying(true); }
+    else {
+      if (!audio.src || audio.src === window.location.href) {
+        const SC_CLIENT_ID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
+        let src = track.url;
+        if (track.source === 'soundcloud' && SC_CLIENT_ID && !src.includes('client_id')) {
+          src = src + (src.includes('?') ? '&' : '?') + 'client_id=' + SC_CLIENT_ID;
+        }
+        audio.src = src; audio.load();
+      }
+      audio.play().catch(e => console.error('Play failed:', e));
+      setPlaying(true);
+    }
   }
 
   function seek(e) {
@@ -3905,203 +3952,137 @@ function CassettePlayer({ cassette, dark, compact }) {
 
   function fmt(s) {
     if (!s || isNaN(s)) return '0:00';
-    const m = Math.floor(s / 60), ss = Math.floor(s % 60);
+    const m = Math.floor(s/60), ss = Math.floor(s%60);
     return m + ':' + (ss < 10 ? '0' : '') + ss;
   }
 
-  const pct = progress / 100;
-  const HUB_R = 10;
-  const MIN_R = 20;
-  const MAX_R = 62;
+  const pct    = progress / 100;
+  const HUB_R  = 10;
+  const MIN_R  = 20;
+  const MAX_R  = 62;
   const leftR  = MAX_R - (MAX_R - MIN_R) * pct;
   const rightR = MIN_R + (MAX_R - MIN_R) * pct;
 
-  // TE-style warm cassette colors
-  const bodyFill  = dark ? '#1a1a1a' : '#f0ebe0';
-  const bodyStroke = dark ? '#fff' : '#111';
-  const windowFill = dark ? '#0a0a0a' : '#ddd5c0';
-  const reelFill   = dark ? '#1a1a1a' : '#f0ebe0';
-  const reelStroke = dark ? '#fff' : '#111';
-  const labelFill  = dark ? '#111' : '#fff';
-  const labelText  = dark ? '#fff' : '#111';
-  const mutedText  = dark ? '#555' : '#aaa';
+  const s   = dark ? '#fff' : '#000';
+  const bg  = dark ? '#000' : '#fff';
+  const dim = dark ? '#111' : '#efefef';
+  const mut = dark ? '#555' : '#bbb';
+  const currentTrack = tracks[currentIdx];
 
-  // left reel spins CW, right reel spins CCW — TE-style
-  const leftSpd  = (2 + (1 - pct) * 3).toFixed(1);
-  const rightSpd = (2 + pct * 3).toFixed(1);
+  const WIN_L = 148, WIN_R_X = 332, WIN_CY = 152, WIN_R = 70;
 
-  function ReelWinding({ r, cx, cy, id }) {
+  function TapeRings({ r, cx, cy }) {
     const rings = [];
     for (let rr = HUB_R + 4; rr < r; rr += 4) {
-      const op = 0.2 + (rr / r) * 0.5;
-      rings.push(<circle key={rr} cx={cx} cy={cy} r={rr} fill="none" stroke={reelStroke} strokeWidth="1" opacity={op}/>);
+      rings.push(<circle key={rr} cx={cx} cy={cy} r={rr} fill="none" stroke={s} strokeWidth="1" opacity={0.15 + (rr/r)*0.45}/>);
     }
     return <>{rings}</>;
   }
 
-  const currentTrack = tracks[currentIdx];
-  const WIN_CX_L = 148;
-  const WIN_CX_R = 332;
-  const WIN_CY   = 152;
-  const WIN_R    = 70;
+  function Reel({ cx, cy, r, angle }) {
+    return (
+      <g transform={`rotate(${angle}, ${cx}, ${cy})`}>
+        <TapeRings r={r} cx={cx} cy={cy}/>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={s} strokeWidth="1.2"/>
+        {[0,120,240].map(a => {
+          const rad = a * Math.PI / 180;
+          return <line key={a}
+            x1={cx + HUB_R * Math.cos(rad)} y1={cy + HUB_R * Math.sin(rad)}
+            x2={cx + r * Math.cos(rad)}     y2={cy + r * Math.sin(rad)}
+            stroke={s} strokeWidth="1" opacity="0.45"
+          />;
+        })}
+        <circle cx={cx} cy={cy} r={HUB_R} fill={bg} stroke={s} strokeWidth="1"/>
+        <circle cx={cx} cy={cy} r="4" fill={s}/>
+      </g>
+    );
+  }
 
   return (
     <div style={{ fontFamily: 'Helvetica Neue, Arial, sans-serif' }}>
       <audio ref={audioRef}/>
-
-      <svg
-        viewBox="0 0 480 290"
-        style={{ width: '100%', display: 'block', cursor: 'pointer' }}
-        onClick={togglePlay}
-      >
+      <svg viewBox="0 0 480 290" style={{ width: '100%', display: 'block', cursor: 'pointer' }} onClick={togglePlay}>
         <defs>
-          {/* Clip each reel to its circular window */}
-          <clipPath id="lwin">
-            <circle cx={WIN_CX_L} cy={WIN_CY} r={WIN_R}/>
-          </clipPath>
-          <clipPath id="rwin">
-            <circle cx={WIN_CX_R} cy={WIN_CY} r={WIN_R}/>
-          </clipPath>
+          <clipPath id="clip-l"><circle cx={WIN_L}   cy={WIN_CY} r={WIN_R}/></clipPath>
+          <clipPath id="clip-r"><circle cx={WIN_R_X} cy={WIN_CY} r={WIN_R}/></clipPath>
         </defs>
 
-        {/* ── Cassette body ── */}
-        <rect x="12" y="8" width="456" height="268" rx="14" fill={bodyFill} stroke={bodyStroke} strokeWidth="1.5"/>
+        {/* Body */}
+        <rect x="12" y="8" width="456" height="268" rx="14" fill={bg} stroke={s} strokeWidth="1.5"/>
+        <rect x="22" y="18" width="436" height="248" rx="9"  fill="none" stroke={s} strokeWidth="0.5" opacity="0.35"/>
 
-        {/* Inner border line */}
-        <rect x="22" y="18" width="436" height="248" rx="9" fill="none" stroke={bodyStroke} strokeWidth="0.5" opacity="0.4"/>
-
-        {/* Corner screw holes */}
+        {/* Corner screws */}
         {[[32,28],[448,28],[32,264],[448,264]].map(([cx,cy],i)=>(
           <g key={i}>
-            <circle cx={cx} cy={cy} r="8" fill={windowFill} stroke={bodyStroke} strokeWidth="1"/>
-            <line x1={cx-4} y1={cy-4} x2={cx+4} y2={cy+4} stroke={bodyStroke} strokeWidth="0.75" opacity="0.6"/>
-            <line x1={cx+4} y1={cy-4} x2={cx-4} y2={cy+4} stroke={bodyStroke} strokeWidth="0.75" opacity="0.6"/>
+            <circle cx={cx} cy={cy} r="8" fill={dim} stroke={s} strokeWidth="1"/>
+            <line x1={cx-4} y1={cy-4} x2={cx+4} y2={cy+4} stroke={s} strokeWidth="0.75" opacity="0.5"/>
+            <line x1={cx+4} y1={cy-4} x2={cx-4} y2={cy+4} stroke={s} strokeWidth="0.75" opacity="0.5"/>
           </g>
         ))}
 
-        {/* Label area */}
-        <rect x="52" y="22" width="376" height="68" rx="3" fill={labelFill} stroke={bodyStroke} strokeWidth="0.75"/>
-        {/* Tape name */}
-        <text x="240" y="50" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="11" fontWeight="500" letterSpacing="5" fill={labelText}>
-          {(cassette.name || 'SIDE A').toUpperCase()}
+        {/* Label */}
+        <rect x="52" y="22" width="376" height="68" rx="3" fill={bg} stroke={s} strokeWidth="0.75"/>
+        <text x="240" y="50" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="11" fontWeight="500" letterSpacing="5" fill={s}>
+          {(cassette.name||'SIDE A').toUpperCase()}
         </text>
-        {/* Current track */}
-        <text x="240" y="70" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={labelText} opacity="0.6">
-          {currentTrack ? currentTrack.title.slice(0, 36).toUpperCase() : 'NO TRACKS'}
+        <text x="240" y="70" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={s} opacity="0.5">
+          {currentTrack ? currentTrack.title.slice(0,38).toUpperCase() : 'NO TRACKS'}
         </text>
 
-        {/* Reel window panel — dark inset */}
-        <rect x="52" y="98" width="376" height="120" rx="6" fill={windowFill} stroke={bodyStroke} strokeWidth="0.75"/>
+        {/* Reel panel */}
+        <rect x="52" y="98" width="376" height="120" rx="6" fill={dim} stroke={s} strokeWidth="0.75"/>
 
-        {/* Tape bridge between reel windows */}
-        {/* Left bridge */}
-        <path
-          d={`M ${WIN_CX_L + WIN_R} ${WIN_CY - 8} Q ${WIN_CX_L + WIN_R + 20} ${WIN_CY} ${WIN_CX_L + WIN_R} ${WIN_CY + 8}`}
-          fill={bodyFill} stroke={bodyStroke} strokeWidth="0.75"
-        />
-        {/* Right bridge */}
-        <path
-          d={`M ${WIN_CX_R - WIN_R} ${WIN_CY - 8} Q ${WIN_CX_R - WIN_R - 20} ${WIN_CY} ${WIN_CX_R - WIN_R} ${WIN_CY + 8}`}
-          fill={bodyFill} stroke={bodyStroke} strokeWidth="0.75"
-        />
-        {/* Tape band lines */}
-        <line x1={WIN_CX_L + WIN_R} y1={WIN_CY - 8} x2={WIN_CX_R - WIN_R} y2={WIN_CY - 8} stroke={bodyStroke} strokeWidth="0.75" opacity="0.7"/>
-        <line x1={WIN_CX_L + WIN_R} y1={WIN_CY + 8} x2={WIN_CX_R - WIN_R} y2={WIN_CY + 8} stroke={bodyStroke} strokeWidth="0.75" opacity="0.7"/>
-        {/* Tape head marker */}
-        <rect x="237" y={WIN_CY - 14} width="6" height="28" rx="1" fill={bodyFill} stroke={bodyStroke} strokeWidth="0.75"/>
+        {/* Tape bridge */}
+        <line x1={WIN_L+WIN_R}   y1={WIN_CY-8} x2={WIN_R_X-WIN_R} y2={WIN_CY-8} stroke={s} strokeWidth="1" opacity="0.6"/>
+        <line x1={WIN_L+WIN_R}   y1={WIN_CY+8} x2={WIN_R_X-WIN_R} y2={WIN_CY+8} stroke={s} strokeWidth="1" opacity="0.6"/>
+        <rect x={WIN_L+WIN_R} y={WIN_CY-8} width={WIN_R_X-WIN_R-(WIN_L+WIN_R)} height="16" fill={bg} opacity="0.3"/>
+        <rect x="237" y={WIN_CY-14} width="6" height="28" rx="1" fill={bg} stroke={s} strokeWidth="0.75"/>
 
-        {/* Left reel window circle */}
-        <circle cx={WIN_CX_L} cy={WIN_CY} r={WIN_R} fill={reelFill} stroke={bodyStroke} strokeWidth="1"/>
-
-        {/* Left reel — spins CW */}
-        <g
-          clipPath="url(#lwin)"
-          style={{ transformBox: 'fill-box', transformOrigin: `${WIN_CX_L}px ${WIN_CY}px`, animation: playing ? `cassette-spin-slow ${leftSpd}s linear infinite` : 'none' }}
-        >
-          <ReelWinding r={leftR} cx={WIN_CX_L} cy={WIN_CY}/>
-          <circle cx={WIN_CX_L} cy={WIN_CY} r={leftR} fill="none" stroke={reelStroke} strokeWidth="1.2"/>
-          {[0,120,240].map(a => {
-            const rad = a * Math.PI / 180;
-            return <line key={a}
-              x1={WIN_CX_L + HUB_R * Math.cos(rad)} y1={WIN_CY + HUB_R * Math.sin(rad)}
-              x2={WIN_CX_L + leftR * Math.cos(rad)} y2={WIN_CY + leftR * Math.sin(rad)}
-              stroke={reelStroke} strokeWidth="1" opacity="0.5"
-            />;
-          })}
-          <circle cx={WIN_CX_L} cy={WIN_CY} r={HUB_R} fill={reelFill} stroke={reelStroke} strokeWidth="1"/>
-          <circle cx={WIN_CX_L} cy={WIN_CY} r="4" fill={reelStroke}/>
+        {/* Left reel window + clipped reel */}
+        <circle cx={WIN_L}   cy={WIN_CY} r={WIN_R} fill={bg} stroke={s} strokeWidth="1"/>
+        <g clipPath="url(#clip-l)">
+          <Reel cx={WIN_L}   cy={WIN_CY} r={leftR}  angle={leftAngle.current}/>
         </g>
-        {/* Window border ring */}
-        <circle cx={WIN_CX_L} cy={WIN_CY} r={WIN_R} fill="none" stroke={bodyStroke} strokeWidth="1"/>
+        <circle cx={WIN_L}   cy={WIN_CY} r={WIN_R} fill="none" stroke={s} strokeWidth="1.2"/>
 
-        {/* Right reel window circle */}
-        <circle cx={WIN_CX_R} cy={WIN_CY} r={WIN_R} fill={reelFill} stroke={bodyStroke} strokeWidth="1"/>
-
-        {/* Right reel — spins CCW */}
-        <g
-          clipPath="url(#rwin)"
-          style={{ transformBox: 'fill-box', transformOrigin: `${WIN_CX_R}px ${WIN_CY}px`, animation: playing ? `cassette-spin-fast ${rightSpd}s linear infinite` : 'none' }}
-        >
-          <ReelWinding r={rightR} cx={WIN_CX_R} cy={WIN_CY}/>
-          <circle cx={WIN_CX_R} cy={WIN_CY} r={rightR} fill="none" stroke={reelStroke} strokeWidth="1.2"/>
-          {[0,120,240].map(a => {
-            const rad = a * Math.PI / 180;
-            return <line key={a}
-              x1={WIN_CX_R + HUB_R * Math.cos(rad)} y1={WIN_CY + HUB_R * Math.sin(rad)}
-              x2={WIN_CX_R + rightR * Math.cos(rad)} y2={WIN_CY + rightR * Math.sin(rad)}
-              stroke={reelStroke} strokeWidth="1" opacity="0.5"
-            />;
-          })}
-          <circle cx={WIN_CX_R} cy={WIN_CY} r={HUB_R} fill={reelFill} stroke={reelStroke} strokeWidth="1"/>
-          <circle cx={WIN_CX_R} cy={WIN_CY} r="4" fill={reelStroke}/>
+        {/* Right reel window + clipped reel */}
+        <circle cx={WIN_R_X} cy={WIN_CY} r={WIN_R} fill={bg} stroke={s} strokeWidth="1"/>
+        <g clipPath="url(#clip-r)">
+          <Reel cx={WIN_R_X} cy={WIN_CY} r={rightR} angle={rightAngle.current}/>
         </g>
-        <circle cx={WIN_CX_R} cy={WIN_CY} r={WIN_R} fill="none" stroke={bodyStroke} strokeWidth="1"/>
+        <circle cx={WIN_R_X} cy={WIN_CY} r={WIN_R} fill="none" stroke={s} strokeWidth="1.2"/>
 
-        {/* Bottom tape opening trapezoid */}
-        <path d="M 158 228 L 322 228 L 305 272 L 175 272 Z" fill={windowFill} stroke={bodyStroke} strokeWidth="0.75"/>
-        {/* Alignment holes */}
-        {[210, 232, 268, 290].map((cx,i)=>(
-          <circle key={i} cx={cx} cy={254} r="6" fill={bodyFill} stroke={bodyStroke} strokeWidth="0.75"/>
+        {/* Bottom section */}
+        <path d="M 158 228 L 322 228 L 305 272 L 175 272 Z" fill={dim} stroke={s} strokeWidth="0.75"/>
+        {[210,232,268,290].map((cx,i)=>(
+          <circle key={i} cx={cx} cy={254} r="6" fill={bg} stroke={s} strokeWidth="0.75"/>
         ))}
-
-        {/* Bottom drive hubs */}
         {[[52,260],[428,260]].map(([cx,cy],i)=>(
           <g key={i}>
-            <circle cx={cx} cy={cy} r="16" fill={windowFill} stroke={bodyStroke} strokeWidth="1"/>
-            <circle cx={cx} cy={cy} r="9" fill={bodyStroke}/>
-            <circle cx={cx} cy={cy} r="4" fill={bodyFill}/>
+            <circle cx={cx} cy={cy} r="16" fill={dim} stroke={s} strokeWidth="1"/>
+            <circle cx={cx} cy={cy} r="9"  fill={s}/>
+            <circle cx={cx} cy={cy} r="4"  fill={bg}/>
           </g>
         ))}
 
-        {/* Time + status */}
-        <text x="60" y="285" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={bodyStroke} opacity="0.5">
-          {fmt(currentTime)}
-        </text>
-        <text x="240" y="285" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="3" fill={bodyStroke} opacity="0.35">
-          {playing ? '▌▌' : '▶'}
-        </text>
-        <text x="420" y="285" textAnchor="end" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={bodyStroke} opacity="0.5">
-          {fmt(duration)}
-        </text>
+        {/* Time */}
+        <text x="60"  y="285" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={s} opacity="0.45">{fmt(currentTime)}</text>
+        <text x="240" y="285" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="9" letterSpacing="2" fill={s} opacity="0.3">{playing ? '▌▌' : '▶'}</text>
+        <text x="420" y="285" textAnchor="end"    fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={s} opacity="0.45">{fmt(duration)}</text>
       </svg>
 
       {!compact && (
         <>
-          <div onClick={seek} style={{ height: '1px', background: dark ? '#333' : '#e5e5e5', cursor: 'pointer', margin: '6px 0', position: 'relative' }}>
-            <div style={{ height: '1px', background: dark ? '#fff' : '#000', width: progress + '%' }}/>
+          <div onClick={seek} style={{ height: '1px', background: dark?'#333':'#e5e5e5', cursor: 'pointer', margin: '6px 0' }}>
+            <div style={{ height: '1px', background: s, width: progress+'%', pointerEvents: 'none' }}/>
           </div>
           {tracks.length > 0 && (
-            <div style={{ borderTop: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, marginTop: '4px' }}>
-              {tracks.map((t, i) => (
-                <div key={i} onClick={(e) => {
-                  e.stopPropagation();
-                  setCurrentIdx(i);
-                  setPlaying(true);
-                  setTimeout(() => { if (audioRef.current) audioRef.current.play().catch(() => {}); }, 50);
-                }} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 0', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, cursor: 'pointer' }}>
-                  <span style={{ fontSize: '9px', color: dark ? '#555' : '#bbb', minWidth: '14px' }}>{i + 1}</span>
-                  <span style={{ fontSize: '10px', letterSpacing: '0.08em', color: i === currentIdx ? (dark ? '#fff' : '#000') : (dark ? '#555' : '#bbb'), textDecoration: i === currentIdx ? 'underline' : 'none', textTransform: 'uppercase', flex: 1 }}>{t.title}</span>
-                  {t.duration && <span style={{ fontSize: '9px', color: dark ? '#555' : '#bbb' }}>{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>}
+            <div style={{ borderTop: `1px solid ${dark?'#1a1a1a':'#f5f5f5'}`, marginTop: '4px' }}>
+              {tracks.map((t,i)=>(
+                <div key={i} onClick={e=>{ e.stopPropagation(); setCurrentIdx(i); setPlaying(true); setTimeout(()=>{ if(audioRef.current) audioRef.current.play().catch(()=>{}); },50); }} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'7px 0', borderBottom:`1px solid ${dark?'#1a1a1a':'#f5f5f5'}`, cursor:'pointer' }}>
+                  <span style={{ fontSize:'9px', color:mut, minWidth:'14px' }}>{i+1}</span>
+                  <span style={{ fontSize:'10px', letterSpacing:'0.08em', color:i===currentIdx?s:mut, textDecoration:i===currentIdx?'underline':'none', textTransform:'uppercase', flex:1 }}>{t.title}</span>
+                  {t.duration && <span style={{ fontSize:'9px', color:mut }}>{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>}
                 </div>
               ))}
             </div>
@@ -4287,14 +4268,37 @@ function CassetteBuilder({ tapeName, setTapeName, tracks, setTracks, onPost, onC
                   <input
                     value={t.url}
                     onChange={e => updateTrack(i, 'url', e.target.value)}
-                    placeholder="AUDIO URL"
+                    placeholder="PASTE URL OR USE UPLOAD BUTTON →"
                     style={{ ...inputStyle, padding: '4px 0', border: 'none', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, fontSize: '10px', marginTop: '4px', color: muted }}
                   />
                 )}
                 {t.source === 'soundcloud' && (
                   <div style={{ fontSize: '10px', color: muted, marginTop: '2px', letterSpacing: '0.05em' }}>SOUNDCLOUD{t.duration ? ` · ${fmtDur(t.duration)}` : ''}</div>
                 )}
+                {t.source === 'upload' && (
+                  <div style={{ fontSize: '10px', color: muted, marginTop: '2px', letterSpacing: '0.05em' }}>UPLOADED ✓</div>
+                )}
               </div>
+              {!t.source && (
+                <label style={{ fontSize: '9px', letterSpacing: '0.08em', padding: '6px 8px', background: 'none', border: `1px solid ${border}`, cursor: 'pointer', color: text, whiteSpace: 'nowrap', flexShrink: 0 }}
+                  title="Upload audio file">
+                  ↑ UPLOAD
+                  <input type="file" accept="audio/*" style={{ display: 'none' }} onChange={async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    if (file.size > 20 * 1024 * 1024) { alert('FILE TOO LARGE — MAX 20MB'); return; }
+                    const name = file.name.replace(/\.[^.]+$/, '').toUpperCase();
+                    if (!t.title) updateTrack(i, 'title', name);
+                    try {
+                      const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': file.type, 'x-filename': file.name }, body: file });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error);
+                      updateTrack(i, 'url', data.url);
+                      updateTrack(i, 'source', 'upload');
+                    } catch { alert('UPLOAD FAILED'); }
+                  }}/>
+                </label>
+              )}
               <button onClick={() => removeTrack(i)} style={{ fontSize: '16px', background: 'none', border: 'none', cursor: 'pointer', color: muted, padding: '0 4px', lineHeight: 1, flexShrink: 0 }}>×</button>
             </div>
           ))}
