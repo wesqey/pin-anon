@@ -3851,31 +3851,25 @@ function CassettePlayer({ cassette, dark, compact }) {
   const [currentTime, setCurrentTime] = React.useState(0);
   const [duration, setDuration] = React.useState(0);
   const audioRef = React.useRef(null);
-  const leftAngle = React.useRef(0);
+  const leftAngle  = React.useRef(0);
   const rightAngle = React.useRef(0);
-  const rafRef = React.useRef(null);
-  const lastTime = React.useRef(null);
-  const [, forceUpdate] = React.useReducer(x => x + 1, 0);
+  const rafRef  = React.useRef(null);
+  const lastTs  = React.useRef(null);
+  const [, tick] = React.useReducer(x => x + 1, 0);
   const tracks = cassette.tracks || [];
 
-  // Animation loop — pure RAF, no CSS animations
   React.useEffect(() => {
-    if (!playing) {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      return;
-    }
-    lastTime.current = null;
+    if (!playing) { if (rafRef.current) cancelAnimationFrame(rafRef.current); return; }
+    lastTs.current = null;
     const pct = progress / 100;
     const loop = (ts) => {
-      if (lastTime.current !== null) {
-        const dt = (ts - lastTime.current) / 1000;
-        const leftSpeed  = 40 + (1 - pct) * 60;
-        const rightSpeed = 40 + pct * 60;
-        leftAngle.current  = (leftAngle.current  + dt * leftSpeed)  % 360;
-        rightAngle.current = (rightAngle.current - dt * rightSpeed + 360) % 360;
-        forceUpdate();
+      if (lastTs.current !== null) {
+        const dt = (ts - lastTs.current) / 1000;
+        leftAngle.current  = (leftAngle.current  + dt * (50 + (1 - pct) * 70)) % 360;
+        rightAngle.current = (rightAngle.current - dt * (50 + pct * 70) + 720) % 360;
+        tick();
       }
-      lastTime.current = ts;
+      lastTs.current = ts;
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
@@ -3883,211 +3877,208 @@ function CassettePlayer({ cassette, dark, compact }) {
   }, [playing]);
 
   React.useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const onTime = () => {
-      setCurrentTime(audio.currentTime);
-      setProgress(audio.duration ? (audio.currentTime / audio.duration) * 100 : 0);
-    };
-    const onMeta = () => setDuration(audio.duration || 0);
-    const onEnd  = () => {
-      if (currentIdx < tracks.length - 1) setCurrentIdx(i => i + 1);
-      else setPlaying(false);
-    };
-    audio.addEventListener('timeupdate', onTime);
-    audio.addEventListener('loadedmetadata', onMeta);
-    audio.addEventListener('ended', onEnd);
-    return () => {
-      audio.removeEventListener('timeupdate', onTime);
-      audio.removeEventListener('loadedmetadata', onMeta);
-      audio.removeEventListener('ended', onEnd);
-    };
+    const a = audioRef.current;
+    if (!a) return;
+    const onTime = () => { setCurrentTime(a.currentTime); setProgress(a.duration ? (a.currentTime/a.duration)*100 : 0); };
+    const onMeta = () => setDuration(a.duration || 0);
+    const onEnd  = () => { if (currentIdx < tracks.length - 1) setCurrentIdx(i => i + 1); else setPlaying(false); };
+    a.addEventListener('timeupdate', onTime);
+    a.addEventListener('loadedmetadata', onMeta);
+    a.addEventListener('ended', onEnd);
+    return () => { a.removeEventListener('timeupdate', onTime); a.removeEventListener('loadedmetadata', onMeta); a.removeEventListener('ended', onEnd); };
   }, [currentIdx, tracks.length]);
 
   React.useEffect(() => {
-    const audio = audioRef.current;
-    const track = tracks[currentIdx];
-    if (!audio) return;
-    if (!track?.url) { audio.src = ''; setProgress(0); setCurrentTime(0); setDuration(0); return; }
-    const SC_CLIENT_ID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
-    let src = track.url;
-    if (track.source === 'soundcloud' && SC_CLIENT_ID && !src.includes('client_id')) {
-      src = src + (src.includes('?') ? '&' : '?') + 'client_id=' + SC_CLIENT_ID;
-    }
+    const a = audioRef.current;
+    const t = tracks[currentIdx];
+    if (!a) return;
+    if (!t?.url) { a.src = ''; setProgress(0); setCurrentTime(0); setDuration(0); return; }
+    const CID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
+    let src = t.url;
+    if (t.source === 'soundcloud' && CID && !src.includes('client_id')) src += (src.includes('?') ? '&' : '?') + 'client_id=' + CID;
     setProgress(0); setCurrentTime(0); setDuration(0);
-    audio.src = src;
-    audio.load();
-    if (playing) {
-      const onCanPlay = () => { audio.play().catch(()=>{}); audio.removeEventListener('canplay', onCanPlay); };
-      audio.addEventListener('canplay', onCanPlay);
-      return () => audio.removeEventListener('canplay', onCanPlay);
-    }
+    a.src = src; a.load();
+    if (playing) { const fn = () => { a.play().catch(()=>{}); a.removeEventListener('canplay', fn); }; a.addEventListener('canplay', fn); return () => a.removeEventListener('canplay', fn); }
   }, [currentIdx]);
 
   function togglePlay() {
-    const audio = audioRef.current;
-    const track = tracks[currentIdx];
-    if (!audio || !track?.url) return;
-    if (playing) { audio.pause(); setPlaying(false); }
+    const a = audioRef.current;
+    const t = tracks[currentIdx];
+    if (!a || !t?.url) return;
+    if (playing) { a.pause(); setPlaying(false); }
     else {
-      if (!audio.src || audio.src === window.location.href) {
-        const SC_CLIENT_ID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
-        let src = track.url;
-        if (track.source === 'soundcloud' && SC_CLIENT_ID && !src.includes('client_id')) {
-          src = src + (src.includes('?') ? '&' : '?') + 'client_id=' + SC_CLIENT_ID;
-        }
-        audio.src = src; audio.load();
+      if (!a.src || a.src === window.location.href) {
+        const CID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
+        let src = t.url;
+        if (t.source === 'soundcloud' && CID && !src.includes('client_id')) src += (src.includes('?') ? '&' : '?') + 'client_id=' + CID;
+        a.src = src; a.load();
       }
-      audio.play().catch(e => console.error('Play failed:', e));
+      a.play().catch(()=>{});
       setPlaying(true);
     }
   }
 
   function seek(e) {
-    const audio = audioRef.current;
-    if (!audio?.duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
+    const a = audioRef.current;
+    if (!a?.duration) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    a.currentTime = ((e.clientX - r.left) / r.width) * a.duration;
   }
 
   function fmt(s) {
-    if (!s || isNaN(s)) return '0:00';
-    const m = Math.floor(s/60), ss = Math.floor(s%60);
-    return m + ':' + (ss < 10 ? '0' : '') + ss;
+    if (!s || isNaN(s)) return '00:00:00';
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = Math.floor(s%60);
+    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0');
   }
 
-  const pct    = progress / 100;
-  const HUB_R  = 10;
-  const MIN_R  = 20;
-  const MAX_R  = 62;
-  const leftR  = MAX_R - (MAX_R - MIN_R) * pct;
-  const rightR = MIN_R + (MAX_R - MIN_R) * pct;
+  const pct   = progress / 100;
+  const MIN_R = 14, MAX_R = 54;
+  const lR = MAX_R - (MAX_R - MIN_R) * pct;
+  const rR = MIN_R + (MAX_R - MIN_R) * pct;
+  const FG = '#ffffff';
+  const RED  = '#ff3030';
+  const BLUE = '#30d0ff';
 
-  const s   = dark ? '#fff' : '#000';
-  const bg  = dark ? '#000' : '#fff';
-  const dim = dark ? '#111' : '#efefef';
-  const mut = dark ? '#555' : '#bbb';
-  const currentTrack = tracks[currentIdx];
+  // CRT-style element helpers — white + red/blue fringe
+  const cr = (cx, cy, r, sw=1.2, fill='none') => (
+    <>
+      <circle cx={cx-0.8} cy={cy+0.5} r={r} fill="none" stroke={RED}  strokeWidth={sw} opacity="0.4"/>
+      <circle cx={cx+0.8} cy={cy-0.5} r={r} fill="none" stroke={BLUE} strokeWidth={sw} opacity="0.4"/>
+      <circle cx={cx} cy={cy} r={r} fill={fill} stroke={FG} strokeWidth={sw}/>
+    </>
+  );
+  const ln = (x1,y1,x2,y2,sw=1) => (
+    <>
+      <line x1={x1-0.8} y1={y1+0.5} x2={x2-0.8} y2={y2+0.5} stroke={RED}  strokeWidth={sw} opacity="0.4"/>
+      <line x1={x1+0.8} y1={y1-0.5} x2={x2+0.8} y2={y2-0.5} stroke={BLUE} strokeWidth={sw} opacity="0.4"/>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={FG} strokeWidth={sw}/>
+    </>
+  );
 
-  const WIN_L = 148, WIN_R_X = 332, WIN_CY = 152, WIN_R = 70;
+  // Reel with spokes, hub rings, drawn at its own angle
+  const LX = 128, RX = 384, RY = 78;
 
-  function TapeRings({ r, cx, cy }) {
-    const rings = [];
-    for (let rr = HUB_R + 4; rr < r; rr += 4) {
-      rings.push(<circle key={rr} cx={cx} cy={cy} r={rr} fill="none" stroke={s} strokeWidth="1" opacity={0.15 + (rr/r)*0.45}/>);
-    }
-    return <>{rings}</>;
-  }
-
-  function Reel({ cx, cy, r, angle }) {
+  function Reel({ cx, cy, outerR, angle }) {
+    const spokeAngles = [angle, angle+130, angle+248].map(a => a * Math.PI / 180);
     return (
-      <g transform={`rotate(${angle}, ${cx}, ${cy})`}>
-        <TapeRings r={r} cx={cx} cy={cy}/>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={s} strokeWidth="1.2"/>
-        {[0,120,240].map(a => {
-          const rad = a * Math.PI / 180;
-          return <line key={a}
-            x1={cx + HUB_R * Math.cos(rad)} y1={cy + HUB_R * Math.sin(rad)}
-            x2={cx + r * Math.cos(rad)}     y2={cy + r * Math.sin(rad)}
-            stroke={s} strokeWidth="1" opacity="0.45"
-          />;
-        })}
-        <circle cx={cx} cy={cy} r={HUB_R} fill={bg} stroke={s} strokeWidth="1"/>
-        <circle cx={cx} cy={cy} r="4" fill={s}/>
-      </g>
+      <>
+        {cr(cx, cy, outerR, 1.2)}
+        {spokeAngles.map((a, i) => (
+          <React.Fragment key={i}>
+            <line x1={cx-0.8+22*Math.cos(a)} y1={cy+0.5+22*Math.sin(a)} x2={cx-0.8+outerR*Math.cos(a)} y2={cy+0.5+outerR*Math.sin(a)} stroke={RED}  strokeWidth="1" opacity="0.4"/>
+            <line x1={cx+0.8+22*Math.cos(a)} y1={cy-0.5+22*Math.sin(a)} x2={cx+0.8+outerR*Math.cos(a)} y2={cy-0.5+outerR*Math.sin(a)} stroke={BLUE} strokeWidth="1" opacity="0.4"/>
+            <line x1={cx+22*Math.cos(a)} y1={cy+22*Math.sin(a)} x2={cx+outerR*Math.cos(a)} y2={cy+outerR*Math.sin(a)} stroke={FG} strokeWidth="1"/>
+          </React.Fragment>
+        ))}
+        {cr(cx, cy, 22, 1)}
+        {cr(cx, cy, 13, 1)}
+        {cr(cx, cy,  5, 1, FG)}
+      </>
     );
   }
 
+  const ct = currentIdx + 1;
+  const currentTrack = tracks[currentIdx];
+
+  // Tape path guide positions
+  const TPY = 145;
+  const L1 = { x: 90,  y: TPY + 8  };   // left outer peg
+  const L2 = { x: 155, y: TPY + 12 };   // left roller
+  const L3 = { x: 206, y: TPY + 5  };   // left idler
+  const CH = { x: 256, y: TPY      };   // center head
+  const R3 = { x: 306, y: TPY + 5  };   // right idler
+  const R2 = { x: 357, y: TPY + 12 };   // right roller
+  const R1 = { x: 422, y: TPY + 8  };   // right outer peg
+
   return (
-    <div style={{ fontFamily: 'Helvetica Neue, Arial, sans-serif' }}>
+    <div style={{ fontFamily: "'Courier New', Courier, monospace" }}>
       <audio ref={audioRef}/>
-      <svg viewBox="0 0 480 290" style={{ width: '100%', display: 'block', cursor: 'pointer' }} onClick={togglePlay}>
-        <defs>
-          <clipPath id="clip-l"><circle cx={WIN_L}   cy={WIN_CY} r={WIN_R}/></clipPath>
-          <clipPath id="clip-r"><circle cx={WIN_R_X} cy={WIN_CY} r={WIN_R}/></clipPath>
-        </defs>
+      <svg
+        viewBox="0 0 512 172"
+        style={{ width: '100%', maxWidth: '560px', display: 'block', cursor: 'pointer', background: '#000', imageRendering: 'pixelated' }}
+        shapeRendering="crispEdges"
+        onClick={togglePlay}
+      >
+        {/* Track number box — top left */}
+        <rect x="8" y="8" width="28" height="22" fill="none" stroke={FG} strokeWidth="1.2"/>
+        <text x="22" y="24" textAnchor="middle" fill={FG} fontFamily="'Courier New', monospace" fontSize="14" fontWeight="bold">{ct}</text>
 
-        {/* Body */}
-        <rect x="12" y="8" width="456" height="268" rx="14" fill={bg} stroke={s} strokeWidth="1.5"/>
-        <rect x="22" y="18" width="436" height="248" rx="9"  fill="none" stroke={s} strokeWidth="0.5" opacity="0.35"/>
+        {/* Time counter — top center, large digital */}
+        <>
+          <text x="258" y="26" textAnchor="middle" fill={RED}  fontFamily="'Courier New', monospace" fontSize="20" fontWeight="bold" opacity="0.5" dx="-1" dy="0.5">{fmt(currentTime)}</text>
+          <text x="258" y="26" textAnchor="middle" fill={BLUE} fontFamily="'Courier New', monospace" fontSize="20" fontWeight="bold" opacity="0.5" dx="1"  dy="-0.5">{fmt(currentTime)}</text>
+          <text x="258" y="26" textAnchor="middle" fill={FG}   fontFamily="'Courier New', monospace" fontSize="20" fontWeight="bold">{fmt(currentTime)}</text>
+        </>
 
-        {/* Corner screws */}
-        {[[32,28],[448,28],[32,264],[448,264]].map(([cx,cy],i)=>(
-          <g key={i}>
-            <circle cx={cx} cy={cy} r="8" fill={dim} stroke={s} strokeWidth="1"/>
-            <line x1={cx-4} y1={cy-4} x2={cx+4} y2={cy+4} stroke={s} strokeWidth="0.75" opacity="0.5"/>
-            <line x1={cx+4} y1={cy-4} x2={cx-4} y2={cy+4} stroke={s} strokeWidth="0.75" opacity="0.5"/>
-          </g>
+        {/* Dot indicators below time — like OP-1 */}
+        {[0,1,2,3,4,5,6].map(i => (
+          <rect key={i} x={227 + i*8} y="32" width="3" height="3" fill={i === Math.floor(pct*6.9) ? FG : '#333'}/>
         ))}
 
-        {/* Label */}
-        <rect x="52" y="22" width="376" height="68" rx="3" fill={bg} stroke={s} strokeWidth="0.75"/>
-        <text x="240" y="50" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="11" fontWeight="500" letterSpacing="5" fill={s}>
-          {(cassette.name||'SIDE A').toUpperCase()}
-        </text>
-        <text x="240" y="70" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={s} opacity="0.5">
-          {currentTrack ? currentTrack.title.slice(0,38).toUpperCase() : 'NO TRACKS'}
-        </text>
+        {/* Recording dot — top right */}
+        <circle cx="500" cy="15" r="5" fill={playing ? '#ff3030' : '#333'} stroke={playing ? '#ff6060' : '#555'} strokeWidth="0.5"/>
 
-        {/* Reel panel */}
-        <rect x="52" y="98" width="376" height="120" rx="6" fill={dim} stroke={s} strokeWidth="0.75"/>
+        {/* ── LEFT REEL ── */}
+        <Reel cx={LX} cy={RY} outerR={lR} angle={leftAngle.current}/>
 
-        {/* Tape bridge */}
-        <line x1={WIN_L+WIN_R}   y1={WIN_CY-8} x2={WIN_R_X-WIN_R} y2={WIN_CY-8} stroke={s} strokeWidth="1" opacity="0.6"/>
-        <line x1={WIN_L+WIN_R}   y1={WIN_CY+8} x2={WIN_R_X-WIN_R} y2={WIN_CY+8} stroke={s} strokeWidth="1" opacity="0.6"/>
-        <rect x={WIN_L+WIN_R} y={WIN_CY-8} width={WIN_R_X-WIN_R-(WIN_L+WIN_R)} height="16" fill={bg} opacity="0.3"/>
-        <rect x="237" y={WIN_CY-14} width="6" height="28" rx="1" fill={bg} stroke={s} strokeWidth="0.75"/>
+        {/* ── RIGHT REEL ── */}
+        <Reel cx={RX} cy={RY} outerR={rR} angle={rightAngle.current}/>
 
-        {/* Left reel window + clipped reel */}
-        <circle cx={WIN_L}   cy={WIN_CY} r={WIN_R} fill={bg} stroke={s} strokeWidth="1"/>
-        <g clipPath="url(#clip-l)">
-          <Reel cx={WIN_L}   cy={WIN_CY} r={leftR}  angle={leftAngle.current}/>
-        </g>
-        <circle cx={WIN_L}   cy={WIN_CY} r={WIN_R} fill="none" stroke={s} strokeWidth="1.2"/>
+        {/* ── TAPE PATH ── */}
+        {/* Lines from reels down to guide pegs */}
+        {ln(LX - 8, RY + lR - 4, L1.x, L1.y)}
+        {ln(LX + 8, RY + lR - 4, L2.x, L2.y - 4)}
+        {ln(RX - 8, RY + rR - 4, R2.x, R2.y - 4)}
+        {ln(RX + 8, RY + rR - 4, R1.x, R1.y)}
 
-        {/* Right reel window + clipped reel */}
-        <circle cx={WIN_R_X} cy={WIN_CY} r={WIN_R} fill={bg} stroke={s} strokeWidth="1"/>
-        <g clipPath="url(#clip-r)">
-          <Reel cx={WIN_R_X} cy={WIN_CY} r={rightR} angle={rightAngle.current}/>
-        </g>
-        <circle cx={WIN_R_X} cy={WIN_CY} r={WIN_R} fill="none" stroke={s} strokeWidth="1.2"/>
+        {/* Guide rollers */}
+        {cr(L1.x, L1.y, 5, 1)}
+        {cr(L2.x, L2.y, 9, 1)}
+        {cr(R2.x, R2.y, 9, 1)}
+        {cr(R1.x, R1.y, 5, 1)}
 
-        {/* Bottom section */}
-        <path d="M 158 228 L 322 228 L 305 272 L 175 272 Z" fill={dim} stroke={s} strokeWidth="0.75"/>
-        {[210,232,268,290].map((cx,i)=>(
-          <circle key={i} cx={cx} cy={254} r="6" fill={bg} stroke={s} strokeWidth="0.75"/>
-        ))}
-        {[[52,260],[428,260]].map(([cx,cy],i)=>(
-          <g key={i}>
-            <circle cx={cx} cy={cy} r="16" fill={dim} stroke={s} strokeWidth="1"/>
-            <circle cx={cx} cy={cy} r="9"  fill={s}/>
-            <circle cx={cx} cy={cy} r="4"  fill={bg}/>
-          </g>
-        ))}
+        {/* Tape lines L2 → L3 → CH */}
+        {ln(L2.x + 6, L2.y, L3.x, L3.y + 4)}
+        {cr(L3.x, L3.y, 5, 1)}
+        {ln(L3.x + 4, L3.y, CH.x - 14, CH.y + 4)}
 
-        {/* Time */}
-        <text x="60"  y="285" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={s} opacity="0.45">{fmt(currentTime)}</text>
-        <text x="240" y="285" textAnchor="middle" fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="9" letterSpacing="2" fill={s} opacity="0.3">{playing ? '▌▌' : '▶'}</text>
-        <text x="420" y="285" textAnchor="end"    fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" fill={s} opacity="0.45">{fmt(duration)}</text>
+        {/* Tape head bracket — |:| */}
+        {ln(CH.x - 14, CH.y - 8, CH.x - 14, CH.y + 14, 1.5)}
+        {ln(CH.x + 14, CH.y - 8, CH.x + 14, CH.y + 14, 1.5)}
+        {ln(CH.x - 8,  CH.y + 3, CH.x + 8,  CH.y + 3, 1)}
+        <rect x={CH.x - 5} y={CH.y - 4} width="10" height="10" fill="none" stroke={FG} strokeWidth="1.2"/>
+        {ln(CH.x, CH.y + 10, CH.x, CH.y + 22, 1.5)}
+
+        {/* Tape lines CH → R3 → R2 */}
+        {ln(CH.x + 14, CH.y + 4, R3.x - 4, R3.y)}
+        {cr(R3.x, R3.y, 5, 1)}
+        {ln(R3.x + 4, R3.y, R2.x - 6, R2.y)}
+
+        {/* ── WAVEFORM / TRACK DATA ── bottom */}
+        <rect x="0" y="156" width="512" height="16" fill="#000"/>
+        <line x1="0" y1="157" x2="512" y2="157" stroke="#1a3a5a" strokeWidth="0.5"/>
+        <line x1="0" y1="161" x2="512" y2="161" stroke="#1a3a5a" strokeWidth="0.5"/>
+        <line x1="0" y1="165" x2="512" y2="165" stroke="#1a3a5a" strokeWidth="0.5"/>
+        <line x1="0" y1="169" x2="512" y2="169" stroke="#1a3a5a" strokeWidth="0.5"/>
+        {/* Progress fill on track 1 */}
+        <rect x="0" y="157" width={512 * pct} height="4"  fill="#2060a0" opacity="0.8"/>
+        {/* Playhead */}
+        <line x1={512 * pct} y1="155" x2={512 * pct} y2="172" stroke="#00ff88" strokeWidth="1.5"/>
+        <rect x={512 * pct - 3} y="168" width="6" height="4" fill="#00ff88"/>
+
       </svg>
 
-      {!compact && (
-        <>
-          <div onClick={seek} style={{ height: '1px', background: dark?'#333':'#e5e5e5', cursor: 'pointer', margin: '6px 0' }}>
-            <div style={{ height: '1px', background: s, width: progress+'%', pointerEvents: 'none' }}/>
-          </div>
-          {tracks.length > 0 && (
-            <div style={{ borderTop: `1px solid ${dark?'#1a1a1a':'#f5f5f5'}`, marginTop: '4px' }}>
-              {tracks.map((t,i)=>(
-                <div key={i} onClick={e=>{ e.stopPropagation(); setCurrentIdx(i); setPlaying(true); setTimeout(()=>{ if(audioRef.current) audioRef.current.play().catch(()=>{}); },50); }} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'7px 0', borderBottom:`1px solid ${dark?'#1a1a1a':'#f5f5f5'}`, cursor:'pointer' }}>
-                  <span style={{ fontSize:'9px', color:mut, minWidth:'14px' }}>{i+1}</span>
-                  <span style={{ fontSize:'10px', letterSpacing:'0.08em', color:i===currentIdx?s:mut, textDecoration:i===currentIdx?'underline':'none', textTransform:'uppercase', flex:1 }}>{t.title}</span>
-                  {t.duration && <span style={{ fontSize:'9px', color:mut }}>{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>}
-                </div>
-              ))}
+      {!compact && tracks.length > 0 && (
+        <div style={{ borderTop: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, marginTop: '4px' }}>
+          {tracks.map((t, i) => (
+            <div key={i} onClick={e => { e.stopPropagation(); setCurrentIdx(i); setPlaying(true); setTimeout(() => { if (audioRef.current) audioRef.current.play().catch(()=>{}); }, 50); }}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 0', borderBottom: `1px solid ${dark?'#1a1a1a':'#f5f5f5'}`, cursor: 'pointer' }}>
+              <span style={{ fontSize: '9px', color: dark?'#555':'#bbb', minWidth: '14px' }}>{i+1}</span>
+              <span style={{ fontSize: '10px', letterSpacing: '0.08em', color: i===currentIdx ? (dark?'#fff':'#000') : (dark?'#555':'#bbb'), textDecoration: i===currentIdx?'underline':'none', textTransform: 'uppercase', flex: 1 }}>{t.title}</span>
+              {t.duration && <span style={{ fontSize: '9px', color: dark?'#555':'#bbb' }}>{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>}
             </div>
-          )}
-        </>
+          ))}
+        </div>
       )}
     </div>
   );
