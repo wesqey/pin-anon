@@ -490,10 +490,7 @@ export default function Carlisle() {
           ...EMPTY,
           ...data,
           posts: Array.isArray(data.posts) ? data.posts : (data.posts ? Object.values(data.posts) : []),
-          rooms: (() => {
-  const r = Array.isArray(data.rooms) ? data.rooms : (data.rooms ? Object.values(data.rooms) : EMPTY.rooms);
-  return r.some(x => x.id === 'birds') ? r : [...r, { id: 'birds', name: 'birds', invite: 'birds', permanent: true }];
-})(),
+          rooms: Array.isArray(data.rooms) ? data.rooms : (data.rooms ? Object.values(data.rooms) : EMPTY.rooms),
           inviteCodes: data.inviteCodes || {},
           usernames: data.usernames || {}
         });
@@ -8721,7 +8718,7 @@ function GridSeq({ onBack, dark }) {
 
 function BirdsRoom({ posts, dark }) {
   const canvasRef = React.useRef(null);
-  const stateRef  = React.useRef({ boids: [], raf: null });
+  const simRef    = React.useRef({ boids: [], raf: null, grid: null });
 
   const COLORS = ['#FF6B6B','#4ECDC4','#45B7D1','#FFA07A','#98D8C8','#F7DC6F','#BB8FCE','#85C1E2','#F8B739','#52B788'];
 
@@ -8737,98 +8734,156 @@ function BirdsRoom({ posts, dark }) {
     window.addEventListener('resize', resize);
 
     const ctx = canvas.getContext('2d');
+
+    // User color palette
+    const seen = new Map();
+    posts.forEach(p => {
+      if (!seen.has(p.author)) {
+        const h = (p.author||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+        seen.set(p.author, COLORS[h % COLORS.length]);
+      }
+    });
+    const palette = seen.size > 0 ? [...seen.values()] : COLORS;
+
+    const N = 600;
     const W = () => canvas.width;
     const H = () => canvas.height;
 
-    // Build user color map from posts
-    const userColors = new Map();
-    posts.forEach(p => {
-      if (!userColors.has(p.author)) {
-        const hash = (p.author || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-        userColors.set(p.author, COLORS[hash % COLORS.length]);
-      }
+    // Spawn birds in a compact cluster at center
+    const boids = Array.from({ length: N }, (_, i) => {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * 80;
+      const d = Math.random() * Math.PI * 2;
+      const s = 1.5 + Math.random();
+      return { x: W()/2 + Math.cos(a)*r, y: H()/2 + Math.sin(a)*r,
+               vx: Math.cos(d)*s, vy: Math.sin(d)*s, color: palette[i % palette.length] };
     });
+    simRef.current.boids = boids;
 
-    const palette = userColors.size > 0 ? [...userColors.values()] : COLORS;
-    const total   = Math.max(50, Math.min(120, palette.length * 5));
+    // Spatial grid for O(n) neighbor lookup
+    const CELL = 38;
+    let GW = 0, GH = 0;
+    let grid = [];
 
-    const boids = [];
-    for (let i = 0; i < total; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const spd   = 1.0 + Math.random() * 0.8;
-      boids.push({ x: Math.random() * W(), y: Math.random() * H(), vx: Math.cos(angle)*spd, vy: Math.sin(angle)*spd, color: palette[i % palette.length] });
+    function buildGrid() {
+      GW = Math.ceil(W() / CELL) + 1;
+      GH = Math.ceil(H() / CELL) + 1;
+      grid = new Array(GW * GH).fill(null).map(() => []);
+      for (const b of simRef.current.boids) {
+        const cx = Math.max(0, Math.min(GW-1, Math.floor(b.x/CELL)));
+        const cy = Math.max(0, Math.min(GH-1, Math.floor(b.y/CELL)));
+        grid[cx*GH+cy].push(b);
+      }
     }
-    stateRef.current.boids = boids;
 
-    const PERC = 45, SEP = 16, MSPD = 2.0, MF = 0.07;
-
-    function lim(vx, vy, max) {
-      const m = Math.sqrt(vx*vx + vy*vy);
-      return m > max ? [vx/m*max, vy/m*max] : [vx, vy];
+    function neighbors(b) {
+      const cx = Math.max(0, Math.min(GW-1, Math.floor(b.x/CELL)));
+      const cy = Math.max(0, Math.min(GH-1, Math.floor(b.y/CELL)));
+      const out = [];
+      for (let dx=-1;dx<=1;dx++) for (let dy=-1;dy<=1;dy++) {
+        const nx=cx+dx, ny=cy+dy;
+        if (nx>=0&&nx<GW&&ny>=0&&ny<GH) out.push(...grid[nx*GH+ny]);
+      }
+      return out;
     }
+
+    function clamp(v, max) {
+      const m = Math.sqrt(v[0]*v[0]+v[1]*v[1]);
+      return m > max ? [v[0]/m*max, v[1]/m*max] : v;
+    }
+
+    const SEP=14, PERC=38, MSPD=3.2, MF=0.14;
+    let perturbT=5, perturbX=0, perturbY=0;
 
     function step(b) {
-      const bs = stateRef.current.boids;
-      let sx=0,sy=0,ax=0,ay=0,cx=0,cy=0,sc=0,ac=0,cc=0;
-      for (const o of bs) {
-        if (o === b) continue;
-        const dx = o.x-b.x, dy = o.y-b.y, d = Math.sqrt(dx*dx+dy*dy);
-        if (d < PERC) {
-          if (d < SEP && d > 0) { sx -= dx/d; sy -= dy/d; sc++; }
-          ax += o.vx; ay += o.vy; ac++;
-          cx += o.x;  cy += o.y;  cc++;
+      const nb = neighbors(b);
+      let sx=0,sy=0,ax=0,ay=0,cx=0,cy=0,sc=0,ac=0;
+
+      for (const o of nb) {
+        if (o===b) continue;
+        const dx=o.x-b.x, dy=o.y-b.y, d=Math.sqrt(dx*dx+dy*dy);
+        if (d<PERC) {
+          if (d<SEP&&d>0){sx-=dx/d;sy-=dy/d;sc++;}
+          ax+=o.vx;ay+=o.vy;ac++;
+          cx+=o.x;cy+=o.y;
         }
       }
-      let fx=0, fy=0;
-      if (sc > 0) { let [ex,ey]=lim(sx/sc,sy/sc,MSPD); ex-=b.vx; ey-=b.vy; [ex,ey]=lim(ex,ey,MF); fx+=ex*1.6; fy+=ey*1.6; }
-      if (ac > 0) { let [ex,ey]=lim(ax/ac,ay/ac,MSPD); ex-=b.vx; ey-=b.vy; [ex,ey]=lim(ex,ey,MF); fx+=ex; fy+=ey; }
-      if (cc > 0) { let ex=cx/cc-b.x, ey=cy/cc-b.y; [ex,ey]=lim(ex,ey,MSPD); ex-=b.vx; ey-=b.vy; [ex,ey]=lim(ex,ey,MF); fx+=ex; fy+=ey; }
-      b.vx+=fx; b.vy+=fy;
-      [b.vx,b.vy] = lim(b.vx,b.vy,MSPD);
-      b.x+=b.vx; b.y+=b.vy;
-      const w=W(),h=H();
-      if (b.x<0) b.x=w; if (b.x>w) b.x=0;
-      if (b.y<0) b.y=h; if (b.y>h) b.y=0;
+
+      const nc = ac; // neighbor count for cohesion
+      let fx=0,fy=0;
+
+      if (sc>0){let v=clamp([sx/sc,sy/sc],MSPD);v=[v[0]-b.vx,v[1]-b.vy];v=clamp(v,MF);fx+=v[0]*2;fy+=v[1]*2;}
+      if (ac>0){let v=clamp([ax/ac,ay/ac],MSPD);v=[v[0]-b.vx,v[1]-b.vy];v=clamp(v,MF);fx+=v[0];fy+=v[1];}
+      if (nc>0){let v=clamp([cx/nc-b.x,cy/nc-b.y],MSPD);v=[v[0]-b.vx,v[1]-b.vy];v=clamp(v,MF);fx+=v[0];fy+=v[1];}
+
+      // Global cohesion — pull toward flock center, stronger when far
+      const gcx=W()/2,gcy=H()/2;
+      const gdx=gcx-b.x,gdy=gcy-b.y;
+      const gd=Math.sqrt(gdx*gdx+gdy*gdy);
+      if(gd>100){const p=0.00025*(gd-100);fx+=gdx*p;fy+=gdy*p;}
+
+      // Vortex — perpendicular to center gives swirling murmuration shape
+      if(gd>0){const px=-gdy/gd,py=gdx/gd;fx+=px*0.05;fy+=py*0.05;}
+
+      // Predator perturbation
+      if(perturbT>0){
+        const ex=b.x-perturbX,ey=b.y-perturbY;
+        const ed=Math.sqrt(ex*ex+ey*ey);
+        if(ed<200&&ed>0){const str=(200-ed)/200*0.35;fx+=ex/ed*str;fy+=ey/ed*str;}
+      }
+
+      b.vx+=fx;b.vy+=fy;
+      [b.vx,b.vy]=clamp([b.vx,b.vy],MSPD);
+      b.x+=b.vx;b.y+=b.vy;
+
+      // Soft walls
+      const w=W(),h=H(),m=30;
+      if(b.x<m)b.vx+=0.4; if(b.x>w-m)b.vx-=0.4;
+      if(b.y<m)b.vy+=0.4; if(b.y>h-m)b.vy-=0.4;
+      b.x=Math.max(2,Math.min(w-2,b.x));
+      b.y=Math.max(2,Math.min(h-2,b.y));
     }
 
-    function draw(b) {
-      const a = Math.atan2(b.vy, b.vx);
-      ctx.save();
-      ctx.translate(b.x, b.y);
-      ctx.rotate(a);
-      ctx.fillStyle = b.color;
-      ctx.beginPath();
-      ctx.moveTo(2.5, 0);
-      ctx.lineTo(-2, 1.2);
-      ctx.lineTo(-2, -1.2);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    }
+    let lastT=0;
+    const loop = ts => {
+      const dt = Math.min((ts-lastT)/1000, 0.05);
+      lastT = ts;
 
-    const loop = () => {
-      ctx.clearRect(0, 0, W(), H());
-      stateRef.current.boids.forEach(b => { step(b); draw(b); });
-      stateRef.current.raf = requestAnimationFrame(loop);
+      // Motion blur — the soul of a murmuration
+      ctx.fillStyle = dark ? 'rgba(0,0,0,0.16)' : 'rgba(255,255,255,0.16)';
+      ctx.fillRect(0,0,W(),H());
+
+      // Countdown perturb
+      perturbT -= dt;
+      if(perturbT<=0){
+        perturbT = 10 + Math.random()*15;
+        perturbX = W()*0.15 + Math.random()*W()*0.7;
+        perturbY = H()*0.15 + Math.random()*H()*0.7;
+      }
+
+      buildGrid();
+      for(const b of simRef.current.boids){
+        step(b);
+        ctx.fillStyle = b.color;
+        ctx.fillRect(b.x|0, b.y|0, 1.5, 1.5);
+      }
+
+      simRef.current.raf = requestAnimationFrame(loop);
     };
-    stateRef.current.raf = requestAnimationFrame(loop);
 
+    simRef.current.raf = requestAnimationFrame(loop);
     return () => {
-      if (stateRef.current.raf) cancelAnimationFrame(stateRef.current.raf);
+      if(simRef.current.raf) cancelAnimationFrame(simRef.current.raf);
       window.removeEventListener('resize', resize);
     };
   }, []);
 
   return (
-    <div style={{ width: '100%', height: '70vh', position: 'relative' }}>
+    <div style={{ width: '100%', height: '72vh', position: 'relative' }}>
       <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }}/>
-      <div style={{ position: 'absolute', bottom: '20px', left: 0, right: 0, textAlign: 'center', fontSize: '9px', letterSpacing: '0.2em', color: dark ? '#222' : '#ddd', userSelect: 'none', pointerEvents: 'none' }}>
-        BIRDS
-      </div>
     </div>
   );
 }
-
 
 function InviteGate({ onSignUp, onLogin, getColor }) {
   const [mode, setMode] = useState("signup");
