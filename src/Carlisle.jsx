@@ -8721,7 +8721,7 @@ function GridSeq({ onBack, dark }) {
 
 function BirdsRoom({ posts, dark }) {
   const canvasRef = React.useRef(null);
-  const simRef    = React.useRef({ boids: [], raf: null, grid: null });
+  const simRef    = React.useRef({ boids: [], raf: null });
 
   const COLORS = ['#FF6B6B','#4ECDC4','#45B7D1','#FFA07A','#98D8C8','#F7DC6F','#BB8FCE','#85C1E2','#F8B739','#52B788'];
 
@@ -8729,16 +8729,12 @@ function BirdsRoom({ posts, dark }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const resize = () => {
-      canvas.width  = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
-    };
+    const resize = () => { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; };
     resize();
     window.addEventListener('resize', resize);
-
     const ctx = canvas.getContext('2d');
 
-    // User color palette
+    // User palette
     const seen = new Map();
     posts.forEach(p => {
       if (!seen.has(p.author)) {
@@ -8748,138 +8744,123 @@ function BirdsRoom({ posts, dark }) {
     });
     const palette = seen.size > 0 ? [...seen.values()] : COLORS;
 
-    const N = 500;
     const W = () => canvas.width;
     const H = () => canvas.height;
+    const N = 400;
 
-    // Spawn birds in a compact cluster at center
+    // Spawn spread across canvas naturally
     const boids = Array.from({ length: N }, (_, i) => {
       const a = Math.random() * Math.PI * 2;
-      const r = Math.random() * Math.min(W()/3, H()/3);
-      const d = Math.random() * Math.PI * 2;
-      const s = 1.5 + Math.random();
-      return { x: W()/2 + Math.cos(a)*r, y: H()/2 + Math.sin(a)*r,
-               vx: Math.cos(d)*s, vy: Math.sin(d)*s, color: palette[i % palette.length] };
+      const s = 1.2 + Math.random() * 0.8;
+      return {
+        x:  W() * 0.1 + Math.random() * W() * 0.8,
+        y:  H() * 0.1 + Math.random() * H() * 0.8,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        color: palette[i % palette.length],
+      };
     });
     simRef.current.boids = boids;
 
-    // Spatial grid for O(n) neighbor lookup
-    const CELL = 38;
-    let GW = 0, GH = 0;
-    let grid = [];
+    // Pure boids — no center attraction at all
+    const PERC = 60;   // perception radius
+    const SEP  = 20;   // separation distance
+    const MSPD = 2.5;  // max speed
+    const MF   = 0.08; // max steering force
+    const SEP_W = 1.6; // separation weight
+    const ALI_W = 1.0; // alignment weight
+    const COH_W = 1.0; // cohesion weight
+
+    // Spatial grid
+    const CELL = PERC;
+    let GW=0, GH=0, grid=[];
 
     function buildGrid() {
-      GW = Math.ceil(W() / CELL) + 1;
-      GH = Math.ceil(H() / CELL) + 1;
-      grid = new Array(GW * GH).fill(null).map(() => []);
+      GW = Math.ceil(W()/CELL)+2;
+      GH = Math.ceil(H()/CELL)+2;
+      grid = Array.from({length: GW*GH}, ()=>[]);
       for (const b of simRef.current.boids) {
-        const cx = Math.max(0, Math.min(GW-1, Math.floor(b.x/CELL)));
-        const cy = Math.max(0, Math.min(GH-1, Math.floor(b.y/CELL)));
+        const cx = Math.max(0, Math.min(GW-1, (b.x/CELL)|0));
+        const cy = Math.max(0, Math.min(GH-1, (b.y/CELL)|0));
         grid[cx*GH+cy].push(b);
       }
     }
 
-    function neighbors(b) {
-      const cx = Math.max(0, Math.min(GW-1, Math.floor(b.x/CELL)));
-      const cy = Math.max(0, Math.min(GH-1, Math.floor(b.y/CELL)));
+    function getNearby(b) {
+      const cx = Math.max(0, Math.min(GW-1, (b.x/CELL)|0));
+      const cy = Math.max(0, Math.min(GH-1, (b.y/CELL)|0));
       const out = [];
       for (let dx=-1;dx<=1;dx++) for (let dy=-1;dy<=1;dy++) {
         const nx=cx+dx, ny=cy+dy;
-        if (nx>=0&&nx<GW&&ny>=0&&ny<GH) out.push(...grid[nx*GH+ny]);
+        if (nx>=0&&nx<GW&&ny>=0&&ny<GH) for (const o of grid[nx*GH+ny]) out.push(o);
       }
       return out;
     }
 
-    function clamp(v, max) {
-      const m = Math.sqrt(v[0]*v[0]+v[1]*v[1]);
-      return m > max ? [v[0]/m*max, v[1]/m*max] : v;
+    function steer(desiredX, desiredY, bvx, bvy) {
+      // Normalise desired to max speed
+      const dm = Math.sqrt(desiredX*desiredX+desiredY*desiredY);
+      if (dm === 0) return [0,0];
+      const dx = desiredX/dm*MSPD - bvx;
+      const dy = desiredY/dm*MSPD - bvy;
+      const fm = Math.sqrt(dx*dx+dy*dy);
+      return fm > MF ? [dx/fm*MF, dy/fm*MF] : [dx, dy];
     }
 
-    const SEP=18, PERC=42, MSPD=2.8, MF=0.1;
-    let perturbT=5, perturbX=0, perturbY=0;
-
     function step(b) {
-      const nb = neighbors(b);
+      const nb = getNearby(b);
       let sx=0,sy=0,ax=0,ay=0,cx=0,cy=0,sc=0,ac=0;
 
       for (const o of nb) {
         if (o===b) continue;
         const dx=o.x-b.x, dy=o.y-b.y, d=Math.sqrt(dx*dx+dy*dy);
-        if (d<PERC) {
-          if (d<SEP&&d>0){sx-=dx/d;sy-=dy/d;sc++;}
-          ax+=o.vx;ay+=o.vy;ac++;
-          cx+=o.x;cy+=o.y;
+        if (d > 0 && d < PERC) {
+          if (d < SEP) { sx += (b.x-o.x)/d; sy += (b.y-o.y)/d; sc++; }
+          ax+=o.vx; ay+=o.vy; ac++;
+          cx+=o.x;  cy+=o.y;  ac > 0 && (ac = ac); // cohesion count same as alignment
         }
       }
+      const nc = ac; // reuse ac for cohesion count
 
-      const nc = ac; // neighbor count for cohesion
-      let fx=0,fy=0;
+      let fx=0, fy=0;
+      if (sc > 0) { const [ex,ey]=steer(sx/sc,sy/sc,b.vx,b.vy); fx+=ex*SEP_W; fy+=ey*SEP_W; }
+      if (ac > 0) { const [ex,ey]=steer(ax/ac,ay/ac,b.vx,b.vy); fx+=ex*ALI_W; fy+=ey*ALI_W; }
+      if (nc > 0) { const [ex,ey]=steer(cx/nc-b.x,cy/nc-b.y,b.vx,b.vy); fx+=ex*COH_W; fy+=ey*COH_W; }
 
-      if (sc>0){let v=clamp([sx/sc,sy/sc],MSPD);v=[v[0]-b.vx,v[1]-b.vy];v=clamp(v,MF);fx+=v[0]*2;fy+=v[1]*2;}
-      if (ac>0){let v=clamp([ax/ac,ay/ac],MSPD);v=[v[0]-b.vx,v[1]-b.vy];v=clamp(v,MF);fx+=v[0];fy+=v[1];}
-      if (nc>0){let v=clamp([cx/nc-b.x,cy/nc-b.y],MSPD);v=[v[0]-b.vx,v[1]-b.vy];v=clamp(v,MF);fx+=v[0];fy+=v[1];}
+      b.vx += fx; b.vy += fy;
 
-      // Global cohesion — pull toward flock center, stronger when far
-      const gcx=W()/2,gcy=H()/2;
-      const gdx=gcx-b.x,gdy=gcy-b.y;
-      const gd=Math.sqrt(gdx*gdx+gdy*gdy);
-      if(gd>150){const p=0.00015*(gd-150);fx+=gdx*p;fy+=gdy*p;}
+      // Clamp speed
+      const spd = Math.sqrt(b.vx*b.vx+b.vy*b.vy);
+      if (spd > MSPD) { b.vx=b.vx/spd*MSPD; b.vy=b.vy/spd*MSPD; }
+      if (spd < 0.8)  { b.vx=b.vx/spd*0.8;  b.vy=b.vy/spd*0.8;  }
 
+      b.x += b.vx; b.y += b.vy;
 
-
-      // Random wander — prevents orbit locking
-      fx += (Math.random()-0.5)*0.15;
-      fy += (Math.random()-0.5)*0.15;
-
-      // Predator perturbation
-      if(perturbT>0){
-        const ex=b.x-perturbX,ey=b.y-perturbY;
-        const ed=Math.sqrt(ex*ex+ey*ey);
-        if(ed<200&&ed>0){const str=(200-ed)/200*0.35;fx+=ex/ed*str;fy+=ey/ed*str;}
-      }
-
-      b.vx+=fx;b.vy+=fy;
-      [b.vx,b.vy]=clamp([b.vx,b.vy],MSPD);
-      b.x+=b.vx;b.y+=b.vy;
-
-      // Soft walls
-      const w=W(),h=H(),m=30;
-      if(b.x<m)b.vx+=0.4; if(b.x>w-m)b.vx-=0.4;
-      if(b.y<m)b.vy+=0.4; if(b.y>h-m)b.vy-=0.4;
-      b.x=Math.max(2,Math.min(w-2,b.x));
-      b.y=Math.max(2,Math.min(h-2,b.y));
+      // Wrap edges — flock flows through and reappears on other side
+      const w=W(), h=H();
+      if (b.x < -5)  b.x = w+5;
+      if (b.x > w+5) b.x = -5;
+      if (b.y < -5)  b.y = h+5;
+      if (b.y > h+5) b.y = -5;
     }
 
-    let lastT=0;
     const loop = ts => {
-      const dt = Math.min((ts-lastT)/1000, 0.05);
-      lastT = ts;
-
-      // Motion blur — the soul of a murmuration
-      ctx.fillStyle = dark ? 'rgba(0,0,0,0.16)' : 'rgba(255,255,255,0.16)';
+      // Motion blur — essential for murmuration feel
+      ctx.fillStyle = dark ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.18)';
       ctx.fillRect(0,0,W(),H());
 
-      // Countdown perturb
-      perturbT -= dt;
-      if(perturbT<=0){
-        perturbT = 10 + Math.random()*15;
-        perturbX = W()*0.15 + Math.random()*W()*0.7;
-        perturbY = H()*0.15 + Math.random()*H()*0.7;
-      }
-
       buildGrid();
-      for(const b of simRef.current.boids){
+      for (const b of simRef.current.boids) {
         step(b);
         ctx.fillStyle = b.color;
         ctx.fillRect(b.x|0, b.y|0, 1.5, 1.5);
       }
-
       simRef.current.raf = requestAnimationFrame(loop);
     };
-
     simRef.current.raf = requestAnimationFrame(loop);
+
     return () => {
-      if(simRef.current.raf) cancelAnimationFrame(simRef.current.raf);
+      if (simRef.current.raf) cancelAnimationFrame(simRef.current.raf);
       window.removeEventListener('resize', resize);
     };
   }, []);
