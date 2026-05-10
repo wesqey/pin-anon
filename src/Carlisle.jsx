@@ -87,7 +87,7 @@ function loadUser() {
 }
 
 const EMPTY = {
-  rooms: [{ id: DEFAULT_ROOM, name: "main room", invite: DEFAULT_ROOM }],
+  rooms: [{ id: DEFAULT_ROOM, name: "main room", invite: DEFAULT_ROOM }, { id: "birds", name: "birds", invite: "birds", permanent: true }],
   posts: [],
   settings: { whisper: false },
   inviteCodes: {},
@@ -779,8 +779,8 @@ export default function Carlisle() {
       alert("ONLY ROOM CREATORS CAN DELETE THEIR ROOMS");
       return;
     }
-    if (roomId === DEFAULT_ROOM) {
-      alert("CANNOT DELETE THE MAIN ROOM");
+    if (roomId === DEFAULT_ROOM || roomId === "birds") {
+      alert("CANNOT DELETE THIS ROOM");
       return;
     }
     if (!confirm("DELETE THIS ROOM?")) return;
@@ -1246,6 +1246,8 @@ export default function Carlisle() {
             dark={dark}
             userJoinedRooms={user.joinedRooms}
           />
+        ) : room === 'birds' ? (
+          <BirdsRoom posts={state.posts || []} dark={dark} />
         ) : (
           <div style={{ display: 'flex', gap: '0' }}>
             {/* User List Sidebar */}
@@ -3313,237 +3315,49 @@ function SettingsModal({ dark, setDark, theme, setTheme, user, onGenerateInvite,
 
 function ProfileEditModal({ user, onSave, onClose, dark }) {
   const [bio, setBio] = useState(user.bio || "");
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(user.profileImage || null);
-  const [uploading, setUploading] = useState(false);
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const uploadImageToMinIO = async (file) => {
-    try {
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: {
-          'Content-Type': file.type,
-          'x-filename': file.name,
-        },
-        body: file,
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-      return data.url;
-    } catch (error) {
-      console.error('Upload error:', error);
-      throw error;
-    }
-  };
-
-  const handleSave = async () => {
-    setUploading(true);
-    try {
-      let profileImageUrl = user.profileImage;
-      
-      if (imageFile) {
-        const response = await fetch('/api/upload', {
-          method: 'POST',
-          headers: {
-            'Content-Type': imageFile.type,
-            'x-filename': imageFile.name,
-          },
-          body: imageFile,
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
-        profileImageUrl = data.url;
-      }
-  
-      onSave({
-        ...user,
-        bio: bio.trim() || null,
-        profileImage: profileImageUrl
-      });
-  
-      onClose();
-    } catch (error) {
-      alert("UPLOAD FAILED");
-      console.error(error);
-    } finally {
-      setUploading(false);
-    }
+  const handleSave = () => {
+    onSave({ ...user, bio: bio.trim() || null });
+    onClose();
   };
 
   return (
     <div
       onClick={onClose}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.8)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-        padding: '20px'
-      }}
+      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{
-          backgroundColor: dark ? '#000' : '#fff',
-          border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-          maxWidth: '500px',
-          width: '100%',
-          maxHeight: '90vh',
-          overflowY: 'auto',
-          padding: '40px'
-        }}
+        style={{ backgroundColor: dark ? '#000' : '#fff', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, maxWidth: '500px', width: '100%', padding: '40px' }}
       >
-        <div style={{
-          fontSize: '16px',
-          letterSpacing: '0.15em',
-          marginBottom: '30px',
-          color: dark ? '#fff' : '#000'
-        }}>
+        <div style={{ fontSize: '16px', letterSpacing: '0.15em', marginBottom: '30px', color: dark ? '#fff' : '#000' }}>
           EDIT PROFILE
         </div>
 
         <div style={{ marginBottom: '20px' }}>
-          <label style={{
-            display: 'block',
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            color: dark ? '#999' : '#666',
-            marginBottom: '8px'
-          }}>
-            USERNAME
-          </label>
-          <div style={{
-            fontSize: '13px',
-            padding: '16px',
-            border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-            color: dark ? '#666' : '#999'
-          }}>
+          <label style={{ display: 'block', fontSize: '10px', letterSpacing: '0.1em', color: dark ? '#999' : '#666', marginBottom: '8px' }}>USERNAME</label>
+          <div style={{ fontSize: '13px', padding: '16px', border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, color: dark ? '#666' : '#999' }}>
             {user.username}
           </div>
         </div>
 
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{
-            display: 'block',
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            color: dark ? '#999' : '#666',
-            marginBottom: '8px'
-          }}>
-            BIO
-          </label>
+        <div style={{ marginBottom: '30px' }}>
+          <label style={{ display: 'block', fontSize: '10px', letterSpacing: '0.1em', color: dark ? '#999' : '#666', marginBottom: '8px' }}>BIO</label>
           <textarea
             value={bio}
             onChange={(e) => setBio(e.target.value)}
             placeholder="TELL US ABOUT YOURSELF..."
-            disabled={uploading}
-            style={{
-              width: '100%',
-              minHeight: '100px',
-              fontSize: '12px',
-              letterSpacing: '0.02em',
-              padding: '16px',
-              background: 'none',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              outline: 'none',
-              resize: 'vertical',
-              color: dark ? '#fff' : '#000',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif'
-            }}
+            style={{ width: '100%', minHeight: '100px', fontSize: '12px', letterSpacing: '0.02em', padding: '16px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, outline: 'none', resize: 'vertical', color: dark ? '#fff' : '#000', fontFamily: 'Helvetica Neue, Arial, sans-serif' }}
           />
-        </div>
-
-        <div style={{ marginBottom: '30px' }}>
-          <label style={{
-            display: 'block',
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            color: dark ? '#999' : '#666',
-            marginBottom: '8px'
-          }}>
-            PROFILE PICTURE
-          </label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleImageChange}
-            disabled={uploading}
-            style={{
-              fontSize: '11px',
-              color: dark ? '#fff' : '#000',
-              marginBottom: '12px'
-            }}
-          />
-          {imagePreview && (
-            <img
-              src={imagePreview}
-              style={{
-                width: '120px',
-                height: '120px',
-                objectFit: 'cover',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`
-              }}
-              alt="preview"
-            />
-          )}
         </div>
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-          <button
-            onClick={onClose}
-            disabled={uploading}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px 24px',
-              background: 'none',
-              border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              cursor: uploading ? 'not-allowed' : 'pointer',
-              color: dark ? '#fff' : '#000',
-              opacity: uploading ? 0.5 : 1,
-              transition: 'border-color 0.2s'
-            }}
-            onMouseEnter={(e) => !uploading && (e.target.style.borderColor = dark ? '#666' : '#999')}
-            onMouseLeave={(e) => !uploading && (e.target.style.borderColor = dark ? '#333' : '#e5e5e5')}
-          >
-            CANCEL
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={uploading}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              padding: '12px 24px',
-              backgroundColor: dark ? '#fff' : '#000',
-              border: 'none',
-              cursor: uploading ? 'not-allowed' : 'pointer',
-              color: dark ? '#000' : '#fff',
-              opacity: uploading ? 0.5 : 1,
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => !uploading && (e.target.style.opacity = '0.8')}
-            onMouseLeave={(e) => !uploading && (e.target.style.opacity = '1')}
-          >
-            {uploading ? 'SAVING...' : 'SAVE'}
+          <button onClick={onClose} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: dark ? '#fff' : '#000' }}
+            onMouseEnter={e => e.target.style.borderColor = dark ? '#666' : '#999'}
+            onMouseLeave={e => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+          >CANCEL</button>
+          <button onClick={handleSave} style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '12px 24px', backgroundColor: dark ? '#fff' : '#000', border: 'none', cursor: 'pointer', color: dark ? '#000' : '#fff' }}>
+            SAVE
           </button>
         </div>
       </div>
@@ -8901,6 +8715,117 @@ function GridSeq({ onBack, dark }) {
     </div>
   );
 }
+
+function BirdsRoom({ posts, dark }) {
+  const canvasRef = React.useRef(null);
+  const stateRef  = React.useRef({ boids: [], raf: null });
+
+  const COLORS = ['#FF6B6B','#4ECDC4','#45B7D1','#FFA07A','#98D8C8','#F7DC6F','#BB8FCE','#85C1E2','#F8B739','#52B788'];
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const resize = () => {
+      canvas.width  = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    const ctx = canvas.getContext('2d');
+    const W = () => canvas.width;
+    const H = () => canvas.height;
+
+    // Build user color map from posts
+    const userColors = new Map();
+    posts.forEach(p => {
+      if (!userColors.has(p.author)) {
+        const hash = (p.author || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+        userColors.set(p.author, COLORS[hash % COLORS.length]);
+      }
+    });
+
+    const palette = userColors.size > 0 ? [...userColors.values()] : COLORS;
+    const total   = Math.max(50, Math.min(120, palette.length * 5));
+
+    const boids = [];
+    for (let i = 0; i < total; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const spd   = 1.0 + Math.random() * 0.8;
+      boids.push({ x: Math.random() * W(), y: Math.random() * H(), vx: Math.cos(angle)*spd, vy: Math.sin(angle)*spd, color: palette[i % palette.length] });
+    }
+    stateRef.current.boids = boids;
+
+    const PERC = 45, SEP = 16, MSPD = 2.0, MF = 0.07;
+
+    function lim(vx, vy, max) {
+      const m = Math.sqrt(vx*vx + vy*vy);
+      return m > max ? [vx/m*max, vy/m*max] : [vx, vy];
+    }
+
+    function step(b) {
+      const bs = stateRef.current.boids;
+      let sx=0,sy=0,ax=0,ay=0,cx=0,cy=0,sc=0,ac=0,cc=0;
+      for (const o of bs) {
+        if (o === b) continue;
+        const dx = o.x-b.x, dy = o.y-b.y, d = Math.sqrt(dx*dx+dy*dy);
+        if (d < PERC) {
+          if (d < SEP && d > 0) { sx -= dx/d; sy -= dy/d; sc++; }
+          ax += o.vx; ay += o.vy; ac++;
+          cx += o.x;  cy += o.y;  cc++;
+        }
+      }
+      let fx=0, fy=0;
+      if (sc > 0) { let [ex,ey]=lim(sx/sc,sy/sc,MSPD); ex-=b.vx; ey-=b.vy; [ex,ey]=lim(ex,ey,MF); fx+=ex*1.6; fy+=ey*1.6; }
+      if (ac > 0) { let [ex,ey]=lim(ax/ac,ay/ac,MSPD); ex-=b.vx; ey-=b.vy; [ex,ey]=lim(ex,ey,MF); fx+=ex; fy+=ey; }
+      if (cc > 0) { let ex=cx/cc-b.x, ey=cy/cc-b.y; [ex,ey]=lim(ex,ey,MSPD); ex-=b.vx; ey-=b.vy; [ex,ey]=lim(ex,ey,MF); fx+=ex; fy+=ey; }
+      b.vx+=fx; b.vy+=fy;
+      [b.vx,b.vy] = lim(b.vx,b.vy,MSPD);
+      b.x+=b.vx; b.y+=b.vy;
+      const w=W(),h=H();
+      if (b.x<0) b.x=w; if (b.x>w) b.x=0;
+      if (b.y<0) b.y=h; if (b.y>h) b.y=0;
+    }
+
+    function draw(b) {
+      const a = Math.atan2(b.vy, b.vx);
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(a);
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      ctx.moveTo(2.5, 0);
+      ctx.lineTo(-2, 1.2);
+      ctx.lineTo(-2, -1.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    const loop = () => {
+      ctx.clearRect(0, 0, W(), H());
+      stateRef.current.boids.forEach(b => { step(b); draw(b); });
+      stateRef.current.raf = requestAnimationFrame(loop);
+    };
+    stateRef.current.raf = requestAnimationFrame(loop);
+
+    return () => {
+      if (stateRef.current.raf) cancelAnimationFrame(stateRef.current.raf);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+
+  return (
+    <div style={{ width: '100%', height: '70vh', position: 'relative' }}>
+      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }}/>
+      <div style={{ position: 'absolute', bottom: '20px', left: 0, right: 0, textAlign: 'center', fontSize: '9px', letterSpacing: '0.2em', color: dark ? '#222' : '#ddd', userSelect: 'none', pointerEvents: 'none' }}>
+        BIRDS
+      </div>
+    </div>
+  );
+}
+
 
 function InviteGate({ onSignUp, onLogin, getColor }) {
   const [mode, setMode] = useState("signup");
