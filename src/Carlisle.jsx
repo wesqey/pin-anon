@@ -3850,23 +3850,23 @@ function CassettePlayer({ cassette, dark, compact }) {
   const [progress, setProgress] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
   const [duration, setDuration] = React.useState(0);
-  const audioRef = React.useRef(null);
+  const [loadError, setLoadError] = React.useState(false);
+  const audioRef   = React.useRef(null);
   const leftAngle  = React.useRef(0);
   const rightAngle = React.useRef(0);
-  const rafRef  = React.useRef(null);
-  const lastTs  = React.useRef(null);
-  const [, tick] = React.useReducer(x => x + 1, 0);
+  const rafRef     = React.useRef(null);
+  const lastTs     = React.useRef(null);
+  const [, tick]   = React.useReducer(x => x + 1, 0);
   const tracks = cassette.tracks || [];
 
   React.useEffect(() => {
     if (!playing) { if (rafRef.current) cancelAnimationFrame(rafRef.current); return; }
     lastTs.current = null;
-    const pct = progress / 100;
     const loop = (ts) => {
       if (lastTs.current !== null) {
         const dt = (ts - lastTs.current) / 1000;
-        leftAngle.current  = (leftAngle.current  + dt * (50 + (1 - pct) * 70)) % 360;
-        rightAngle.current = (rightAngle.current - dt * (50 + pct * 70) + 720) % 360;
+        leftAngle.current  = (leftAngle.current  + dt * 60) % 360;
+        rightAngle.current = (rightAngle.current - dt * 72 + 720) % 360;
         tick();
       }
       lastTs.current = ts;
@@ -3879,41 +3879,59 @@ function CassettePlayer({ cassette, dark, compact }) {
   React.useEffect(() => {
     const a = audioRef.current;
     if (!a) return;
-    const onTime = () => { setCurrentTime(a.currentTime); setProgress(a.duration ? (a.currentTime/a.duration)*100 : 0); };
-    const onMeta = () => setDuration(a.duration || 0);
-    const onEnd  = () => { if (currentIdx < tracks.length - 1) setCurrentIdx(i => i + 1); else setPlaying(false); };
+    const onTime  = () => { setCurrentTime(a.currentTime); setProgress(a.duration ? (a.currentTime / a.duration) * 100 : 0); };
+    const onMeta  = () => setDuration(a.duration || 0);
+    const onEnd   = () => { if (currentIdx < tracks.length - 1) setCurrentIdx(i => i + 1); else setPlaying(false); };
+    const onErr   = () => { setLoadError(true); setPlaying(false); };
     a.addEventListener('timeupdate', onTime);
     a.addEventListener('loadedmetadata', onMeta);
     a.addEventListener('ended', onEnd);
-    return () => { a.removeEventListener('timeupdate', onTime); a.removeEventListener('loadedmetadata', onMeta); a.removeEventListener('ended', onEnd); };
+    a.addEventListener('error', onErr);
+    return () => {
+      a.removeEventListener('timeupdate', onTime);
+      a.removeEventListener('loadedmetadata', onMeta);
+      a.removeEventListener('ended', onEnd);
+      a.removeEventListener('error', onErr);
+    };
   }, [currentIdx, tracks.length]);
 
   React.useEffect(() => {
     const a = audioRef.current;
     const t = tracks[currentIdx];
     if (!a) return;
+    setLoadError(false);
     if (!t?.url) { a.src = ''; setProgress(0); setCurrentTime(0); setDuration(0); return; }
     const CID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
     let src = t.url;
-    if (t.source === 'soundcloud' && CID && !src.includes('client_id')) src += (src.includes('?') ? '&' : '?') + 'client_id=' + CID;
+    if (t.source === 'soundcloud' && CID && !src.includes('client_id')) {
+      src += (src.includes('?') ? '&' : '?') + 'client_id=' + CID;
+    }
     setProgress(0); setCurrentTime(0); setDuration(0);
-    a.src = src; a.load();
-    if (playing) { const fn = () => { a.play().catch(()=>{}); a.removeEventListener('canplay', fn); }; a.addEventListener('canplay', fn); return () => a.removeEventListener('canplay', fn); }
+    a.crossOrigin = 'anonymous';
+    a.src = src;
+    a.load();
+    if (playing) {
+      const fn = () => { a.play().catch(() => setLoadError(true)); a.removeEventListener('canplay', fn); };
+      a.addEventListener('canplay', fn);
+      return () => a.removeEventListener('canplay', fn);
+    }
   }, [currentIdx]);
 
   function togglePlay() {
     const a = audioRef.current;
     const t = tracks[currentIdx];
     if (!a || !t?.url) return;
+    setLoadError(false);
     if (playing) { a.pause(); setPlaying(false); }
     else {
       if (!a.src || a.src === window.location.href) {
         const CID = import.meta.env.VITE_SOUNDCLOUD_CLIENT_ID;
         let src = t.url;
         if (t.source === 'soundcloud' && CID && !src.includes('client_id')) src += (src.includes('?') ? '&' : '?') + 'client_id=' + CID;
+        a.crossOrigin = 'anonymous';
         a.src = src; a.load();
       }
-      a.play().catch(()=>{});
+      a.play().catch(() => setLoadError(true));
       setPlaying(true);
     }
   }
@@ -3925,157 +3943,161 @@ function CassettePlayer({ cassette, dark, compact }) {
     a.currentTime = ((e.clientX - r.left) / r.width) * a.duration;
   }
 
-  function fmt(s) {
-    if (!s || isNaN(s)) return '00:00:00';
-    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = Math.floor(s%60);
-    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0');
+  function fmtTime(s) {
+    if (!s || isNaN(s)) return '0:00';
+    return Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0');
   }
 
-  const pct   = progress / 100;
-  const MIN_R = 14, MAX_R = 54;
-  const lR = MAX_R - (MAX_R - MIN_R) * pct;
-  const rR = MIN_R + (MAX_R - MIN_R) * pct;
-  const FG = '#ffffff';
+  const pct = progress / 100;
+  const REEL_R = 46; // both reels same size
+  const s   = dark ? '#fff' : '#000';
   const RED  = '#ff3030';
-  const BLUE = '#30d0ff';
+  const BLUE = '#30ccff';
+  const mut  = dark ? '#444' : '#ccc';
 
-  // CRT-style element helpers — white + red/blue fringe
-  const cr = (cx, cy, r, sw=1.2, fill='none') => (
+  // CRT fringe helpers
+  const crt_c = (cx, cy, r, sw=1.2, fill='none') => (
     <>
-      <circle cx={cx-0.8} cy={cy+0.5} r={r} fill="none" stroke={RED}  strokeWidth={sw} opacity="0.4"/>
-      <circle cx={cx+0.8} cy={cy-0.5} r={r} fill="none" stroke={BLUE} strokeWidth={sw} opacity="0.4"/>
-      <circle cx={cx} cy={cy} r={r} fill={fill} stroke={FG} strokeWidth={sw}/>
+      <circle cx={cx-0.7} cy={cy+0.5} r={r} fill="none" stroke={RED}  strokeWidth={sw} opacity="0.35"/>
+      <circle cx={cx+0.7} cy={cy-0.5} r={r} fill="none" stroke={BLUE} strokeWidth={sw} opacity="0.35"/>
+      <circle cx={cx} cy={cy} r={r} fill={fill} stroke={s} strokeWidth={sw}/>
     </>
   );
-  const ln = (x1,y1,x2,y2,sw=1) => (
+  const crt_l = (x1,y1,x2,y2,sw=1) => (
     <>
-      <line x1={x1-0.8} y1={y1+0.5} x2={x2-0.8} y2={y2+0.5} stroke={RED}  strokeWidth={sw} opacity="0.4"/>
-      <line x1={x1+0.8} y1={y1-0.5} x2={x2+0.8} y2={y2-0.5} stroke={BLUE} strokeWidth={sw} opacity="0.4"/>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={FG} strokeWidth={sw}/>
+      <line x1={x1-.7} y1={y1+.5} x2={x2-.7} y2={y2+.5} stroke={RED}  strokeWidth={sw} opacity="0.35"/>
+      <line x1={x1+.7} y1={y1-.5} x2={x2+.7} y2={y2-.5} stroke={BLUE} strokeWidth={sw} opacity="0.35"/>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={s} strokeWidth={sw}/>
     </>
   );
 
-  // Reel with spokes, hub rings, drawn at its own angle
-  const LX = 128, RX = 384, RY = 78;
+  const LX = 118, RX = 358, RY = 72;
 
-  function Reel({ cx, cy, outerR, angle }) {
-    const spokeAngles = [angle, angle+130, angle+248].map(a => a * Math.PI / 180);
+  function Reel({ cx, cy, angle }) {
+    const spokes = [angle, angle + 130, angle + 248].map(a => a * Math.PI / 180);
     return (
       <>
-        {cr(cx, cy, outerR, 1.2)}
-        {spokeAngles.map((a, i) => (
+        {crt_c(cx, cy, REEL_R, 1.2)}
+        {spokes.map((a, i) => (
           <React.Fragment key={i}>
-            <line x1={cx-0.8+22*Math.cos(a)} y1={cy+0.5+22*Math.sin(a)} x2={cx-0.8+outerR*Math.cos(a)} y2={cy+0.5+outerR*Math.sin(a)} stroke={RED}  strokeWidth="1" opacity="0.4"/>
-            <line x1={cx+0.8+22*Math.cos(a)} y1={cy-0.5+22*Math.sin(a)} x2={cx+0.8+outerR*Math.cos(a)} y2={cy-0.5+outerR*Math.sin(a)} stroke={BLUE} strokeWidth="1" opacity="0.4"/>
-            <line x1={cx+22*Math.cos(a)} y1={cy+22*Math.sin(a)} x2={cx+outerR*Math.cos(a)} y2={cy+outerR*Math.sin(a)} stroke={FG} strokeWidth="1"/>
+            <line x1={cx-.7+20*Math.cos(a)} y1={cy+.5+20*Math.sin(a)} x2={cx-.7+REEL_R*Math.cos(a)} y2={cy+.5+REEL_R*Math.sin(a)} stroke={RED}  strokeWidth="1" opacity="0.35"/>
+            <line x1={cx+.7+20*Math.cos(a)} y1={cy-.5+20*Math.sin(a)} x2={cx+.7+REEL_R*Math.cos(a)} y2={cy-.5+REEL_R*Math.sin(a)} stroke={BLUE} strokeWidth="1" opacity="0.35"/>
+            <line x1={cx+20*Math.cos(a)} y1={cy+20*Math.sin(a)} x2={cx+REEL_R*Math.cos(a)} y2={cy+REEL_R*Math.sin(a)} stroke={s} strokeWidth="1"/>
           </React.Fragment>
         ))}
-        {cr(cx, cy, 22, 1)}
-        {cr(cx, cy, 13, 1)}
-        {cr(cx, cy,  5, 1, FG)}
+        {crt_c(cx, cy, 20, 1)}
+        {crt_c(cx, cy, 12, 1)}
+        {crt_c(cx, cy,  5, 1, s)}
       </>
     );
   }
 
-  const ct = currentIdx + 1;
-  const currentTrack = tracks[currentIdx];
+  // Tape path positions
+  const TPY = 132;
+  const L1 = { x: 84,  y: TPY + 6 };
+  const L2 = { x: 142, y: TPY + 10 };
+  const L3 = { x: 190, y: TPY + 4 };
+  const CH = { x: 238, y: TPY };
+  const R3 = { x: 286, y: TPY + 4 };
+  const R2 = { x: 334, y: TPY + 10 };
+  const R1 = { x: 392, y: TPY + 6 };
 
-  // Tape path guide positions
-  const TPY = 145;
-  const L1 = { x: 90,  y: TPY + 8  };   // left outer peg
-  const L2 = { x: 155, y: TPY + 12 };   // left roller
-  const L3 = { x: 206, y: TPY + 5  };   // left idler
-  const CH = { x: 256, y: TPY      };   // center head
-  const R3 = { x: 306, y: TPY + 5  };   // right idler
-  const R2 = { x: 357, y: TPY + 12 };   // right roller
-  const R1 = { x: 422, y: TPY + 8  };   // right outer peg
+  const currentTrack = tracks[currentIdx];
+  const textColor = dark ? '#fff' : '#000';
+  const dimColor  = dark ? '#555' : '#aaa';
 
   return (
-    <div style={{ fontFamily: "'Courier New', Courier, monospace" }}>
-      <audio ref={audioRef}/>
+    <div style={{ fontFamily: 'Helvetica Neue, Arial, sans-serif' }}>
+      <audio ref={audioRef} crossOrigin="anonymous"/>
+
+      {/* Cassette name */}
+      <div style={{ fontSize: '10px', letterSpacing: '0.15em', color: dimColor, marginBottom: '8px', textTransform: 'uppercase' }}>
+        {cassette.name || 'SIDE A'}
+      </div>
+
+      {/* OP-1 style reel display — transparent background */}
       <svg
-        viewBox="0 0 512 172"
-        style={{ width: '100%', maxWidth: '560px', display: 'block', cursor: 'pointer', background: '#000', imageRendering: 'pixelated' }}
+        viewBox="0 0 476 158"
+        style={{ width: '100%', maxWidth: '500px', display: 'block', overflow: 'visible' }}
         shapeRendering="crispEdges"
-        onClick={togglePlay}
       >
-        {/* Track number box — top left */}
-        <rect x="8" y="8" width="28" height="22" fill="none" stroke={FG} strokeWidth="1.2"/>
-        <text x="22" y="24" textAnchor="middle" fill={FG} fontFamily="'Courier New', monospace" fontSize="14" fontWeight="bold">{ct}</text>
+        {/* Track number box */}
+        <rect x="4" y="4" width="24" height="20" fill="none" stroke={s} strokeWidth="1"/>
+        <text x="16" y="18" textAnchor="middle" fill={s} fontFamily="'Courier New', monospace" fontSize="13" fontWeight="bold">
+          {currentIdx + 1}
+        </text>
 
-        {/* Time counter — top center, large digital */}
-        <>
-          <text x="258" y="26" textAnchor="middle" fill={RED}  fontFamily="'Courier New', monospace" fontSize="20" fontWeight="bold" opacity="0.5" dx="-1" dy="0.5">{fmt(currentTime)}</text>
-          <text x="258" y="26" textAnchor="middle" fill={BLUE} fontFamily="'Courier New', monospace" fontSize="20" fontWeight="bold" opacity="0.5" dx="1"  dy="-0.5">{fmt(currentTime)}</text>
-          <text x="258" y="26" textAnchor="middle" fill={FG}   fontFamily="'Courier New', monospace" fontSize="20" fontWeight="bold">{fmt(currentTime)}</text>
-        </>
+        {/* Playing indicator dot */}
+        <circle cx="464" cy="12" r="5" fill={playing ? '#ff3030' : mut} opacity={playing ? 1 : 0.4}/>
 
-        {/* Dot indicators below time — like OP-1 */}
-        {[0,1,2,3,4,5,6].map(i => (
-          <rect key={i} x={227 + i*8} y="32" width="3" height="3" fill={i === Math.floor(pct*6.9) ? FG : '#333'}/>
-        ))}
+        {/* Current track name */}
+        <text x="238" y="16" textAnchor="middle" fill={s} fontFamily="Helvetica Neue, Arial, sans-serif" fontSize="8" letterSpacing="2" opacity="0.6">
+          {currentTrack ? currentTrack.title.slice(0, 34).toUpperCase() : 'NO TRACKS'}
+        </text>
 
-        {/* Recording dot — top right */}
-        <circle cx="500" cy="15" r="5" fill={playing ? '#ff3030' : '#333'} stroke={playing ? '#ff6060' : '#555'} strokeWidth="0.5"/>
-
-        {/* ── LEFT REEL ── */}
-        <Reel cx={LX} cy={RY} outerR={lR} angle={leftAngle.current}/>
-
-        {/* ── RIGHT REEL ── */}
-        <Reel cx={RX} cy={RY} outerR={rR} angle={rightAngle.current}/>
+        {/* ── REELS ── */}
+        <Reel cx={LX} cy={RY} angle={leftAngle.current}/>
+        <Reel cx={RX} cy={RY} angle={rightAngle.current}/>
 
         {/* ── TAPE PATH ── */}
-        {/* Lines from reels down to guide pegs */}
-        {ln(LX - 8, RY + lR - 4, L1.x, L1.y)}
-        {ln(LX + 8, RY + lR - 4, L2.x, L2.y - 4)}
-        {ln(RX - 8, RY + rR - 4, R2.x, R2.y - 4)}
-        {ln(RX + 8, RY + rR - 4, R1.x, R1.y)}
+        {crt_l(LX - 6, RY + REEL_R - 3, L1.x, L1.y)}
+        {crt_l(LX + 6, RY + REEL_R - 3, L2.x, L2.y - 4)}
+        {crt_c(L1.x, L1.y, 4, 1)}
+        {crt_c(L2.x, L2.y, 8, 1)}
+        {crt_l(L2.x + 6, L2.y, L3.x, L3.y + 3)}
+        {crt_c(L3.x, L3.y, 4, 1)}
+        {crt_l(L3.x + 4, L3.y, CH.x - 12, CH.y + 3)}
+        {/* Tape head */}
+        {crt_l(CH.x - 12, CH.y - 7, CH.x - 12, CH.y + 12, 1.5)}
+        {crt_l(CH.x + 12, CH.y - 7, CH.x + 12, CH.y + 12, 1.5)}
+        <rect x={CH.x - 5} y={CH.y - 3} width="10" height="9" fill="none" stroke={s} strokeWidth="1"/>
+        <>
+          <rect x={CH.x-5-.7} y={CH.y-3+.5} width="10" height="9" fill="none" stroke={RED}  strokeWidth="1" opacity="0.35"/>
+          <rect x={CH.x-5+.7} y={CH.y-3-.5} width="10" height="9" fill="none" stroke={BLUE} strokeWidth="1" opacity="0.35"/>
+        </>
+        {crt_l(CH.x, CH.y + 8, CH.x, CH.y + 18, 1.5)}
+        {crt_l(CH.x + 12, CH.y + 3, R3.x - 4, R3.y)}
+        {crt_c(R3.x, R3.y, 4, 1)}
+        {crt_l(R3.x + 4, R3.y, R2.x - 6, R2.y)}
+        {crt_c(R2.x, R2.y, 8, 1)}
+        {crt_l(R2.x + 6, R2.y, R1.x, R1.y)}
+        {crt_l(RX - 6, RY + REEL_R - 3, R2.x, R2.y - 4)}
+        {crt_l(RX + 6, RY + REEL_R - 3, R1.x, R1.y)}
+        {crt_c(R1.x, R1.y, 4, 1)}
 
-        {/* Guide rollers */}
-        {cr(L1.x, L1.y, 5, 1)}
-        {cr(L2.x, L2.y, 9, 1)}
-        {cr(R2.x, R2.y, 9, 1)}
-        {cr(R1.x, R1.y, 5, 1)}
-
-        {/* Tape lines L2 → L3 → CH */}
-        {ln(L2.x + 6, L2.y, L3.x, L3.y + 4)}
-        {cr(L3.x, L3.y, 5, 1)}
-        {ln(L3.x + 4, L3.y, CH.x - 14, CH.y + 4)}
-
-        {/* Tape head bracket — |:| */}
-        {ln(CH.x - 14, CH.y - 8, CH.x - 14, CH.y + 14, 1.5)}
-        {ln(CH.x + 14, CH.y - 8, CH.x + 14, CH.y + 14, 1.5)}
-        {ln(CH.x - 8,  CH.y + 3, CH.x + 8,  CH.y + 3, 1)}
-        <rect x={CH.x - 5} y={CH.y - 4} width="10" height="10" fill="none" stroke={FG} strokeWidth="1.2"/>
-        {ln(CH.x, CH.y + 10, CH.x, CH.y + 22, 1.5)}
-
-        {/* Tape lines CH → R3 → R2 */}
-        {ln(CH.x + 14, CH.y + 4, R3.x - 4, R3.y)}
-        {cr(R3.x, R3.y, 5, 1)}
-        {ln(R3.x + 4, R3.y, R2.x - 6, R2.y)}
-
-        {/* ── WAVEFORM / TRACK DATA ── bottom */}
-        <rect x="0" y="156" width="512" height="16" fill="#000"/>
-        <line x1="0" y1="157" x2="512" y2="157" stroke="#1a3a5a" strokeWidth="0.5"/>
-        <line x1="0" y1="161" x2="512" y2="161" stroke="#1a3a5a" strokeWidth="0.5"/>
-        <line x1="0" y1="165" x2="512" y2="165" stroke="#1a3a5a" strokeWidth="0.5"/>
-        <line x1="0" y1="169" x2="512" y2="169" stroke="#1a3a5a" strokeWidth="0.5"/>
-        {/* Progress fill on track 1 */}
-        <rect x="0" y="157" width={512 * pct} height="4"  fill="#2060a0" opacity="0.8"/>
-        {/* Playhead */}
-        <line x1={512 * pct} y1="155" x2={512 * pct} y2="172" stroke="#00ff88" strokeWidth="1.5"/>
-        <rect x={512 * pct - 3} y="168" width="6" height="4" fill="#00ff88"/>
-
+        {/* Progress bar */}
+        <rect x="0" y="148" width="476" height="2" fill={mut} opacity="0.3"/>
+        <rect x="0" y="148" width={476 * pct} height="2" fill={s} opacity="0.6"/>
       </svg>
 
+      {/* Controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '8px' }}>
+        <button
+          onClick={togglePlay}
+          style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, cursor: 'pointer', color: textColor, padding: '6px 16px', transition: 'all 0.2s' }}
+          onMouseEnter={e => { e.target.style.borderColor = s; }}
+          onMouseLeave={e => { e.target.style.borderColor = dark ? '#333' : '#e5e5e5'; }}
+        >
+          {playing ? '▌▌ PAUSE' : '▶ PLAY'}
+        </button>
+        <span style={{ fontSize: '10px', color: dimColor, letterSpacing: '0.05em' }}>
+          {fmtTime(currentTime)} {duration ? '/ ' + fmtTime(duration) : ''}
+        </span>
+        {loadError && <span style={{ fontSize: '10px', color: '#ef4444', letterSpacing: '0.05em' }}>CANNOT LOAD AUDIO</span>}
+        {/* Seek */}
+        <div onClick={seek} style={{ flex: 1, height: '1px', background: mut, cursor: 'pointer', position: 'relative' }}>
+          <div style={{ height: '1px', background: s, width: progress + '%' }}/>
+        </div>
+      </div>
+
       {!compact && tracks.length > 0 && (
-        <div style={{ borderTop: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, marginTop: '4px' }}>
+        <div style={{ borderTop: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, marginTop: '8px' }}>
           {tracks.map((t, i) => (
-            <div key={i} onClick={e => { e.stopPropagation(); setCurrentIdx(i); setPlaying(true); setTimeout(() => { if (audioRef.current) audioRef.current.play().catch(()=>{}); }, 50); }}
-              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 0', borderBottom: `1px solid ${dark?'#1a1a1a':'#f5f5f5'}`, cursor: 'pointer' }}>
-              <span style={{ fontSize: '9px', color: dark?'#555':'#bbb', minWidth: '14px' }}>{i+1}</span>
-              <span style={{ fontSize: '10px', letterSpacing: '0.08em', color: i===currentIdx ? (dark?'#fff':'#000') : (dark?'#555':'#bbb'), textDecoration: i===currentIdx?'underline':'none', textTransform: 'uppercase', flex: 1 }}>{t.title}</span>
-              {t.duration && <span style={{ fontSize: '9px', color: dark?'#555':'#bbb' }}>{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>}
+            <div key={i} onClick={() => { setCurrentIdx(i); setPlaying(true); setTimeout(() => { if (audioRef.current) audioRef.current.play().catch(() => {}); }, 50); }}
+              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 0', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, cursor: 'pointer' }}>
+              <span style={{ fontSize: '9px', color: dimColor, minWidth: '14px' }}>{i + 1}</span>
+              <span style={{ fontSize: '10px', letterSpacing: '0.08em', color: i === currentIdx ? textColor : dimColor, textDecoration: i === currentIdx ? 'underline' : 'none', textTransform: 'uppercase', flex: 1 }}>{t.title}</span>
+              {t.duration && <span style={{ fontSize: '9px', color: dimColor }}>{Math.floor(t.duration/60)}:{String(Math.floor(t.duration%60)).padStart(2,'0')}</span>}
             </div>
           ))}
         </div>
