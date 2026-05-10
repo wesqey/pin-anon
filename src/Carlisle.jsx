@@ -87,7 +87,7 @@ function loadUser() {
 }
 
 const EMPTY = {
-  rooms: [{ id: DEFAULT_ROOM, name: "main room", invite: DEFAULT_ROOM }, { id: "birds", name: "birds", invite: "birds", permanent: true }],
+  rooms: [{ id: DEFAULT_ROOM, name: "main room", invite: DEFAULT_ROOM }, { id: "fish", name: "birds", invite: "birds", permanent: true }],
   posts: [],
   settings: { whisper: false },
   inviteCodes: {},
