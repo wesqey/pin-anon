@@ -8755,7 +8755,7 @@ function BirdsRoom({ posts, dark }) {
     // Spawn birds in a compact cluster at center
     const boids = Array.from({ length: N }, (_, i) => {
       const a = Math.random() * Math.PI * 2;
-      const r = Math.random() * 120;
+      const r = Math.random() * Math.min(W()/3, H()/3);
       const d = Math.random() * Math.PI * 2;
       const s = 1.5 + Math.random();
       return { x: W()/2 + Math.cos(a)*r, y: H()/2 + Math.sin(a)*r,
@@ -8795,7 +8795,7 @@ function BirdsRoom({ posts, dark }) {
       return m > max ? [v[0]/m*max, v[1]/m*max] : v;
     }
 
-    const SEP=14, PERC=38, MSPD=3.2, MF=0.14;
+    const SEP=18, PERC=42, MSPD=2.8, MF=0.1;
     let perturbT=5, perturbX=0, perturbY=0;
 
     function step(b) {
@@ -8823,14 +8823,13 @@ function BirdsRoom({ posts, dark }) {
       const gcx=W()/2,gcy=H()/2;
       const gdx=gcx-b.x,gdy=gcy-b.y;
       const gd=Math.sqrt(gdx*gdx+gdy*gdy);
-      if(gd>60){const p=0.0002*(gd-60);fx+=gdx*p;fy+=gdy*p;}
+      if(gd>150){const p=0.00015*(gd-150);fx+=gdx*p;fy+=gdy*p;}
 
-      // Very subtle vortex — just enough to add organic swirling
-      if(gd>0){const px=-gdy/gd,py=gdx/gd;fx+=px*0.008;fy+=py*0.008;}
+
 
       // Random wander — prevents orbit locking
-      fx += (Math.random()-0.5)*0.06;
-      fy += (Math.random()-0.5)*0.06;
+      fx += (Math.random()-0.5)*0.15;
+      fy += (Math.random()-0.5)*0.15;
 
       // Predator perturbation
       if(perturbT>0){
