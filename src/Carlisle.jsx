@@ -208,6 +208,9 @@ export default function Carlisle() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [targetPostId, setTargetPostId] = useState(null);
+  const [nowPlaying, setNowPlaying] = useState(null);
+  const [npProgress, setNpProgress] = useState(0);
+  const [npPlaying, setNpPlaying] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("carlisle_dark") === "1";
@@ -586,6 +589,54 @@ export default function Carlisle() {
   useEffect(() => {
     saveUser(user);
   }, [user]);
+
+  // Global audio focus — only one thing plays at a time
+  useEffect(() => {
+    const onPlay = (e) => {
+      if (e.target.tagName !== 'AUDIO') return;
+      // Pause all other audio elements
+      document.querySelectorAll('audio').forEach(a => { if (a !== e.target) a.pause(); });
+      // Find associated post for title
+      const src = e.target.src || e.target.currentSrc || '';
+      const post = (state.posts || []).find(p => p.audioUrl && src.includes(p.audioUrl.split('?')[0].split('/').pop()));
+      const title = post ? (post.authorDisplayName || 'Unknown') + (post.text ? ' — ' + post.text.slice(0, 40) : '') : 'Audio';
+      setNowPlaying({ type: 'audio', title, element: e.target, postId: post?.id, postRoom: post?.room });
+      setNpPlaying(true);
+      // Track progress
+      const onTime = () => setNpProgress(e.target.duration ? (e.target.currentTime / e.target.duration) * 100 : 0);
+      const onPause = () => setNpPlaying(false);
+      const onResume = () => setNpPlaying(true);
+      const onEnd = () => { setNpPlaying(false); };
+      e.target.addEventListener('timeupdate', onTime);
+      e.target.addEventListener('pause', onPause);
+      e.target.addEventListener('play', onResume);
+      e.target.addEventListener('ended', onEnd);
+    };
+    window.addEventListener('play', onPlay, true);
+    return () => window.removeEventListener('play', onPlay, true);
+  }, [state.posts]);
+
+  // YouTube postMessage listener
+  useEffect(() => {
+    const onMsg = (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        if (d.event === 'onStateChange') {
+          if (d.info === 1) { // playing
+            document.querySelectorAll('audio').forEach(a => a.pause());
+            setNowPlaying(p => p?.type === 'youtube' ? { ...p, paused: false } : { type: 'youtube', title: 'YouTube Video' });
+            setNpPlaying(true);
+          } else if (d.info === 2) { // paused
+            setNpPlaying(false);
+          } else if (d.info === 0) { // ended
+            setNpPlaying(false);
+          }
+        }
+      } catch {}
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
 
   useEffect(() => {
     if (!user.id) return;
@@ -1085,7 +1136,8 @@ export default function Carlisle() {
       color: getColor('text'),
       fontFamily: 'Helvetica Neue, Arial, sans-serif',
       transition: 'background-color 0.3s, color 0.3s',
-      overflowX: 'hidden'
+      overflowX: 'hidden',
+      paddingBottom: nowPlaying ? '52px' : '0'
     }}>
       <div style={{ maxWidth: '1400px', margin: '0 auto', padding: windowWidth < 768 ? '20px 10px' : '40px 20px' }}>
         {/* Header */}
@@ -1742,6 +1794,34 @@ export default function Carlisle() {
           onConfirm={logoutUser}
           onCancel={() => setShowLogoutConfirm(false)}
           dark={dark}
+        />
+      )}
+      {nowPlaying && (
+        <NowPlayingBar
+          nowPlaying={nowPlaying}
+          npPlaying={npPlaying}
+          npProgress={npProgress}
+          dark={dark}
+          onClose={() => {
+            if (nowPlaying.type === 'audio' && nowPlaying.element) nowPlaying.element.pause();
+            if (nowPlaying.type === 'youtube') {
+              document.querySelectorAll('iframe').forEach(f => {
+                try { f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'pauseVideo' }), '*'); } catch {}
+              });
+            }
+            setNowPlaying(null); setNpPlaying(false); setNpProgress(0);
+          }}
+          onToggle={() => {
+            if (nowPlaying.type === 'audio' && nowPlaying.element) {
+              if (npPlaying) nowPlaying.element.pause();
+              else nowPlaying.element.play().catch(()=>{});
+            } else if (nowPlaying.type === 'youtube') {
+              document.querySelectorAll('iframe').forEach(f => {
+                try { f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: npPlaying ? 'pauseVideo' : 'playVideo' }), '*'); } catch {}
+              });
+              setNpPlaying(!npPlaying);
+            }
+          }}
         />
       )}
       {showAdminPanel && user.isAdmin && (
@@ -9084,6 +9164,68 @@ function BirdsRoom({ posts, dark }) {
     </div>
   );
 }
+
+function NowPlayingBar({ nowPlaying, npPlaying, npProgress, onToggle, onClose, dark }) {
+  const s = dark ? '#fff' : '#000';
+  const bg = dark ? '#000' : '#fff';
+  const border = dark ? '#222' : '#e5e5e5';
+  const muted = dark ? '#666' : '#aaa';
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 950,
+      backgroundColor: bg,
+      borderTop: `1px solid ${border}`,
+      display: 'flex', alignItems: 'center', gap: '12px',
+      padding: '0 20px', height: '52px',
+      boxShadow: dark ? '0 -4px 20px rgba(0,0,0,0.4)' : '0 -4px 20px rgba(0,0,0,0.08)',
+      fontFamily: 'Helvetica Neue, Arial, sans-serif',
+    }}>
+      {/* Type indicator */}
+      <span style={{ fontSize: '9px', letterSpacing: '0.15em', color: muted, flexShrink: 0 }}>
+        {nowPlaying.type === 'youtube' ? 'VIDEO' : 'AUDIO'}
+      </span>
+
+      {/* Play / Pause */}
+      <button
+        onClick={onToggle}
+        style={{ fontSize: '14px', background: 'none', border: 'none', cursor: 'pointer', color: s, padding: '0 4px', flexShrink: 0, lineHeight: 1 }}
+      >
+        {npPlaying ? '▌▌' : '▶'}
+      </button>
+
+      {/* Title */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: '11px', letterSpacing: '0.05em', color: s, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {nowPlaying.title || 'NOW PLAYING'}
+        </div>
+        {/* Progress bar — audio only */}
+        {nowPlaying.type === 'audio' && (
+          <div style={{ marginTop: '5px', height: '1px', background: border, position: 'relative', cursor: 'pointer' }}
+            onClick={e => {
+              if (!nowPlaying.element?.duration) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              nowPlaying.element.currentTime = ((e.clientX - rect.left) / rect.width) * nowPlaying.element.duration;
+            }}
+          >
+            <div style={{ height: '1px', background: s, width: npProgress + '%', transition: 'width 0.3s linear' }}/>
+          </div>
+        )}
+      </div>
+
+      {/* Close */}
+      <button
+        onClick={onClose}
+        style={{ fontSize: '18px', background: 'none', border: 'none', cursor: 'pointer', color: muted, padding: '0 4px', flexShrink: 0, lineHeight: 1 }}
+        onMouseEnter={e => e.target.style.color = s}
+        onMouseLeave={e => e.target.style.color = muted}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 
 function InviteGate({ onSignUp, onLogin, getColor }) {
   const [mode, setMode] = useState("signup");
