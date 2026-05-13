@@ -115,6 +115,34 @@ if (!document.head.querySelector('style[data-carlisle]')) {
   document.head.appendChild(styleSheet);
 }
 
+// ---------- Upload utility ----------
+async function uploadFile(file) {
+  if (file.size > 4 * 1024 * 1024) {
+    // Large file — upload directly to R2 via presigned URL (bypasses Vercel limit)
+    const params = new URLSearchParams({ filename: file.name, contentType: file.type });
+    const res = await fetch(`/api/presign?${params}`);
+    if (!res.ok) throw new Error('Could not get upload URL');
+    const { uploadUrl, publicUrl } = await res.json();
+    const put = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type },
+      body: file,
+    });
+    if (!put.ok) throw new Error('Upload failed');
+    return publicUrl;
+  } else {
+    // Small file — use existing proxy
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': file.type, 'x-filename': file.name },
+      body: file,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data.url;
+  }
+}
+
 // ---------- Main Component ----------
 export default function Carlisle() {
   const [state, setState] = useState(EMPTY);
@@ -2636,25 +2664,6 @@ function NewPostModal({ onClose, onPost, dark }) {
     }
   };
 
-  const uploadImageToMinIO = async (file) => {
-    try {
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: {
-          'Content-Type': file.type,
-          'x-filename': file.name,
-        },
-        body: file,
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-      return data.url;
-    } catch (error) {
-      console.error('Upload error:', error);
-      throw error;
-    }
-  };
-
   const handleSubmit = async () => {
     if (!text.trim() && !imageFile && !videoUrl && !audioUrl) {
       alert("PLEASE ADD SOME CONTENT");
@@ -2665,7 +2674,7 @@ function NewPostModal({ onClose, onPost, dark }) {
     try {
       let imageUrl = null;
       if (imageFile) {
-        imageUrl = await uploadImageToMinIO(imageFile);
+        imageUrl = await uploadFile(imageFile);
       }
 
       onPost({
@@ -2858,16 +2867,10 @@ function NewPostModal({ onClose, onPost, dark }) {
                   }
                   setUploading(true);
                   try {
-                    const response = await fetch('/api/upload', {
-                      method: 'POST',
-                      headers: { 'Content-Type': file.type, 'x-filename': file.name },
-                      body: file,
-                    });
-                    const data = await response.json();
-                    if (!response.ok) throw new Error(data.error);
-                    setAudioUrl(data.url);
+                    const url = await uploadFile(file);
+                    setAudioUrl(url);
                   } catch (err) {
-                    alert('UPLOAD FAILED');
+                    alert('UPLOAD FAILED — ' + err.message);
                   } finally {
                     setUploading(false);
                   }

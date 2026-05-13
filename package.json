@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.995.0",
+    "@aws-sdk/s3-request-presigner": "^3.1045.0",
     "browser-image-compression": "^2.0.2",
     "firebase": "^12.8.0",
     "react": "^19.2.0",
