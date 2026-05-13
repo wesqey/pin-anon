@@ -1108,25 +1108,14 @@ export default function Carlisle() {
     return 'repeat(3, 1fr)';
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ 
-        backgroundColor: getColor('bg'),
-        color: getColor('text'),
-        fontFamily: 'Helvetica Neue, Arial, sans-serif'
-      }}>
-        <div className="text-center">
-          <div className="text-xl font-light tracking-widest">CARLISLE</div>
-          <div className="text-xs tracking-widest mt-2" style={{ color: getColor('textMuted') }}>
-            LOADING...
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // Show InviteGate immediately — no waiting for Firebase
   if (!user.hasAccess && !user.isAdmin) {
     return <InviteGate onSignUp={signUpUser} onLogin={loginUser} getColor={getColor} />;
+  }
+
+  // Logged-in user waiting for Firebase data
+  if (loading) {
+    return <CarlisleLoading dark={dark} />;
   }
 
   return (
@@ -9222,6 +9211,59 @@ function NowPlayingBar({ nowPlaying, npPlaying, npProgress, onToggle, onClose, d
       >
         ×
       </button>
+    </div>
+  );
+}
+
+
+function CarlisleLoading({ dark }) {
+  const s = dark ? '#fff' : '#000';
+  const bg = dark ? '#000' : '#fff';
+
+  // Build C shape dots — arc from 50° to 310°, opening right
+  const cx = 100, cy = 100, radius = 58, N = 28;
+  const startDeg = 50, endDeg = 310;
+  const totalArc = endDeg - startDeg;
+
+  const dots = Array.from({ length: N }, (_, i) => {
+    const deg = startDeg + (totalArc / (N - 1)) * i;
+    const rad = deg * Math.PI / 180;
+    return { x: cx + radius * Math.cos(rad), y: cy + radius * Math.sin(rad), i };
+  });
+
+  return (
+    <div style={{ minHeight: '100vh', backgroundColor: bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'Helvetica Neue, Arial, sans-serif' }}>
+      <style>{`
+        @keyframes cdot {
+          0%, 100% { opacity: 0.15; r: 3; }
+          50% { opacity: 1; r: 4.5; }
+        }
+        @keyframes ellip1 { 0%,24%,100% { opacity:0 } 25%,74% { opacity:1 } }
+        @keyframes ellip2 { 0%,49%,100% { opacity:0 } 50%,74% { opacity:1 } }
+        @keyframes ellip3 { 0%,74%,100% { opacity:0 } 75%,99% { opacity:1 } }
+      `}</style>
+
+      <svg viewBox="0 0 200 200" style={{ width: '140px', height: '140px' }}>
+        {dots.map(({ x, y, i }) => (
+          <circle
+            key={i}
+            cx={x.toFixed(2)}
+            cy={y.toFixed(2)}
+            r="3"
+            fill={s}
+            style={{
+              animation: `cdot 1.8s ease-in-out infinite`,
+              animationDelay: `${(i / N) * 1.8}s`,
+            }}
+          />
+        ))}
+      </svg>
+
+      <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+        {[0,1,2].map(i => (
+          <span key={i} style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: s, display: 'inline-block', animation: `ellip${i+1} 1.2s ease-in-out infinite` }}/>
+        ))}
+      </div>
     </div>
   );
 }
