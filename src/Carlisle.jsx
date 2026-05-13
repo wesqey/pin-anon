@@ -115,12 +115,6 @@ if (!document.head.querySelector('style[data-carlisle]')) {
   document.head.appendChild(styleSheet);
 }
 
-// Mobile viewport fix — prevents zoom on input focus in Safari
-const metaViewport = document.querySelector('meta[name="viewport"]');
-if (metaViewport) {
-  metaViewport.content = 'width=device-width, initial-scale=1, maximum-scale=1';
-}
-
 // Mobile CSS tweaks
 const mobileStyle = document.createElement('style');
 mobileStyle.textContent = `
@@ -1181,25 +1175,8 @@ export default function Carlisle() {
             </button>
 
             <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-              {!isMobile && (
-                <>
-                  <button
-                    onClick={() => enterProfile(user.id)}
-                    style={{ fontSize: '10px', letterSpacing: '0.15em', color: dark ? '#999' : '#666', background: 'none', border: 'none', cursor: 'pointer', padding: '0', transition: 'opacity 0.2s' }}
-                    onMouseEnter={e => e.target.style.opacity = '0.5'}
-                    onMouseLeave={e => e.target.style.opacity = '1'}
-                  >
-                    {user.username}
-                  </button>
-                  <button
-                    onClick={() => setView('sounds')}
-                    style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#fff' : '#000', transition: 'opacity 0.2s' }}
-                    onMouseEnter={e => e.target.style.opacity = '0.5'}
-                    onMouseLeave={e => e.target.style.opacity = '1'}
-                  >
-                    SOUNDS
-                  </button>
-                </>
+              {!isMobile && <button onClick={() => enterProfile(user.id)} style={{ fontSize: '10px', letterSpacing: '0.15em', color: dark ? '#999' : '#666', background: 'none', border: 'none', cursor: 'pointer', padding: '0' }} onMouseEnter={e=>e.target.style.opacity='0.5'} onMouseLeave={e=>e.target.style.opacity='1'}>{user.username}</button>}
+              {!isMobile && <button onClick={() => setView('sounds')} style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#fff' : '#000' }} onMouseEnter={e=>e.target.style.opacity='0.5'} onMouseLeave={e=>e.target.style.opacity='1'}>SOUNDS</button>}
               {/* Notification bell */}
               <div style={{ position: 'relative' }}>
                 <button
@@ -1273,28 +1250,8 @@ export default function Carlisle() {
                 )}
               </div>
 
-              {!isMobile && (
-                <>
-                  <button
-                    onClick={() => setShowSettings(true)}
-                    style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#fff' : '#000', transition: 'opacity 0.2s' }}
-                    onMouseEnter={e => e.target.style.opacity = '0.5'}
-                    onMouseLeave={e => e.target.style.opacity = '1'}
-                  >
-                    SETTINGS
-                  </button>
-                  {user.isAdmin && (
-                    <button
-                      onClick={() => setShowAdminPanel(true)}
-                      style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#ff4444' : '#ff0000', transition: 'opacity 0.2s', fontWeight: '500' }}
-                      onMouseEnter={e => e.target.style.opacity = '0.5'}
-                      onMouseLeave={e => e.target.style.opacity = '1'}
-                    >
-                      🛡️ ADMIN
-                    </button>
-                  )}
-                </>
-              )}
+              {!isMobile && <button onClick={() => setShowSettings(true)} style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#fff' : '#000' }} onMouseEnter={e=>e.target.style.opacity='0.5'} onMouseLeave={e=>e.target.style.opacity='1'}>SETTINGS</button>}
+              {!isMobile && user.isAdmin && <button onClick={() => setShowAdminPanel(true)} style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#ff4444' : '#ff0000', fontWeight: '500' }} onMouseEnter={e=>e.target.style.opacity='0.5'} onMouseLeave={e=>e.target.style.opacity='1'}>🛡️ ADMIN</button>}
             </div>
           </div>
 
@@ -1357,7 +1314,7 @@ export default function Carlisle() {
         </header>
 
         {/* New Post Button — desktop only */}
-        {!isMobile && <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '40px', marginTop: '-30px' }}>
+        {!isMobile && (<div style={{ display: 'flex', justifyContent: 'center', marginBottom: '40px', marginTop: '-30px' }}>
           <button
             onClick={() => {
               if (view !== "room") { setRoom(DEFAULT_ROOM); }
@@ -1391,8 +1348,7 @@ export default function Carlisle() {
           >
             +
           </button>
-
-        </div>
+        </div>)}
 
         {view === "profile" && profileView ? (
           <ProfilePage
