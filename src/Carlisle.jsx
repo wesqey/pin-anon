@@ -205,6 +205,9 @@ export default function Carlisle() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [targetPostId, setTargetPostId] = useState(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [dark, setDark] = useState(() => {
     return localStorage.getItem("carlisle_dark") === "1";
@@ -585,6 +588,25 @@ export default function Carlisle() {
   }, [user]);
 
   useEffect(() => {
+    if (!user.id) return;
+    const notifRef = ref(database, `notifications/${user.id}`);
+    const unsub = onValue(notifRef, (snap) => {
+      const data = snap.val();
+      if (data) {
+        setNotifications(
+          Object.entries(data)
+            .map(([id, n]) => ({ id, ...n }))
+            .sort((a, b) => b.created - a.created)
+            .slice(0, 40)
+        );
+      } else {
+        setNotifications([]);
+      }
+    });
+    return () => unsub();
+  }, [user.id]);
+
+  useEffect(() => {
     localStorage.setItem("carlisle_dark", dark ? "1" : "0");
   }, [dark]);
 
@@ -637,6 +659,21 @@ export default function Carlisle() {
   useEffect(() => {
     localStorage.setItem("carlisle_room", room);
   }, [room]);
+
+  useEffect(() => {
+    if (!targetPostId) return;
+    const timeout = setTimeout(() => {
+      const el = document.getElementById(`post-${targetPostId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.style.outline = `2px solid ${dark ? '#fff' : '#000'}`;
+        el.style.outlineOffset = '4px';
+        setTimeout(() => { el.style.outline = 'none'; el.style.outlineOffset = '0'; }, 2000);
+        setTargetPostId(null);
+      }
+    }, 150);
+    return () => clearTimeout(timeout);
+  }, [targetPostId]);
 
   const postsInRoom = useMemo(
     () => (state.posts || []).filter((p) => p.room === room),
@@ -703,6 +740,22 @@ export default function Carlisle() {
     const updates = {};
     updates[`appState/posts/${postIndex}/voters`] = vmap;
     updates[`appState/posts/${postIndex}/votes`] = votes;
+
+    // Notify post author on upvote (only when newly voting up, not toggling off)
+    if (delta === 1 && newVote === 1 && post.author !== user.id) {
+      const nid = uid('n');
+      updates[`notifications/${post.author}/${nid}`] = {
+        id: nid,
+        type: 'upvote',
+        fromUser: user.username,
+        postId,
+        postRoom: post.room,
+        postText: (post.text || '').slice(0, 60),
+        created: now(),
+        read: false,
+      };
+    }
+
     update(ref(database), updates);
   }
 
@@ -724,6 +777,34 @@ export default function Carlisle() {
     const newComments = [...(post.comments || []), newComment];
     const updates = {};
     updates[`appState/posts/${postIndex}/comments`] = newComments;
+
+    // Notify post author when someone else comments
+    if (post.author !== user.id) {
+      const nid = uid('n');
+      updates[`notifications/${post.author}/${nid}`] = {
+        id: nid, type: 'comment', fromUser: user.username,
+        postId, postRoom: post.room,
+        postText: (post.text || '').slice(0, 60),
+        commentText: text.slice(0, 80),
+        created: now(), read: false,
+      };
+    }
+
+    // Notify parent comment author on reply
+    if (parentId) {
+      const parent = (post.comments || []).find(c => c.id === parentId);
+      if (parent && parent.author !== user.id && parent.author !== post.author) {
+        const nid = uid('n');
+        updates[`notifications/${parent.author}/${nid}`] = {
+          id: nid, type: 'reply', fromUser: user.username,
+          postId, postRoom: post.room,
+          postText: (post.text || '').slice(0, 60),
+          commentText: text.slice(0, 80),
+          created: now(), read: false,
+        };
+      }
+    }
+
     update(ref(database), updates);
   }
   
@@ -789,9 +870,10 @@ export default function Carlisle() {
     return room?.creator === user.id;
   }
 
-  function enterRoom(roomId) {
+  function enterRoom(roomId, postId = null) {
     setRoom(roomId);
     setView("room");
+    if (postId) setTargetPostId(postId);
   }
 
   function enterProfile(authorId) {
@@ -1079,6 +1161,79 @@ export default function Carlisle() {
               >
                 SOUNDS
               </button>
+              {/* Notification bell */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => {
+                    const next = !showNotifications;
+                    setShowNotifications(next);
+                    if (next) {
+                      const updates = {};
+                      notifications.filter(n => !n.read).forEach(n => {
+                        updates[`notifications/${user.id}/${n.id}/read`] = true;
+                      });
+                      if (Object.keys(updates).length) update(ref(database), updates);
+                    }
+                  }}
+                  style={{ fontSize: '14px', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#fff' : '#000', transition: 'opacity 0.2s', padding: 0, position: 'relative', lineHeight: 1 }}
+                  onMouseEnter={e => e.target.style.opacity = '0.5'}
+                  onMouseLeave={e => e.target.style.opacity = '1'}
+                  title="Notifications"
+                >
+                  ♡
+                  {notifications.filter(n => !n.read).length > 0 && (
+                    <span style={{ position: 'absolute', top: '-6px', right: '-8px', backgroundColor: dark ? '#fff' : '#000', color: dark ? '#000' : '#fff', borderRadius: '50%', width: '14px', height: '14px', fontSize: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '600', pointerEvents: 'none' }}>
+                      {Math.min(notifications.filter(n => !n.read).length, 9)}
+                    </span>
+                  )}
+                </button>
+
+                {showNotifications && (
+                  <>
+                    <div onClick={() => setShowNotifications(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }}/>
+                    <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '12px', width: '300px', backgroundColor: dark ? '#000' : '#fff', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, zIndex: 999, maxHeight: '420px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.12)' }}>
+                      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, fontSize: '10px', letterSpacing: '0.15em', color: dark ? '#999' : '#666', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        NOTIFICATIONS
+                        {notifications.length > 0 && (
+                          <button onClick={() => { const u={}; notifications.forEach(n=>{u[`notifications/${user.id}/${n.id}`]=null;}); update(ref(database),u); setShowNotifications(false); }} style={{ fontSize: '9px', letterSpacing: '0.1em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#666' : '#999' }}>
+                            CLEAR ALL
+                          </button>
+                        )}
+                      </div>
+                      {notifications.length === 0 ? (
+                        <div style={{ padding: '28px 16px', fontSize: '11px', color: dark ? '#666' : '#999', textAlign: 'center', letterSpacing: '0.05em' }}>NO NOTIFICATIONS</div>
+                      ) : notifications.map(n => (
+                        <div
+                          key={n.id}
+                          onClick={() => { setShowNotifications(false); enterRoom(n.postRoom, n.postId); }}
+                          style={{ padding: '12px 16px', borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, cursor: 'pointer', backgroundColor: n.read ? 'transparent' : (dark ? '#0a0a0a' : '#fafafa'), transition: 'background-color 0.15s' }}
+                          onMouseEnter={e => e.currentTarget.style.backgroundColor = dark ? '#111' : '#f0f0f0'}
+                          onMouseLeave={e => e.currentTarget.style.backgroundColor = n.read ? 'transparent' : (dark ? '#0a0a0a' : '#fafafa')}
+                        >
+                          <div style={{ fontSize: '11px', color: dark ? '#fff' : '#000', marginBottom: '3px', letterSpacing: '0.02em' }}>
+                            <span style={{ fontWeight: '500' }}>{n.fromUser}</span>
+                            {n.type === 'upvote' ? ' upvoted your post' : n.type === 'reply' ? ' replied to your comment' : ' commented on your post'}
+                          </div>
+                          {n.postText && (
+                            <div style={{ fontSize: '10px', color: dark ? '#666' : '#999', letterSpacing: '0.02em', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {n.postText}
+                            </div>
+                          )}
+                          {n.commentText && n.type !== 'upvote' && (
+                            <div style={{ fontSize: '10px', color: dark ? '#888' : '#777', letterSpacing: '0.02em', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              "{n.commentText}"
+                            </div>
+                          )}
+                          <div style={{ fontSize: '9px', color: dark ? '#555' : '#bbb', letterSpacing: '0.05em', marginTop: '4px' }}>
+                            {new Date(n.created).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
               <button
                 onClick={() => setShowSettings(true)}
                 style={{
@@ -1326,7 +1481,7 @@ export default function Carlisle() {
                 )}
 
                 {visible.map((post) => (
-                  <article key={post.id} style={{ 
+                  <article key={post.id} id={`post-${post.id}`} style={{ 
                     paddingBottom: layout === 'single' ? '60px' : '20px',
                     borderBottom: layout === 'single' ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
                     wordWrap: 'break-word',
