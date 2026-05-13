@@ -115,6 +115,28 @@ if (!document.head.querySelector('style[data-carlisle]')) {
   document.head.appendChild(styleSheet);
 }
 
+// Mobile viewport fix — prevents zoom on input focus in Safari
+const metaViewport = document.querySelector('meta[name="viewport"]');
+if (metaViewport) {
+  metaViewport.content = 'width=device-width, initial-scale=1, maximum-scale=1';
+}
+
+// Mobile CSS tweaks
+const mobileStyle = document.createElement('style');
+mobileStyle.textContent = `
+  @media (max-width: 768px) {
+    input, textarea, select {
+      font-size: 16px !important;
+    }
+    button { -webkit-tap-highlight-color: transparent; }
+    * { -webkit-touch-callout: none; }
+  }
+`;
+if (!document.head.querySelector('style[data-carlisle-mobile]')) {
+  mobileStyle.setAttribute('data-carlisle-mobile', 'true');
+  document.head.appendChild(mobileStyle);
+}
+
 // ---------- Upload utility ----------
 async function uploadFile(file) {
   if (file.size > 4 * 1024 * 1024) {
@@ -219,6 +241,7 @@ export default function Carlisle() {
     return localStorage.getItem("carlisle_theme") || "default";
   });
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+  const isMobile = windowWidth < 768;
 
   // Theme color palettes
   const themes = {
@@ -1128,13 +1151,9 @@ export default function Carlisle() {
       overflowX: 'hidden',
       paddingBottom: nowPlaying ? '52px' : '0'
     }}>
-      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: windowWidth < 768 ? '20px 10px' : '40px 20px' }}>
+      <div style={{ maxWidth: '1400px', margin: '0 auto', padding: isMobile ? '16px 16px' : '40px 20px', paddingBottom: isMobile ? '72px' : (nowPlaying ? '52px' : '20px') }}>
         {/* Header */}
-        <header style={{ 
-          marginBottom: '60px', 
-          paddingBottom: '30px', 
-          borderBottom: `1px solid ${getColor('border')}` 
-        }}>
+        <header style={{ marginBottom: isMobile ? '20px' : '60px', paddingBottom: isMobile ? '16px' : '30px', borderBottom: `1px solid ${getColor('border')}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px', flexWrap: 'wrap', gap: '20px' }}>
             <button
               onClick={() => setView("home")}
@@ -1146,14 +1165,7 @@ export default function Carlisle() {
                 textAlign: 'left'
               }}
             >
-              <div style={{ 
-                fontSize: '24px', 
-                fontWeight: '300', 
-                letterSpacing: '0.15em',
-                marginBottom: '8px',
-                color: dark ? '#fff' : '#000',
-                transition: 'opacity 0.2s'
-              }}
+              <div style={{ fontSize: isMobile ? '18px' : '24px', fontWeight: '300', letterSpacing: '0.15em', marginBottom: isMobile ? '4px' : '8px', color: dark ? '#fff' : '#000', transition: 'opacity 0.2s' }}
               onMouseEnter={(e) => e.target.style.opacity = '0.5'}
               onMouseLeave={(e) => e.target.style.opacity = '1'}
               >
@@ -1168,40 +1180,26 @@ export default function Carlisle() {
               </div>
             </button>
 
-            <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button
-                onClick={() => enterProfile(user.id)}
-                style={{
-                  fontSize: '10px',
-                  letterSpacing: '0.15em',
-                  color: dark ? '#999' : '#666',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '0',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                {user.username}
-              </button>
-              <button
-                onClick={() => setView('sounds')}
-                style={{
-                  fontSize: '10px',
-                  letterSpacing: '0.15em',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: dark ? '#fff' : '#000',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                SOUNDS
-              </button>
+            <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+              {!isMobile && (
+                <>
+                  <button
+                    onClick={() => enterProfile(user.id)}
+                    style={{ fontSize: '10px', letterSpacing: '0.15em', color: dark ? '#999' : '#666', background: 'none', border: 'none', cursor: 'pointer', padding: '0', transition: 'opacity 0.2s' }}
+                    onMouseEnter={e => e.target.style.opacity = '0.5'}
+                    onMouseLeave={e => e.target.style.opacity = '1'}
+                  >
+                    {user.username}
+                  </button>
+                  <button
+                    onClick={() => setView('sounds')}
+                    style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#fff' : '#000', transition: 'opacity 0.2s' }}
+                    onMouseEnter={e => e.target.style.opacity = '0.5'}
+                    onMouseLeave={e => e.target.style.opacity = '1'}
+                  >
+                    SOUNDS
+                  </button>
+                </>
               {/* Notification bell */}
               <div style={{ position: 'relative' }}>
                 <button
@@ -1275,88 +1273,57 @@ export default function Carlisle() {
                 )}
               </div>
 
-              <button
-                onClick={() => setShowSettings(true)}
-                style={{
-                  fontSize: '10px',
-                  letterSpacing: '0.15em',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: dark ? '#fff' : '#000',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-              >
-                SETTINGS
-              </button>
-              {user.isAdmin && (
-                <button
-                  onClick={() => setShowAdminPanel(true)}
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.15em',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: dark ? '#ff4444' : '#ff0000',
-                    transition: 'opacity 0.2s',
-                    fontWeight: '500'
-                  }}
-                  onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                  onMouseLeave={(e) => e.target.style.opacity = '1'}
-                >
-                  🛡️ ADMIN
-                </button>
+              {!isMobile && (
+                <>
+                  <button
+                    onClick={() => setShowSettings(true)}
+                    style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#fff' : '#000', transition: 'opacity 0.2s' }}
+                    onMouseEnter={e => e.target.style.opacity = '0.5'}
+                    onMouseLeave={e => e.target.style.opacity = '1'}
+                  >
+                    SETTINGS
+                  </button>
+                  {user.isAdmin && (
+                    <button
+                      onClick={() => setShowAdminPanel(true)}
+                      style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#ff4444' : '#ff0000', transition: 'opacity 0.2s', fontWeight: '500' }}
+                      onMouseEnter={e => e.target.style.opacity = '0.5'}
+                      onMouseLeave={e => e.target.style.opacity = '1'}
+                    >
+                      🛡️ ADMIN
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
 
           {view === "room" && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '12px' : '20px', flexWrap: 'wrap' }}>
               <button
                 onClick={() => setView("home")}
-                style={{
-                  fontSize: '10px',
-                  letterSpacing: '0.15em',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: dark ? '#999' : '#666',
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
+                style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#999' : '#666', transition: 'opacity 0.2s', flexShrink: 0 }}
+                onMouseEnter={e => e.target.style.opacity = '0.5'}
+                onMouseLeave={e => e.target.style.opacity = '1'}
               >
-                ← BACK TO HOME
+                ←
               </button>
+              {isMobile && (
+                <div style={{ fontSize: '12px', letterSpacing: '0.1em', color: dark ? '#fff' : '#000', fontWeight: '400' }}>
+                  {currentRoomName.toUpperCase()}
+                </div>
+              )}
 
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="SEARCH"
-                style={{
-                  fontSize: '16px',
-                  letterSpacing: '0.15em',
-                  padding: '8px 0',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                  outline: 'none',
-                  width: '180px',
-                  color: dark ? '#fff' : '#000',
-                  transition: 'width 0.3s, border-color 0.2s'
-                }}
-                onFocus={(e) => {
-                  e.target.style.width = '240px';
-                  e.target.style.borderColor = dark ? '#666' : '#999';
-                }}
-                onBlur={(e) => {
-                  e.target.style.width = '180px';
-                  e.target.style.borderColor = dark ? '#333' : '#e5e5e5';
-                }}
-              />
+              {!isMobile && (
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="SEARCH"
+                  style={{ fontSize: '16px', letterSpacing: '0.15em', padding: '8px 0', background: 'none', border: 'none', borderBottom: `1px solid ${dark ? '#333' : '#e5e5e5'}`, outline: 'none', width: '180px', color: dark ? '#fff' : '#000', transition: 'width 0.3s, border-color 0.2s' }}
+                  onFocus={e => { e.target.style.width = '240px'; e.target.style.borderColor = dark ? '#666' : '#999'; }}
+                  onBlur={e => { e.target.style.width = '180px'; e.target.style.borderColor = dark ? '#333' : '#e5e5e5'; }}
+                />
+              )}
               
               <RoomsDropdown 
                 rooms={state.rooms || []}
@@ -1375,40 +1342,25 @@ export default function Carlisle() {
                 userCreatedRooms={user.createdRooms}
               />
 
-              <button
-                onClick={cycleLayout}
-                style={{
-                  fontSize: '14px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: dark ? '#fff' : '#000',
-                  transition: 'opacity 0.2s',
-                  padding: '0',
-                  lineHeight: '1'
-                }}
-                onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-                onMouseLeave={(e) => e.target.style.opacity = '1'}
-                title={`Layout: ${layout}`}
-              >
-                {getGridIcon()}
-              </button>
+              {!isMobile && (
+                <button
+                  onClick={cycleLayout}
+                  style={{ fontSize: '14px', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#fff' : '#000', transition: 'opacity 0.2s', padding: '0', lineHeight: '1' }}
+                  onMouseEnter={e => e.target.style.opacity = '0.5'}
+                  onMouseLeave={e => e.target.style.opacity = '1'}
+                >
+                  {getGridIcon()}
+                </button>
+              )}
             </div>
           )}
         </header>
 
-        {/* New Post Button */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          marginBottom: '40px',
-          marginTop: '-30px'
-        }}>
+        {/* New Post Button — desktop only */}
+        {!isMobile && <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '40px', marginTop: '-30px' }}>
           <button
             onClick={() => {
-              if (view !== "room") {
-                setRoom(DEFAULT_ROOM);
-              }
+              if (view !== "room") { setRoom(DEFAULT_ROOM); }
               setShowNew(true);
             }}
             style={{
@@ -1503,11 +1455,7 @@ export default function Carlisle() {
               </div>
 
               <main>
-              <section style={{ 
-                display: 'grid',
-                gridTemplateColumns: getGridColumns(),
-                gap: layout === 'single' ? '60px' : windowWidth < 768 ? '20px' : '30px'
-              }}>
+              <section style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : getGridColumns(), gap: isMobile ? '0' : (layout === 'single' ? '60px' : '30px') }}>
                 {visible.length === 0 && (
                   <div style={{ 
                     padding: '60px 0', 
@@ -1523,13 +1471,14 @@ export default function Carlisle() {
 
                 {visible.map((post) => (
                   <article key={post.id} id={`post-${post.id}`} style={{ 
-                    paddingBottom: layout === 'single' ? '60px' : '20px',
-                    borderBottom: layout === 'single' ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
+                    paddingBottom: isMobile ? '20px' : (layout === 'single' ? '60px' : '20px'),
+                    borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
                     wordWrap: 'break-word',
                     overflowWrap: 'break-word',
                     minWidth: 0,
-                    border: layout !== 'single' ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
-                    padding: layout !== 'single' ? '15px' : '0'
+                    padding: isMobile ? '16px 0' : (layout !== 'single' ? '15px' : '0'),
+                    border: (!isMobile && layout !== 'single') ? `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}` : 'none',
+                    borderBottom: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1785,6 +1734,44 @@ export default function Carlisle() {
           dark={dark}
         />
       )}
+      {/* Mobile bottom navigation */}
+      {isMobile && (
+        <nav style={{
+          position: 'fixed', bottom: nowPlaying ? '52px' : '0', left: 0, right: 0,
+          height: '56px', backgroundColor: dark ? '#000' : '#fff',
+          borderTop: `1px solid ${dark ? '#1a1a1a' : '#f0f0f0'}`,
+          display: 'flex', alignItems: 'stretch', zIndex: 850,
+          fontFamily: 'Helvetica Neue, Arial, sans-serif',
+        }}>
+          {[
+            { label: 'HOME',    action: () => setView('home'),            active: view === 'home' },
+            { label: 'ROOMS',   action: () => { setView('room'); setRoom(DEFAULT_ROOM); }, active: view === 'room' },
+            { label: '+',       action: () => { if(view !== 'room') setRoom(DEFAULT_ROOM); setShowNew(true); }, plus: true },
+            { label: 'YOU',     action: () => enterProfile(user.id),      active: view === 'profile' && profileView === user.id },
+            { label: 'MENU',    action: () => setShowSettings(true),      active: false },
+          ].map(({ label, action, active, plus }) => (
+            <button key={label} onClick={action} style={{
+              flex: 1, background: 'none', border: 'none', cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              color: plus ? (dark ? '#000' : '#fff') : active ? (dark ? '#fff' : '#000') : (dark ? '#555' : '#bbb'),
+              fontSize: plus ? '22px' : '8px', letterSpacing: plus ? '0' : '0.08em',
+              fontWeight: plus ? '300' : '400', padding: '0',
+              backgroundColor: plus ? (dark ? '#fff' : '#000') : 'transparent',
+              borderRadius: plus ? '50%' : '0',
+              width: plus ? '40px' : 'auto', height: plus ? '40px' : 'auto',
+              maxWidth: plus ? '40px' : 'none',
+              margin: plus ? '8px auto' : '0',
+              transition: 'opacity 0.15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
+            onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+
       {nowPlaying && (
         <NowPlayingBar
           nowPlaying={nowPlaying}
@@ -9162,7 +9149,7 @@ function NowPlayingBar({ nowPlaying, npPlaying, npProgress, onToggle, onClose, d
 
   return (
     <div style={{
-      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 950,
+      position: 'fixed', bottom: window.innerWidth < 768 ? '56px' : '0', left: 0, right: 0, zIndex: 950,
       backgroundColor: bg,
       borderTop: `1px solid ${border}`,
       display: 'flex', alignItems: 'center', gap: '12px',
