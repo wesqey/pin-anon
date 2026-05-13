@@ -98,6 +98,11 @@ const EMPTY = {
 // Add CSS for animations
 const styleSheet = document.createElement("style");
 styleSheet.textContent = `
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: #000;
+  }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
@@ -676,6 +681,7 @@ export default function Carlisle() {
 
   useEffect(() => {
     localStorage.setItem("carlisle_dark", dark ? "1" : "0");
+    document.body.style.backgroundColor = dark ? '#000' : '#fff';
   }, [dark]);
 
   useEffect(() => {
@@ -2518,101 +2524,96 @@ function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, on
 function CommentBlock({ post, addComment, removeComment, whisper, dark, user, firebaseUser, legacyUserId, isRoomMod, enterProfile }) {
   const [commentText, setCommentText] = useState("");
   const [showComments, setShowComments] = useState(false);
+  const [showInput, setShowInput] = useState(false);
+  const inputRef = React.useRef(null);
 
   const topLevelComments = (post.comments || []).filter(c => !c.parentId);
+  const muted = dark ? '#666' : '#999';
+  const s = dark ? '#fff' : '#000';
+
+  function submit() {
+    if (commentText.trim()) {
+      addComment(post.id, commentText.trim());
+      setCommentText("");
+      setShowComments(true);
+      setShowInput(false);
+    }
+  }
 
   return (
     <div>
-      <div style={{ marginBottom: '15px' }}>
-        <textarea
-          value={commentText}
-          onChange={(e) => setCommentText(e.target.value)}
-          placeholder="ADD A COMMENT..."
-          style={{
-            width: '100%',
-            minHeight: '60px',
-            fontSize: '12px',
-            letterSpacing: '0.02em',
-            padding: '12px',
-            background: 'none',
-            border: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-            outline: 'none',
-            resize: 'vertical',
-            color: dark ? '#fff' : '#000',
-            fontFamily: 'Helvetica Neue, Arial, sans-serif'
-          }}
-        />
+      {/* Action row: comment icon + count toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: showInput || showComments ? '12px' : '0' }}>
         <button
           onClick={() => {
-            if (commentText.trim()) {
-              addComment(post.id, commentText.trim());
-              setCommentText("");
-              setShowComments(true);
-            }
+            setShowInput(!showInput);
+            if (!showInput) setTimeout(() => inputRef.current?.focus(), 50);
           }}
-          style={{
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            padding: '8px 16px',
-            marginTop: '8px',
-            background: 'none',
-            border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-            cursor: 'pointer',
-            color: dark ? '#fff' : '#000',
-            transition: 'border-color 0.2s'
-          }}
-          onMouseEnter={(e) => e.target.style.borderColor = dark ? '#666' : '#999'}
-          onMouseLeave={(e) => e.target.style.borderColor = dark ? '#333' : '#e5e5e5'}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted, padding: '0', fontSize: '14px', lineHeight: 1, transition: 'opacity 0.2s' }}
+          onMouseEnter={e => e.target.style.opacity = '0.5'}
+          onMouseLeave={e => e.target.style.opacity = '1'}
+          title="Add comment"
         >
-          POST
+          &#9825;
         </button>
-      </div>
-
-      {topLevelComments.length > 0 && (
-        <div>
+        {topLevelComments.length > 0 && (
           <button
             onClick={() => setShowComments(!showComments)}
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: dark ? '#999' : '#666',
-              marginBottom: '15px',
-              transition: 'opacity 0.2s'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.5'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: muted, padding: '0', fontSize: '10px', letterSpacing: '0.1em', transition: 'opacity 0.2s' }}
+            onMouseEnter={e => e.target.style.opacity = '0.5'}
+            onMouseLeave={e => e.target.style.opacity = '1'}
           >
-            {showComments ? '▼' : '▶'} {topLevelComments.length} COMMENT{topLevelComments.length !== 1 ? 'S' : ''}
+            {topLevelComments.length}
           </button>
+        )}
+      </div>
 
-          {showComments && (
-            <div style={{ 
-              borderLeft: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`,
-              paddingLeft: '20px',
-              marginTop: '15px'
-            }}>
-              {topLevelComments.map(comment => (
-                <CommentThread
-                  key={comment.id}
-                  comment={comment}
-                  allComments={post.comments || []}
-                  postId={post.id}
-                  addComment={addComment}
-                  removeComment={removeComment}
-                  whisper={whisper}
-                  dark={dark}
-                  user={user}
-                  firebaseUser={firebaseUser}
-                  legacyUserId={legacyUserId}
-                  isRoomMod={isRoomMod}
-                  enterProfile={enterProfile}
-                />
-              ))}
-            </div>
-          )}
+      {/* Inline comment input — expands when icon clicked */}
+      {showInput && (
+        <div style={{ marginBottom: '12px', display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+          <textarea
+            ref={inputRef}
+            value={commentText}
+            onChange={e => setCommentText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+            placeholder="WRITE A COMMENT..."
+            rows={2}
+            style={{
+              flex: 1, fontSize: '11px', letterSpacing: '0.02em', padding: '8px 10px',
+              background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              outline: 'none', resize: 'none', color: s,
+              fontFamily: 'Helvetica Neue, Arial, sans-serif', lineHeight: '1.5'
+            }}
+          />
+          <button
+            onClick={submit}
+            style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '8px 12px', background: s, border: 'none', cursor: 'pointer', color: dark ? '#000' : '#fff', flexShrink: 0 }}
+          >
+            POST
+          </button>
+        </div>
+      )}
+
+      {/* Comments */}
+      {showComments && topLevelComments.length > 0 && (
+        <div style={{ borderLeft: `1px solid ${dark ? '#1a1a1a' : '#f5f5f5'}`, paddingLeft: '16px', marginTop: '8px' }}>
+          {topLevelComments.map(comment => (
+            <CommentThread
+              key={comment.id}
+              comment={comment}
+              allComments={post.comments || []}
+              postId={post.id}
+              addComment={addComment}
+              removeComment={removeComment}
+              whisper={whisper}
+              dark={dark}
+              user={user}
+              firebaseUser={firebaseUser}
+              legacyUserId={legacyUserId}
+              isRoomMod={isRoomMod}
+              enterProfile={enterProfile}
+            />
+          ))}
         </div>
       )}
     </div>
