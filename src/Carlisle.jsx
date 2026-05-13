@@ -87,7 +87,7 @@ function loadUser() {
 }
 
 const EMPTY = {
-  rooms: [{ id: DEFAULT_ROOM, name: "main room", invite: DEFAULT_ROOM }, { id: "fish", name: "fish", invite: "fish", permanent: true }],
+  rooms: [{ id: DEFAULT_ROOM, name: "main room", invite: DEFAULT_ROOM }, { id: "birds", name: "birds", invite: "birds", permanent: true }],
   posts: [],
   settings: { whisper: false },
   inviteCodes: {},
@@ -2752,7 +2752,8 @@ function NewPostModal({ onClose, onPost, dark }) {
             disabled={uploading}
             style={{
               fontSize: '11px',
-              color: dark ? '#fff' : '#000'
+              color: dark ? '#fff' : '#000',
+              letterSpacing: '0.05em'
             }}
           />
           {imagePreview && (
@@ -2806,25 +2807,79 @@ function NewPostModal({ onClose, onPost, dark }) {
             color: dark ? '#999' : '#666',
             marginBottom: '8px'
           }}>
-            AUDIO URL
+            AUDIO
           </label>
-          <input
-            type="text"
-            value={audioUrl}
-            onChange={(e) => setAudioUrl(e.target.value)}
-            placeholder="https://..."
-            disabled={uploading}
-            style={{
-              width: '100%',
-              fontSize: '12px',
-              padding: '12px',
-              background: 'none',
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
+            <input
+              type="text"
+              value={audioUrl}
+              onChange={(e) => setAudioUrl(e.target.value)}
+              placeholder="PASTE URL OR UPLOAD A FILE →"
+              disabled={uploading}
+              style={{
+                flex: 1,
+                fontSize: '12px',
+                padding: '12px',
+                background: 'none',
+                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+                outline: 'none',
+                color: dark ? '#fff' : '#000',
+                fontFamily: 'Helvetica Neue, Arial, sans-serif'
+              }}
+            />
+            <label style={{
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              padding: '0 16px',
               border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-              outline: 'none',
+              cursor: uploading ? 'not-allowed' : 'pointer',
               color: dark ? '#fff' : '#000',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif'
+              display: 'flex',
+              alignItems: 'center',
+              whiteSpace: 'nowrap',
+              opacity: uploading ? 0.5 : 1,
+              transition: 'border-color 0.2s'
             }}
-          />
+            onMouseEnter={e => { if(!uploading) e.currentTarget.style.borderColor = dark?'#666':'#999'; }}
+            onMouseLeave={e => { if(!uploading) e.currentTarget.style.borderColor = dark?'#333':'#e5e5e5'; }}
+            >
+              ↑ UPLOAD
+              <input
+                type="file"
+                accept="audio/*"
+                disabled={uploading}
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const file = e.target.files[0];
+                  if (!file) return;
+                  if (file.size > 20 * 1024 * 1024) {
+                    alert('FILE TOO LARGE — MAXIMUM 20MB');
+                    return;
+                  }
+                  setUploading(true);
+                  try {
+                    const response = await fetch('/api/upload', {
+                      method: 'POST',
+                      headers: { 'Content-Type': file.type, 'x-filename': file.name },
+                      body: file,
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error);
+                    setAudioUrl(data.url);
+                  } catch (err) {
+                    alert('UPLOAD FAILED');
+                  } finally {
+                    setUploading(false);
+                  }
+                }}
+              />
+            </label>
+          </div>
+          {audioUrl && audioUrl.startsWith('https://pub-') && (
+            <div style={{ fontSize: '10px', letterSpacing: '0.05em', color: dark ? '#666' : '#999', marginTop: '6px' }}>
+              AUDIO UPLOADED ✓
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
