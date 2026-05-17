@@ -39,31 +39,70 @@ const LS_USER = "carlisle_user";
 const DEFAULT_ROOM = "main";
 const ADMIN_PASSWORD = "EpicMan101";
 
-// Xbox 360-style username generator
 const adjectives = [
-  "Big", "Small", "Fast", "Slow", "Dead", "Sad", "Happy", "Angry",
-  "Quiet", "Loud", "Cold", "Hot", "Wet", "Dry", "Old", "New",
-  "Half", "Full", "Empty", "Broken", "Fixed", "Lost", "Found", "Hidden",
-  "Dizzy", "Sleepy", "Grumpy", "Fancy", "Plain", "Shiny", "Dull", "Tiny",
-  "Giant", "Mini", "Mega", "Ultra", "Super", "Hyper", "Turbo", "Extreme",
-  "Fuzzy", "Smooth", "Rough", "Sharp", "Blunt", "Thick", "Thin", "Wide"
+  "ancient","arctic","ashen","bare","bitter","blank","bleak","bold","brief","brittle",
+  "calm","careful","casual","cheap","clean","clear","clever","close","cold","cool",
+  "coarse","covert","cracked","crude","crushed","curious","damp","dark","dead","deep",
+  "dense","dim","dirty","distant","drab","dreary","dry","dull","dusty","earnest",
+  "elder","empty","even","faint","faded","fallen","false","far","feral","flat",
+  "fleeting","fluid","foggy","fond","foreign","forgotten","frail","frozen","gentle",
+  "ghostly","grim","gravel","grey","gritty","hollow","honest","humble","idle","inland",
+  "inner","ironic","jaded","keen","kind","known","lanky","late","lean","light",
+  "little","lone","long","lost","loud","low","loyal","lunar","mellow","minor",
+  "mired","misty","muted","naive","narrow","neat","numb","obscure","odd","offhand",
+  "old","open","outer","pale","patient","plain","pointed","polite","poor","prime",
+  "proper","proud","pure","quiet","ragged","rare","raw","remote","rigid","rugged",
+  "rural","rustic","sad","shallow","sharp","shy","silent","simple","sincere","slim",
+  "slow","small","smart","soft","solemn","sour","spare","stark","steady","stern",
+  "still","stoic","strange","stray","subtle","sunken","swift","tall","tame","tender",
+  "thin","tired","torn","true","twilight","unknown","vacant","vague","vast","warm",
+  "wary","weathered","weary","weird","western","whole","wild","wise","worn","young"
 ];
 
 const nouns = [
-  "Dog", "Cat", "Fish", "Bird", "Mouse", "Frog", "Bear", "Wolf",
-  "Fox", "Deer", "Duck", "Goose", "Cow", "Pig", "Sheep", "Goat",
-  "Turtle", "Snail", "Crab", "Shrimp", "Clam", "Squid", "Whale", "Shark",
-  "Tree", "Rock", "Cloud", "Moon", "Star", "Sun", "Wind", "Rain",
-  "Box", "Cup", "Lamp", "Chair", "Table", "Door", "Window", "Wall",
-  "Car", "Truck", "Bike", "Boat", "Plane", "Train", "Bus", "Van",
-  "Pizza", "Taco", "Bread", "Cheese", "Apple", "Grape", "Melon", "Berry"
+  "alcove","arch","ash","avenue","barn","basin","bay","beam","bench","birch",
+  "blade","bloom","bluff","bog","bolt","bone","branch","brick","bridge","brook",
+  "burrow","cabin","canal","canyon","cape","cedar","cell","chalk","chapel","cliff",
+  "cloth","coast","cobble","cord","corner","cove","creek","crest","crow","current",
+  "dawn","deck","den","depot","desert","dew","dock","door","dune","dust",
+  "echo","edge","elm","ember","estuary","fen","ferry","field","flint","flood",
+  "floor","flute","foam","fog","ford","forge","fork","frost","gale","gate",
+  "glade","glare","glen","grain","gravel","grove","gulf","gust","harbor","hatch",
+  "haven","hazel","heath","hedge","helm","heron","hill","hollow","horn","hull",
+  "inlet","iron","isle","ivy","jetty","keel","kernel","kiln","knoll","lagoon",
+  "lane","lantern","larch","lattice","ledge","light","linen","loch","loft","loop",
+  "mast","meadow","mesa","mill","mire","mist","moat","moor","moss","mouth",
+  "mud","needle","nest","oak","oar","orbit","orchard","ore","outcrop","peat",
+  "pebble","perch","pine","plain","plank","plume","pool","port","quarry","quay",
+  "rail","ravine","reed","reef","ridge","rift","rivet","root","rope","ruin",
+  "rush","salt","sand","scarp","sedge","seep","shaft","shelf","shell","shore",
+  "shroud","sill","slate","slope","smoke","soil","span","spit","spring","spur",
+  "stalk","steep","stem","stone","storm","strand","stream","summit","swamp","sweep",
+  "tarn","thatch","thorn","tide","timber","torch","tower","trail","trench","vale",
+  "vault","vein","vent","vessel","vine","wake","wall","wave","well","wick",
+  "willow","wind","wire","wood","wreck","yard","yew"
+];
+
+const structures = [
+  (a, n) => `${a}_${n}`,
+  (a, n) => `${a}${n}`,
+  (a, n) => `${n}_${a}`,
+  (a, n) => `the_${n}`,
+  (a, n) => `${a}-${n}`,
+  (a, n) => `${n}${Math.floor(Math.random()*90)+10}`,
+  (a, n) => `${a}_${n}${Math.floor(Math.random()*9)+1}`,
+  (a, n) => `${n}_${Math.floor(Math.random()*999)+100}`,
+  (a, n) => `${a}${n}_${Math.floor(Math.random()*99)+1}`,
+  (a, n) => `${n}`,
+  (a, n) => `${a}_${n}_${['i','ii','iii','iv','v','vi'][Math.floor(Math.random()*6)]}`,
+  (a, n) => `${Math.floor(Math.random()*9)+1}_${a}_${n}`,
 ];
 
 function generateUsername() {
   const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
   const noun = nouns[Math.floor(Math.random() * nouns.length)];
-  const num = Math.floor(Math.random() * 100);
-  return `${adj}${noun}${num}`;
+  const structure = structures[Math.floor(Math.random() * structures.length)];
+  return structure(adj, noun);
 }
 
 function uid(prefix = "id") {
