@@ -1310,11 +1310,7 @@ export default function Carlisle() {
               >
                 ←
               </button>
-              {isMobile && (
-                <div style={{ fontSize: '12px', letterSpacing: '0.1em', color: dark ? '#fff' : '#000', fontWeight: '400' }}>
-                  {currentRoomName.toUpperCase()}
-                </div>
-              )}
+
 
               {!isMobile && (
                 <input
