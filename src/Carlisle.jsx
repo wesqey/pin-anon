@@ -250,6 +250,12 @@ export default function Carlisle() {
     if (hash.startsWith('room/')) return hash.split('/')[1] || DEFAULT_ROOM;
     return localStorage.getItem("carlisle_room") || DEFAULT_ROOM;
   });
+  const [initialPostId] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    const parts = hash.split('/');
+    if (parts[0] === 'room' && parts[2] === 'post' && parts[3]) return parts[3];
+    return null;
+  });
 
   const [showNew, setShowNew] = useState(false);
   const [profileView, setProfileView] = useState(() => {
@@ -265,6 +271,8 @@ export default function Carlisle() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [targetPostId, setTargetPostId] = useState(null);
@@ -773,6 +781,13 @@ export default function Carlisle() {
     localStorage.setItem("carlisle_room", room);
   }, [room]);
 
+  // Scroll to post from URL hash on first load
+  useEffect(() => {
+    if (initialPostId && !loading) {
+      setTargetPostId(initialPostId);
+    }
+  }, [loading]);
+
   useEffect(() => {
     if (!targetPostId) return;
     const timeout = setTimeout(() => {
@@ -793,13 +808,14 @@ export default function Carlisle() {
     [state.posts, room]
   );
 
-  function createRoom(name = "room", isPrivate = true, creatorOnly = false) {
+  function createRoom(name = "room", isPrivate = true, creatorOnly = false, description = '') {
     const invite = uid('room').slice(5, 11);
     const r = { 
       id: invite, 
-      name: name || `room-${invite}`, 
+      name: name || `room-${invite}`,
       invite,
       creator: user.id,
+      description: description || null,
       isPrivate: isPrivate,
       creatorOnly: creatorOnly
     };
@@ -876,6 +892,15 @@ export default function Carlisle() {
     if (!text) return;
     const postIndex = (state.posts || []).findIndex(p => p.id === postId);
     if (postIndex === -1) return;
+
+    // Rate limit: one comment per 10 seconds
+    const allComments = (state.posts || []).flatMap(p => p.comments || []);
+    const recentComment = allComments.find(c => c.author === user.id && Date.now() - c.created < 10000);
+    if (recentComment && !user.isAdmin) {
+      const wait = Math.ceil((10000 - (Date.now() - recentComment.created)) / 1000);
+      alert(`WAIT ${wait} SECONDS BEFORE COMMENTING AGAIN`);
+      return;
+    }
     const post = state.posts[postIndex];
     const newComment = {
       id: uid("c"),
@@ -986,13 +1011,19 @@ export default function Carlisle() {
   function enterRoom(roomId, postId = null) {
     setRoom(roomId);
     setView("room");
-    if (postId) setTargetPostId(postId);
+    if (postId) {
+      setTargetPostId(postId);
+      window.location.hash = `room/${roomId}/post/${postId}`;
+    } else {
+      window.location.hash = `room/${roomId}`;
+    }
   }
 
   function enterProfile(authorId) {
     setPreviousView(view);
     setProfileView(authorId);
     setView("profile");
+    window.location.hash = `profile/${authorId}`;
   }
 
   function removeRoom(roomId) {
@@ -1113,6 +1144,14 @@ export default function Carlisle() {
       alert("ONLY THE ROOM CREATOR CAN POST IN THIS ROOM");
       return;
     }
+
+    // Rate limit: one post per 30 seconds
+    const recentPost = (state.posts || []).find(p => p.author === user.id && Date.now() - p.created < 30000);
+    if (recentPost && !user.isAdmin) {
+      const wait = Math.ceil((30000 - (Date.now() - recentPost.created)) / 1000);
+      alert(`SLOW DOWN — WAIT ${wait} SECONDS BEFORE POSTING AGAIN`);
+      return;
+    }
     
     const postId = crypto.randomUUID();
     const post = {
@@ -1145,6 +1184,14 @@ export default function Carlisle() {
       return u;
     });
   }
+
+  const globalSearchResults = useMemo(() => {
+    if (!globalSearch.trim() || globalSearch.length < 2) return [];
+    const q = globalSearch.toLowerCase();
+    return (state.posts || [])
+      .filter(p => (p.text || '').toLowerCase().includes(q) || (p.authorDisplayName || '').toLowerCase().includes(q))
+      .slice(0, 20);
+  }, [globalSearch, state.posts]);
 
   const currentRoomName = useMemo(() => {
     const r = (state.rooms || []).find(r => r.id === room);
@@ -1295,6 +1342,40 @@ export default function Carlisle() {
                 )}
               </div>
 
+              {!isMobile && (
+                <div style={{ position: 'relative' }}>
+                  <button onClick={() => { setShowGlobalSearch(!showGlobalSearch); if(!showGlobalSearch) setGlobalSearch(''); }} style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#fff' : '#000' }} onMouseEnter={e=>e.target.style.opacity='0.5'} onMouseLeave={e=>e.target.style.opacity='1'}>SEARCH</button>
+                  {showGlobalSearch && (
+                    <>
+                      <div onClick={() => setShowGlobalSearch(false)} style={{ position: 'fixed', top:0, left:0, right:0, bottom:0, zIndex:998 }}/>
+                      <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '12px', width: '320px', backgroundColor: dark?'#000':'#fff', border: `1px solid ${dark?'#333':'#e5e5e5'}`, zIndex: 999, boxShadow: '0 4px 12px rgba(0,0,0,0.12)' }}>
+                        <input
+                          autoFocus
+                          value={globalSearch}
+                          onChange={e => setGlobalSearch(e.target.value)}
+                          placeholder="SEARCH ALL ROOMS..."
+                          style={{ width: '100%', fontSize: '12px', padding: '14px 16px', background: 'none', border: 'none', borderBottom: `1px solid ${dark?'#1a1a1a':'#f5f5f5'}`, outline: 'none', color: dark?'#fff':'#000', letterSpacing: '0.05em', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                        />
+                        {globalSearchResults.length === 0 && globalSearch.length >= 2 && (
+                          <div style={{ padding: '20px 16px', fontSize: '11px', color: dark?'#666':'#999', letterSpacing: '0.05em' }}>NO RESULTS</div>
+                        )}
+                        {globalSearchResults.length === 0 && globalSearch.length < 2 && (
+                          <div style={{ padding: '20px 16px', fontSize: '11px', color: dark?'#666':'#999', letterSpacing: '0.05em' }}>TYPE TO SEARCH POSTS AND USERS</div>
+                        )}
+                        {globalSearchResults.map(p => (
+                          <div key={p.id} onClick={() => { enterRoom(p.room, p.id); setShowGlobalSearch(false); setGlobalSearch(''); }} style={{ padding: '12px 16px', borderBottom: `1px solid ${dark?'#1a1a1a':'#f5f5f5'}`, cursor: 'pointer', transition: 'background 0.15s' }}
+                            onMouseEnter={e=>e.currentTarget.style.background=dark?'#111':'#f5f5f5'}
+                            onMouseLeave={e=>e.currentTarget.style.background='transparent'}
+                          >
+                            <div style={{ fontSize: '11px', color: dark?'#fff':'#000', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.text || '[media]'}</div>
+                            <div style={{ fontSize: '10px', color: dark?'#555':'#aaa', letterSpacing: '0.05em' }}>{p.authorDisplayName} · {p.room?.toUpperCase()}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
               {!isMobile && <button onClick={() => setShowSettings(true)} style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#fff' : '#000' }} onMouseEnter={e=>e.target.style.opacity='0.5'} onMouseLeave={e=>e.target.style.opacity='1'}>SETTINGS</button>}
               {!isMobile && user.isAdmin && <button onClick={() => setShowAdminPanel(true)} style={{ fontSize: '10px', letterSpacing: '0.15em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#ff4444' : '#ff0000', fontWeight: '500' }} onMouseEnter={e=>e.target.style.opacity='0.5'} onMouseLeave={e=>e.target.style.opacity='1'}>🛡️ ADMIN</button>}
             </div>
@@ -1519,6 +1600,19 @@ export default function Carlisle() {
                       </div>
 
                       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <button
+                          onClick={() => {
+                            const url = `${window.location.origin}${window.location.pathname}#room/${post.room}/post/${post.id}`;
+                            navigator.clipboard?.writeText(url).then(() => {
+                              const el = document.getElementById(`share-${post.id}`);
+                              if (el) { el.textContent = 'COPIED'; setTimeout(() => { if(el) el.textContent = '↗'; }, 1500); }
+                            }).catch(() => prompt('COPY LINK:', url));
+                          }}
+                          id={`share-${post.id}`}
+                          style={{ fontSize: '10px', letterSpacing: '0.05em', background: 'none', border: 'none', cursor: 'pointer', color: dark ? '#555' : '#bbb', padding: 0, transition: 'opacity 0.2s' }}
+                          onMouseEnter={e => e.target.style.opacity = '0.5'}
+                          onMouseLeave={e => e.target.style.opacity = '1'}
+                        >↗</button>
                         {(user.isAdmin || post.author === user.id || (firebaseUser && post.authorId === firebaseUser.uid) || (legacyUserId && post.author === legacyUserId) || isRoomMod(post.room)) && (
                           <button
                             onClick={() => removePost(post.id)}
@@ -1688,8 +1782,8 @@ export default function Carlisle() {
       {inviteModal && (
         <RoomModal
           onClose={() => setInviteModal(false)}
-          onCreate={(n, isPrivate, creatorOnly) => {
-            const r = createRoom(n, isPrivate, creatorOnly);
+          onCreate={(n, isPrivate, creatorOnly, desc) => {
+            const r = createRoom(n, isPrivate, creatorOnly, desc);
             setRoom(r.id);
             setView("room");
             setInviteModal(false);
@@ -2042,14 +2136,17 @@ function HomePage({ rooms, posts, onEnterRoom, onCreateRoom, onJoinRoom, dark, u
                   }}>
                     {r.name.toUpperCase()}
                   </div>
-                  <div style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.05em',
-                    color: dark ? '#666' : '#999'
-                  }}>
-                    {roomPosts.length} POST{roomPosts.length !== 1 ? 'S' : ''}
-                    {r.isPrivate && ' • PRIVATE'}
-                    {r.creatorOnly && ' • CREATOR ONLY'}
+                  <div style={{ fontSize: '10px', letterSpacing: '0.05em', color: dark ? '#666' : '#999', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span>{roomPosts.length} POST{roomPosts.length !== 1 ? 'S' : ''}</span>
+                    {r.isPrivate && <span>• PRIVATE</span>}
+                    {r.creatorOnly && <span>• CREATOR ONLY</span>}
+                    {(() => { const latest = roomPosts.reduce((max, p) => p.created > max ? p.created : max, 0); return Date.now() - latest < 10 * 60 * 1000 && roomPosts.length > 0; })() && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: dark ? '#4ade80' : '#16a34a', fontSize: '9px', letterSpacing: '0.1em' }}>
+                        <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: 'currentColor', display: 'inline-block' }}/>
+                        ACTIVE
+                      </span>
+                    )}
+                    {r.description && <div style={{ marginTop: '6px', fontSize: '10px', color: dark ? '#555' : '#aaa', fontStyle: 'italic', width: '100%' }}>{r.description}</div>}
                   </div>
                 </button>
               );
@@ -2390,31 +2487,20 @@ function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, on
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '20px', marginBottom: '30px' }}>
           <ProfilePicture authorId={authorId} author={authorId} size={80} dark={dark} />
           <div style={{ flex: 1 }}>
-            <div style={{
-              fontSize: '24px',
-              letterSpacing: '0.1em',
-              fontWeight: '300',
-              marginBottom: '12px',
-              color: dark ? '#fff' : '#000'
-            }}>
+            <div style={{ fontSize: '24px', letterSpacing: '0.1em', fontWeight: '300', marginBottom: '12px', color: dark ? '#fff' : '#000' }}>
               {userData.username}
             </div>
             {userData.bio && (
-              <div style={{
-                fontSize: '12px',
-                letterSpacing: '0.02em',
-                lineHeight: '1.6',
-                color: dark ? '#999' : '#666',
-                marginBottom: '20px'
-              }}>
+              <div style={{ fontSize: '12px', letterSpacing: '0.02em', lineHeight: '1.6', color: dark ? '#999' : '#666', marginBottom: '12px' }}>
                 {userData.bio}
               </div>
             )}
-            <div style={{
-              fontSize: '10px',
-              letterSpacing: '0.1em',
-              color: dark ? '#666' : '#999'
-            }}>
+            {isOwnProfile && (user.joinedAt || user.createdAt) && (
+              <div style={{ fontSize: '10px', letterSpacing: '0.1em', color: dark ? '#555' : '#bbb', marginBottom: '20px' }}>
+                JOINED {new Date(user.joinedAt || user.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase()}
+              </div>
+            )}
+            <div style={{ fontSize: '10px', letterSpacing: '0.1em', color: dark ? '#666' : '#999' }}>
               {posts.length} POST{posts.length !== 1 ? 'S' : ''}
             </div>
           </div>
@@ -3136,6 +3222,7 @@ function NewPostModal({ onClose, onPost, dark }) {
 function RoomModal({ onClose, onCreate, onJoin, dark }) {
   const [mode, setMode] = useState("create");
   const [roomName, setRoomName] = useState("");
+  const [roomDescription, setRoomDescription] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [isPrivate, setIsPrivate] = useState(true);
   const [creatorOnly, setCreatorOnly] = useState(false);
@@ -3205,20 +3292,16 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
           <>
             <input
               value={roomName}
-              onChange={(e) => setRoomName(e.target.value)}
+              onChange={e => setRoomName(e.target.value)}
               placeholder="ROOM NAME"
-              style={{
-                width: '100%',
-                fontSize: '13px',
-                letterSpacing: '0.05em',
-                padding: '16px',
-                marginBottom: '20px',
-                background: 'none',
-                border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
-                outline: 'none',
-                color: dark ? '#fff' : '#000',
-                fontFamily: 'Helvetica Neue, Arial, sans-serif'
-              }}
+              style={{ width:'100%', fontSize:'13px', letterSpacing:'0.05em', padding:'16px', marginBottom:'10px', background:'none', border:`1px solid ${dark?'#333':'#e5e5e5'}`, outline:'none', color:dark?'#fff':'#000', fontFamily:'inherit', boxSizing:'border-box' }}
+            />
+            <input
+              value={roomDescription}
+              onChange={e => setRoomDescription(e.target.value)}
+              placeholder="SHORT DESCRIPTION (OPTIONAL)"
+              maxLength={80}
+              style={{ width:'100%', fontSize:'13px', letterSpacing:'0.05em', padding:'16px', marginBottom:'20px', background:'none', border:`1px solid ${dark?'#333':'#e5e5e5'}`, outline:'none', color:dark?'#fff':'#000', fontFamily:'inherit', boxSizing:'border-box' }}
             />
             
             <label style={{
@@ -3276,7 +3359,7 @@ function RoomModal({ onClose, onCreate, onJoin, dark }) {
                 CANCEL
               </button>
               <button
-                onClick={() => onCreate(roomName || "ROOM", isPrivate, creatorOnly)}
+                onClick={() => { if(!roomName.trim()){alert('ROOM NAME IS REQUIRED');return;} onCreate(roomName.trim(), isPrivate, creatorOnly, roomDescription.trim()); }}
                 style={{
                   fontSize: '10px',
                   letterSpacing: '0.1em',
