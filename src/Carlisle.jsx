@@ -2675,7 +2675,9 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, fi
           onMouseLeave={e => e.target.style.opacity = '1'}
           title="Add comment"
         >
-          &#9825;
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M7 1C3.686 1 1 3.358 1 6.25c0 1.37.56 2.614 1.47 3.536L1.5 12l2.554-1.06A6.27 6.27 0 007 11.5c3.314 0 6-2.358 6-5.25S10.314 1 7 1z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+          </svg>
         </button>
         {topLevelComments.length > 0 && (
           <button
