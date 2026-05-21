@@ -2699,11 +2699,11 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, fi
             value={commentText}
             onChange={e => setCommentText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
-            placeholder="WRITE A COMMENT..."
-            rows={2}
+            placeholder="..."
+            rows={1}
             style={{
-              flex: 1, fontSize: '11px', letterSpacing: '0.02em', padding: '8px 10px',
-              background: 'none', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`,
+              flex: 1, fontSize: '11px', letterSpacing: '0.02em', padding: '6px 8px',
+              background: 'none', border: 'none', borderBottom: `1px solid ${dark ? '#222' : '#efefef'}`,
               outline: 'none', resize: 'none', color: s,
               fontFamily: 'Helvetica Neue, Arial, sans-serif', lineHeight: '1.5'
             }}
