@@ -273,6 +273,7 @@ export default function Carlisle() {
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const [guestMode, setGuestMode] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [targetPostId, setTargetPostId] = useState(null);
@@ -858,6 +859,7 @@ export default function Carlisle() {
   }
 
   function vote(postId, delta) {
+    if (guestMode) { alert("CREATE AN ACCOUNT TO VOTE"); return; }
     const postIndex = (state.posts || []).findIndex(p => p.id === postId);
     if (postIndex === -1) return;
     const post = state.posts[postIndex];
@@ -889,6 +891,7 @@ export default function Carlisle() {
   }
 
   function addComment(postId, text, parentId = null) {
+    if (guestMode) { alert("CREATE AN ACCOUNT TO COMMENT"); return; }
     if (!text) return;
     const postIndex = (state.posts || []).findIndex(p => p.id === postId);
     if (postIndex === -1) return;
@@ -1138,6 +1141,7 @@ export default function Carlisle() {
     });
 
   function postNew({ text, image, videoUrl, audioUrl }) {
+    if (guestMode) { alert("CREATE AN ACCOUNT TO POST"); return; }
     const currentRoom = (state.rooms || []).find(r => r.id === room);
     
     if (currentRoom?.creatorOnly && currentRoom.creator !== user.id && !user.isAdmin) {
@@ -1218,8 +1222,8 @@ export default function Carlisle() {
   };
 
   // Show InviteGate immediately — no waiting for Firebase
-  if (!user.hasAccess && !user.isAdmin) {
-    return <InviteGate onSignUp={signUpUser} onLogin={loginUser} getColor={getColor} />;
+  if (!user.hasAccess && !user.isAdmin && !guestMode) {
+    return <InviteGate onSignUp={signUpUser} onLogin={loginUser} onGuest={() => setGuestMode(true)} getColor={getColor} />;
   }
 
   // Logged-in user waiting for Firebase data
@@ -1435,8 +1439,22 @@ export default function Carlisle() {
           )}
         </header>
 
+        {/* Guest mode banner */}
+        {guestMode && (
+          <div style={{ marginBottom: '20px', padding: '12px 16px', border: `1px solid ${dark ? '#333' : '#e5e5e5'}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <span style={{ fontSize: '10px', letterSpacing: '0.1em', color: dark ? '#999' : '#666' }}>
+              BROWSING AS GUEST
+            </span>
+            <button
+              onClick={() => setGuestMode(false)}
+              style={{ fontSize: '10px', letterSpacing: '0.1em', padding: '6px 16px', backgroundColor: dark ? '#fff' : '#000', border: 'none', cursor: 'pointer', color: dark ? '#000' : '#fff', flexShrink: 0 }}
+            >
+              CREATE ACCOUNT
+            </button>
+          </div>
+        )}
         {/* New Post Button — desktop only */}
-        {!isMobile && (<div style={{ display: 'flex', justifyContent: 'center', marginBottom: '40px', marginTop: '-30px' }}>
+        {!isMobile && !guestMode && (<div style={{ display: 'flex', justifyContent: 'center', marginBottom: '40px', marginTop: '-30px' }}>
           <button
             onClick={() => {
               if (view !== "room") { setRoom(DEFAULT_ROOM); }
@@ -1760,6 +1778,7 @@ export default function Carlisle() {
                         legacyUserId={legacyUserId}
                         isRoomMod={isRoomMod(post.room)}
                         enterProfile={enterProfile}
+                        guestMode={guestMode}
                       />
                     </div>
                   </article>
@@ -1837,7 +1856,7 @@ export default function Carlisle() {
           {[
             { label: 'HOME',    action: () => setView('home'),            active: view === 'home' },
             { label: 'ROOMS',   action: () => { setView('room'); setRoom(DEFAULT_ROOM); }, active: view === 'room' },
-            { label: '+',       action: () => { if(view !== 'room') setRoom(DEFAULT_ROOM); setShowNew(true); }, plus: true },
+            { label: '+',       action: () => { if(guestMode) { alert('CREATE AN ACCOUNT TO POST'); return; } if(view !== 'room') setRoom(DEFAULT_ROOM); setShowNew(true); }, plus: true },
             { label: 'YOU',     action: () => enterProfile(user.id),      active: view === 'profile' && profileView === user.id },
             { label: 'MENU',    action: () => setShowSettings(true),      active: false },
           ].map(({ label, action, active, plus }) => (
@@ -2642,7 +2661,7 @@ function ProfilePage({ authorId, posts, allPosts, user, firebaseUser, onBack, on
   );
 }
 
-function CommentBlock({ post, addComment, removeComment, whisper, dark, user, firebaseUser, legacyUserId, isRoomMod, enterProfile }) {
+function CommentBlock({ post, addComment, removeComment, whisper, dark, user, firebaseUser, legacyUserId, isRoomMod, enterProfile, guestMode }) {
   const [commentText, setCommentText] = useState("");
   const [showComments, setShowComments] = useState(false);
   const [showInput, setShowInput] = useState(false);
@@ -2667,6 +2686,7 @@ function CommentBlock({ post, addComment, removeComment, whisper, dark, user, fi
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: showInput || showComments ? '12px' : '0' }}>
         <button
           onClick={() => {
+            if (guestMode) { alert("CREATE AN ACCOUNT TO COMMENT"); return; }
             setShowInput(!showInput);
             if (!showInput) setTimeout(() => inputRef.current?.focus(), 50);
           }}
@@ -9333,7 +9353,7 @@ function CarlisleLoading({ dark }) {
 }
 
 
-function InviteGate({ onSignUp, onLogin, getColor }) {
+function InviteGate({ onSignUp, onLogin, onGuest, getColor }) {
   const [mode, setMode] = useState("signup");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -9623,22 +9643,19 @@ function InviteGate({ onSignUp, onLogin, getColor }) {
           {/* Submit Button */}
           <button
             onClick={handleSubmit}
-            style={{
-              width: '100%',
-              fontSize: '11px',
-              letterSpacing: '0.1em',
-              padding: '15px',
-              backgroundColor: getColor('text'),
-              border: 'none',
-              cursor: 'pointer',
-              color: getColor('bg'),
-              transition: 'opacity 0.2s',
-              fontFamily: 'Helvetica Neue, Arial, sans-serif'
-            }}
-            onMouseEnter={(e) => e.target.style.opacity = '0.8'}
-            onMouseLeave={(e) => e.target.style.opacity = '1'}
+            style={{ width: '100%', fontSize: '11px', letterSpacing: '0.1em', padding: '15px', backgroundColor: getColor('text'), border: 'none', cursor: 'pointer', color: getColor('bg'), transition: 'opacity 0.2s', fontFamily: 'Helvetica Neue, Arial, sans-serif', marginBottom: '12px' }}
+            onMouseEnter={e => e.target.style.opacity = '0.8'}
+            onMouseLeave={e => e.target.style.opacity = '1'}
           >
             {mode === "signup" ? "CREATE ACCOUNT" : "LOGIN"}
+          </button>
+          <button
+            onClick={onGuest}
+            style={{ width: '100%', fontSize: '11px', letterSpacing: '0.1em', padding: '15px', backgroundColor: 'transparent', border: `1px solid ${getColor('border')}`, cursor: 'pointer', color: getColor('textMuted'), transition: 'all 0.2s', fontFamily: 'Helvetica Neue, Arial, sans-serif' }}
+            onMouseEnter={e => { e.target.style.borderColor = getColor('text'); e.target.style.color = getColor('text'); }}
+            onMouseLeave={e => { e.target.style.borderColor = getColor('border'); e.target.style.color = getColor('textMuted'); }}
+          >
+            BROWSE WITHOUT ACCOUNT
           </button>
         </div>
 
