@@ -525,6 +525,13 @@ export default function Carlisle() {
     
     setUser(newUser);
     localStorage.setItem(LS_USER, JSON.stringify(newUser));
+
+    // Reset navigation state to main room
+    setView("room");
+    setRoom(DEFAULT_ROOM);
+    setProfileView(null);
+    setShowLogoutConfirm(false);
+    window.location.hash = '';
   }
 
   // Submit a report
