@@ -1540,7 +1540,10 @@ export default function Carlisle() {
               windowWidth={windowWidth}
               onProfileClick={enterProfile}
             />
-            
+            {/* Floating divider */}
+            {windowWidth >= 1024 && (
+              <div style={{ width: '1px', flexShrink: 0, margin: '0 24px', background: `linear-gradient(to bottom, transparent 0%, ${dark ? '#2a2a2a' : '#e8e8e8'} 8%, ${dark ? '#2a2a2a' : '#e8e8e8'} 92%, transparent 100%)` }}/>
+            )}
             {/* Main Content */}
             <div style={{ 
               flex: 1, 
